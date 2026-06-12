@@ -1,0 +1,36 @@
+{
+  "name": "inkforge-local-novel-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first AI novel writing cockpit for solo authors.",
+  "license": "MIT",
+  "workspaces": [
+    "apps/desktop",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace @inkforge/desktop run dev",
+    "desktop": "npm --workspace @inkforge/desktop run desktop",
+    "build": "npm --workspace @inkforge/schemas run build && npm --workspace @inkforge/prompt-engine run build && npm --workspace @inkforge/ai-provider run build && npm --workspace @inkforge/agent-engine run build && npm --workspace @inkforge/desktop run build",
+    "typecheck": "npm --workspace @inkforge/schemas run build && npm --workspace @inkforge/prompt-engine run build && npm --workspace @inkforge/ai-provider run build && npm --workspace @inkforge/agent-engine run build && npm --workspace @inkforge/desktop run typecheck",
+    "lint": "eslint .",
+    "format:check": "prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:desktop-smoke": "npm run build && node --loader ./scripts/mock-electron-loader.mjs ./scripts/desktop-smoke.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.10.1",
+    "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "eslint": "^10.4.0",
+    "prettier": "^3.8.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.4",
+    "vite": "^7.2.4",
+    "vitest": "^4.1.6",
+    "wait-on": "^9.0.3"
+  }
+}

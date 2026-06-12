@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@inkforge/schemas": ["packages/schemas/src/index.ts"],
+      "@inkforge/prompt-engine": ["packages/prompt-engine/src/index.ts"],
+      "@inkforge/ai-provider": ["packages/ai-provider/src/index.ts"],
+      "@inkforge/agent-engine": ["packages/agent-engine/src/index.ts"]
+    }
+  }
+}
