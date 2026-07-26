@@ -1,6 +1,7 @@
 import {
   defaultProviderConfig,
   defaultAgentMembers,
+  estimateTokensCjkAware,
   BeatBoardSchema,
   compileBeatBoardToInk,
   compileBeatBoardToTwee,
@@ -71,7 +72,10 @@ const providerStatusFromStorage = (provider: BrowserProviderStorage): ProviderSt
   editorModel: provider.editorModel,
   authMode: provider.authMode,
   maskedKey: maskApiKey(provider.apiKey),
-  updatedAt: provider.updatedAt || undefined
+  updatedAt: provider.updatedAt || undefined,
+  maxTokens: provider.maxTokens,
+  inputPricePerMillion: provider.inputPricePerMillion,
+  outputPricePerMillion: provider.outputPricePerMillion
 });
 
 const mockChainLabel = "演示 / Mock";
@@ -410,9 +414,25 @@ export const browserBridge: InkforgeApi = {
         promptPresets: [],
         toolProfiles: [],
         customTools: [],
-        members: defaultAgentMembers
+        members: defaultAgentMembers,
+        taskTemplates: [],
+        workflowTemplates: []
       }
     );
+  },
+  async estimateAgentRun(input) {
+    const messageTokens = estimateTokensCjkAware(input.message);
+    return {
+      estimated: true,
+      promptTokens: messageTokens + 3_000,
+      maxCompletionTokens: 4_096,
+      contextTokens: 2_400,
+      historyTokens: 600,
+      messageTokens
+    };
+  },
+  async approveAgentTool() {
+    return undefined;
   },
   async saveAgentExtensions(projectPath, config) {
     browserAgentExtensions.set(projectPath, structuredClone(config));
@@ -873,14 +893,14 @@ export const browserBridge: InkforgeApi = {
       label: "模型响应完成",
       detail: "",
       durationMs: 420,
-      usage: { promptTokens: 216, completionTokens: 74, totalTokens: 290 }
+      usage: { promptTokens: 216, completionTokens: 74, totalTokens: 290, estimated: true }
     });
     emit({
       type: "run_completed",
       label: "本轮完成",
       detail: "",
       durationMs: 640,
-      usage: { promptTokens: 216, completionTokens: 74, totalTokens: 290 }
+      usage: { promptTokens: 216, completionTokens: 74, totalTokens: 290, estimated: true }
     });
     const trace: AgentRunTrace = {
       schemaVersion: "0.1.0",
@@ -896,7 +916,7 @@ export const browserBridge: InkforgeApi = {
       startedAt: now,
       completedAt: new Date().toISOString(),
       durationMs: 640,
-      usage: { promptTokens: 216, completionTokens: 74, totalTokens: 290 },
+      usage: { promptTokens: 216, completionTokens: 74, totalTokens: 290, estimated: true },
       context: {
         tokenBudget: 2600,
         estimatedTokens: 1180,

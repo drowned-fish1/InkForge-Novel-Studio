@@ -202,6 +202,9 @@ const api: InkforgeApi = {
     ipcRenderer.invoke("agent:writing:command", input),
   loadAgentChat: (projectPath: string, chapterId: string) =>
     ipcRenderer.invoke("agent:chat:load", projectPath, chapterId),
+  estimateAgentRun: (input) => ipcRenderer.invoke("agent:chat:estimate", input),
+  approveAgentTool: (requestId, callId, approved) =>
+    ipcRenderer.invoke("agent:chat:approve-tool", requestId, callId, approved),
   runAgentChat: (input: AgentChatInput, signal?: AbortSignal, onEvent?: (event: AgentRunEvent) => void) =>
     invokeWithAbort(
       "agent:chat:run",

@@ -518,6 +518,16 @@ const registerIpc = (): void => {
     chatAgent.cancel(requestId);
   });
 
+  ipcMain.handle(
+    "agent:chat:estimate",
+    async (_event, input: Pick<AgentChatInput, "projectPath" | "chapterId" | "message" | "context" | "limits">) =>
+      chatAgent.estimateRun(input)
+  );
+
+  ipcMain.handle("agent:chat:approve-tool", (_event, requestId: string, callId: string, approved: boolean) => {
+    chatAgent.approveTool(requestId, callId, approved);
+  });
+
   ipcMain.handle("agent:chat:traces", async (_event, projectPath: string, chapterId: string) => {
     return chatAgent.listTraces(projectPath, chapterId);
   });

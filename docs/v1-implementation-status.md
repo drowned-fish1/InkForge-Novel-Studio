@@ -41,7 +41,7 @@ npm run test:desktop-smoke
 | 2. 备份/恢复/草稿 | 完成（浏览器实测验证通过） | 见 git log |
 | 3. 故事资料关系中心 | 完成（浏览器实测验证通过） | 见 git log |
 | 4. 集中修订工作台 | 完成（浏览器实测验证通过） | 见 git log |
-| 5. Agent 控制与扩展 | 未开始 | - |
+| 5. Agent 控制与扩展 | 完成（浏览器实测验证通过） | 见 git log |
 | 6. EPUB 与交付 | 未开始 | - |
 | 7. 发布级质量收口 | 未开始 | - |
 
@@ -104,6 +104,22 @@ npm run test:desktop-smoke
 - 新增测试：RevisionService 聚合（注入 mock AI 断言绝不调用）与处置 upsert（265 total）。
 
 验证：typecheck ✅ / 265 tests ✅ / lint ✅ / 浏览器实测（待修改标记创建→工作台聚合显示章节链接→接受→"已接受"状态过滤可见）✅。
+
+## 阶段五：已完成内容（2026-07-27）
+
+- **工具注册表（唯一事实来源）**：`agentToolRegistry`（schemas）以 `Record<AgentToolName,{label,kind:read|proposal}>` 定义全部 22 个工具；服务端 agentToolNames/proposalToolNames/toolLabel 与 UI toolLabels/readOnlyTools 全部派生；TS 完备性+测试双保险（注册表 === 枚举、propose_* 必为 proposal）。第三方/自定义工具只能引用注册表内工具名（zod 枚举强制），写操作只能经 propose_* 提案通道。
+- **统一 CJK 估算器**：`estimateTokensCjkAware`（0.65/CJK 字符 + 0.25/其他）替换 chars/3；fitTextToTokens 迭代裁剪保证不超预算。
+- **发送前估算**：`agent:chat:estimate` IPC 复用真实上下文构建（上下文+历史+消息+固定开销），返回输入估算/输出上限/分项，全部标记 estimated；Provider 配置新增可选输入/输出价格（每 1M tok，SecureConfig 持久化），填了价格则显示"费用 ≤ X（估算值）"；写作面板输入 700ms 防抖展示。
+- **估算标记**：`AgentRunUsage.estimated` 字段（默认 false）；provider 未返回 usage 的回退估算全部打标；运行追踪 Token 指标显示"（含估算）"。
+- **逐工具"每次询问"**：权限面板每个工具双列（允许 / 每次询问）；运行时在调用前发 `tool_approval_requested` 事件（callId+参数预览），等待 `agent:chat:approve-tool`（3 分钟超时=拒绝，取消运行即拒绝）；拒绝写入 tool 消息并让模型换路继续；批准/拒绝以 `tool_approval_resolved` 事件持久化在运行追踪（权限决策日志）。修复了"注册等待前先发事件"的秒批竞态。
+- **失败恢复/取消/并发**：AgentService 流水线 runTask 全部经 `runPipelineTask` 注入 requestId，cancelPipeline 现在真正中止在途 AI 调用；聊天 turn/toolCall clamp 与 UI 上限对齐（12/32）。
+- **长会话治理**：会话保存时压缩到最近 240 条消息（提案/分支/协作记录永不丢弃，分支锚点缺失时按既有回退逻辑降级）。
+- **模板导入导出**：AgentExtensionConfig 新增 `taskTemplates`（含模式，作曲器"存为模板"一键保存、模板下拉可用）与 `workflowTemplates`（Pipeline schema，随扩展 JSON 导入导出；工作流面板列出并可执行——已知步骤类型映射真实链路，未知类型直通跳过并在 UI 说明）。提示词包沿用既有 promptPresets 导入导出。
+- 压力/回归测试：注册表覆盖、估算器、会话压缩、逐工具拒绝端到端（mock AI）、estimateRun 预算约束与费用（271 total）。
+
+验证：typecheck ✅ / 271 tests ✅ / lint ✅ / 浏览器实测（估算行显示并标记估算值、22 工具双列授权与"1 个逐次询问"摘要、存为模板按钮）✅。
+
+已知限制：费用估算依赖用户填写单价（无内置价目表）；输出费用按模型上限计为上界；自定义工作流的未知步骤类型不执行真实动作。
 
 ## 审计差距摘要（阶段二至七实施依据）
 

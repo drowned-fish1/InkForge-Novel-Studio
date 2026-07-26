@@ -18,6 +18,7 @@ import type {
   Clue,
   Conflict,
   Outline,
+  Pipeline,
   QualityFinding,
   RevisionState,
   StoryEntityRef,
@@ -167,6 +168,9 @@ export interface ProviderStatus {
   authMode: ProviderAuthMode;
   maskedKey?: string;
   updatedAt?: string;
+  maxTokens?: number;
+  inputPricePerMillion?: number;
+  outputPricePerMillion?: number;
 }
 
 export interface ProviderPreset {
@@ -207,6 +211,8 @@ export interface ProviderConfigInput {
   apiKey?: string;
   temperature: number;
   maxTokens: number;
+  inputPricePerMillion?: number;
+  outputPricePerMillion?: number;
 }
 
 export interface AiTaskInput {
@@ -377,6 +383,8 @@ export interface PipelineStartInput {
   projectPath?: string;
   chapterId?: string;
   autoCommit?: boolean;
+  /** Custom workflow template (imported via agent extensions); steps run by kind. */
+  customPipeline?: Pipeline;
 }
 
 export type WritingSessionCommand =
@@ -421,6 +429,18 @@ export interface AgentChatInput {
     maxTotalTokens?: number;
   };
   allowedTools?: AgentToolName[];
+  askBeforeTools?: AgentToolName[];
+}
+
+export interface AgentRunEstimate {
+  estimated: true;
+  promptTokens: number;
+  maxCompletionTokens: number;
+  contextTokens: number;
+  historyTokens: number;
+  messageTokens: number;
+  estimatedCost?: number;
+  currency?: string;
 }
 
 export interface AgentSessionCommandInput {
@@ -607,6 +627,10 @@ export interface InkforgeApi {
   retryPipelineStep: () => Promise<PipelineRunView>;
   runWritingSessionCommand: (input: WritingSessionCommandInput) => Promise<WritingSessionState>;
   loadAgentChat: (projectPath: string, chapterId: string) => Promise<AgentChatSession>;
+  estimateAgentRun: (
+    input: Pick<AgentChatInput, "projectPath" | "chapterId" | "message" | "context" | "limits">
+  ) => Promise<AgentRunEstimate>;
+  approveAgentTool: (requestId: string, callId: string, approved: boolean) => Promise<void>;
   runAgentChat: (
     input: AgentChatInput,
     signal?: AbortSignal,

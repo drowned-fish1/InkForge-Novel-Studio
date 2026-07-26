@@ -10312,3 +10312,94 @@ span.revision-chapter {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Agent control v1 (phase 5): per-call approval, estimates, task templates */
+.agent-permission-hint {
+  margin: 4px 0 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.agent-tool-permission-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-tool-permission-row .ask-every-time {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.agent-run-estimate {
+  color: var(--accent-text);
+  font-style: normal;
+}
+
+.agent-save-task-template {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--transparent);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.agent-save-task-template:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.agent-save-task-template:disabled {
+  opacity: 0.5;
+}
+
+.agent-tool-approval {
+  display: grid;
+  position: absolute;
+  z-index: 40;
+  right: 12px;
+  bottom: 96px;
+  left: 12px;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 11px;
+  background: var(--surface-overlay);
+  box-shadow: 0 16px 44px var(--shadow-strong);
+}
+
+.agent-tool-approval strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.agent-tool-approval code {
+  display: block;
+  overflow: hidden;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-tool-approval small {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.agent-tool-approval-actions {
+  display: flex;
+  gap: 8px;
+}

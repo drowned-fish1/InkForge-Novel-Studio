@@ -1,10 +1,12 @@
 import { create } from "zustand";
+import type { Pipeline } from "@inkforge/schemas";
 import { bridge } from "@/lib/browserBridge";
 import { useProjectStore } from "@/stores/useProjectStore";
 import type { PipelinePresetSummary, PipelineRunView } from "@/types/app";
 
 interface PipelineState {
   presets: PipelinePresetSummary[];
+  customWorkflows: Pipeline[];
   selectedPresetId: string;
   run?: PipelineRunView;
   running: boolean;
@@ -22,20 +24,31 @@ interface PipelineState {
 
 export const usePipelineStore = create<PipelineState>((set, get) => ({
   presets: [],
+  customWorkflows: [],
   selectedPresetId: "full-chapter",
   running: false,
   loadPresets: async () => {
     const presets = await bridge.listPipelinePresets();
+    const projectPath = useProjectStore.getState().project?.projectPath;
+    const customWorkflows = projectPath
+      ? await bridge
+          .loadAgentExtensions(projectPath)
+          .then((extensions) => extensions.workflowTemplates.filter((item) => item.enabled))
+          .catch(() => [] as Pipeline[])
+      : [];
     set((state) => ({
       presets,
-      selectedPresetId: presets.some((item) => item.id === state.selectedPresetId)
-        ? state.selectedPresetId
-        : (presets[0]?.id ?? state.selectedPresetId)
+      customWorkflows,
+      selectedPresetId:
+        presets.some((item) => item.id === state.selectedPresetId) ||
+        customWorkflows.some((item) => item.id === state.selectedPresetId)
+          ? state.selectedPresetId
+          : (presets[0]?.id ?? state.selectedPresetId)
     }));
   },
   selectPreset: (presetId) => set({ selectedPresetId: presetId }),
   startPipeline: async () => {
-    const { selectedPresetId } = get();
+    const { selectedPresetId, customWorkflows } = get();
     const { project, current, saveCurrentChapter } = useProjectStore.getState();
     set({ running: true, error: undefined });
     try {
@@ -47,11 +60,13 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           );
         }
       }
+      const customPipeline = customWorkflows.find((item) => item.id === selectedPresetId);
       const run = await bridge.startPipeline({
         presetId: selectedPresetId,
         projectPath: project?.projectPath,
         chapterId: current?.plan.id,
-        autoCommit: false
+        autoCommit: false,
+        customPipeline
       });
       set({ run, running: run.status === "running", error: undefined });
     } catch (error) {

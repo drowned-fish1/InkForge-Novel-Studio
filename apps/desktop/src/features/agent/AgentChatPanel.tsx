@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import {
   AgentExtensionConfigSchema,
+  agentToolRegistry,
   defaultAgentMembers,
   defaultProviderConfig,
   type AgentExtensionConfig,
@@ -74,32 +75,14 @@ const promptTemplates = [
   { label: "扩写章节", value: "在不改变现有剧情方向的前提下扩写当前章节，增强动作、感官和人物反应。" }
 ] as const;
 
-const toolLabels: Record<AgentToolName, string> = {
-  get_chapter_context: "读取章节上下文",
-  get_chapter_memory: "读取章节记忆",
-  get_outline_context: "读取作品大纲",
-  prepare_narrative_deviation: "准备叙事偏离卡",
-  get_story_bible: "读取故事圣经",
-  get_story_entities: "读取地点/势力/冲突/事件",
-  get_narrative_board: "读取叙事板",
-  get_simulation_runs: "读取推演走向",
-  inspect_continuity: "检查故事一致性",
-  search_project: "搜索项目资料",
-  semantic_search: "语义检索",
-  propose_chapter_edit: "生成正文提案",
-  propose_chapter_patch: "生成结构化改稿",
-  propose_outline_update: "生成大纲提案",
-  propose_scene_plan: "生成场景计划提案",
-  propose_character_update: "生成人物状态提案",
-  propose_world_update: "生成世界观提案",
-  propose_clue_update: "生成伏笔提案",
-  propose_term_update: "生成术语提案",
-  propose_timeline_event: "生成时间线提案",
-  propose_conflict_update: "生成冲突提案",
-  propose_beat_update: "生成叙事节拍提案"
-};
-const allTools = Object.keys(toolLabels) as AgentToolName[];
-const readOnlyTools = allTools.filter((tool) => !tool.startsWith("propose_"));
+// Labels and read/proposal classification come from the schema-level registry
+// (single source of truth shared with the electron service).
+const allTools = Object.keys(agentToolRegistry) as AgentToolName[];
+const toolLabels = Object.fromEntries(allTools.map((name) => [name, agentToolRegistry[name].label])) as Record<
+  AgentToolName,
+  string
+>;
+const readOnlyTools = allTools.filter((tool) => agentToolRegistry[tool].kind === "read");
 
 type AgentMode = "direct" | "plan";
 type WritingApproach = "stable" | "inspiration" | "compare";
@@ -215,8 +198,13 @@ export const AgentChatPanel = () => {
     promptPresets: [],
     toolProfiles: [],
     customTools: [],
-    members: defaultAgentMembers
+    members: defaultAgentMembers,
+    taskTemplates: [],
+    workflowTemplates: []
   });
+  const [askBeforeTools, setAskBeforeTools] = useState<AgentToolName[]>([]);
+  const [pendingApproval, setPendingApproval] = useState<{ callId: string; toolName: AgentToolName; args: string }>();
+  const [runEstimate, setRunEstimate] = useState<import("@/types/app").AgentRunEstimate | undefined>();
   const [newPromptName, setNewPromptName] = useState("");
   const [newPromptValue, setNewPromptValue] = useState("");
   const [newProfileName, setNewProfileName] = useState("");
@@ -244,6 +232,7 @@ export const AgentChatPanel = () => {
     maxTokens: defaultProviderConfig.maxTokens
   });
   const abortRef = useRef<AbortController | undefined>(undefined);
+  const activeRequestIdRef = useRef<string | undefined>(undefined);
   const documentInputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
@@ -287,7 +276,14 @@ export const AgentChatPanel = () => {
 
   useEffect(() => {
     if (!project) {
-      setExtensions({ promptPresets: [], toolProfiles: [], customTools: [], members: defaultAgentMembers });
+      setExtensions({
+        promptPresets: [],
+        toolProfiles: [],
+        customTools: [],
+        members: defaultAgentMembers,
+        taskTemplates: [],
+        workflowTemplates: []
+      });
       return;
     }
     void bridge
@@ -295,6 +291,48 @@ export const AgentChatPanel = () => {
       .then(setExtensions)
       .catch(() => undefined);
   }, [project?.projectPath]);
+
+  useEffect(() => {
+    if (!project || !current || !message.trim()) {
+      setRunEstimate(undefined);
+      return;
+    }
+    const projectPath = project.projectPath;
+    const chapterId = current.plan.id;
+    const timer = window.setTimeout(() => {
+      void bridge
+        .estimateAgentRun({
+          projectPath,
+          chapterId,
+          message,
+          context: {
+            tokenBudget: contextBudget,
+            includeMemories,
+            includeSemantic,
+            excludedSourceKeys
+          },
+          limits: { maxTurns, maxToolCalls, maxTotalTokens }
+        })
+        .then((estimate) => {
+          if (useProjectStore.getState().project?.projectPath === projectPath) {
+            setRunEstimate(estimate);
+          }
+        })
+        .catch(() => setRunEstimate(undefined));
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [
+    project?.projectPath,
+    current?.plan.id,
+    message,
+    contextBudget,
+    includeMemories,
+    includeSemantic,
+    excludedSourceKeys,
+    maxTurns,
+    maxToolCalls,
+    maxTotalTokens
+  ]);
 
   useEffect(() => {
     if (!project || !current) {
@@ -331,7 +369,9 @@ export const AgentChatPanel = () => {
       model: providerStatus.model,
       editorModel: providerStatus.editorModel ?? "",
       authMode: providerStatus.authMode,
-      apiKey: ""
+      apiKey: "",
+      inputPricePerMillion: providerStatus.inputPricePerMillion,
+      outputPricePerMillion: providerStatus.outputPricePerMillion
     }));
   }, [providerStatus]);
 
@@ -589,6 +629,7 @@ export const AgentChatPanel = () => {
       }
     }
     const requestId = `agent_chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    activeRequestIdRef.current = requestId;
     const existingProposalIds = new Set(session?.proposals.map((proposal) => proposal.id) ?? []);
     const existingDataProposalIds = new Set(session?.dataProposals.map((proposal) => proposal.id) ?? []);
     const targetAgentIds = mentionedAgentIds(prompt, agentRoster);
@@ -630,6 +671,7 @@ export const AgentChatPanel = () => {
             maxTotalTokens
           },
           allowedTools,
+          askBeforeTools,
           targetAgentIds
         },
         abortController.signal,
@@ -642,9 +684,25 @@ export const AgentChatPanel = () => {
             setStreamText((text) => text + event.detail);
           } else if (event.type === "reasoning_delta") {
             setStreamReasoning((text) => text + event.detail);
+          } else if (event.type === "tool_approval_requested" && event.toolName) {
+            try {
+              const payload = JSON.parse(event.detail || "{}") as { callId?: string; arguments?: string };
+              if (payload.callId) {
+                setPendingApproval({
+                  callId: payload.callId,
+                  toolName: event.toolName,
+                  args: payload.arguments ?? ""
+                });
+              }
+            } catch {
+              // Malformed approval payload: leave the run to time out safely.
+            }
+          } else if (event.type === "tool_approval_resolved") {
+            setPendingApproval(undefined);
           }
         }
       );
+      setPendingApproval(undefined);
       if (yoloMode && (options?.mode ?? mode) !== "plan") {
         const newProposalIds = next.proposals
           .filter((proposal) => proposal.status === "pending" && !existingProposalIds.has(proposal.id))
@@ -763,6 +821,26 @@ export const AgentChatPanel = () => {
     if (!project) return;
     const saved = await bridge.saveAgentExtensions(project.projectPath, next);
     setExtensions(saved);
+  };
+
+  const saveTaskTemplate = async () => {
+    const trimmed = message.trim();
+    if (!trimmed || !project) return;
+    const name = window.prompt("任务模板名称", trimmed.slice(0, 16));
+    if (!name?.trim()) return;
+    await persistExtensions({
+      ...extensions,
+      taskTemplates: [
+        ...extensions.taskTemplates,
+        {
+          id: `task-${Date.now()}`,
+          name: name.trim(),
+          message: trimmed,
+          mode: mode === "plan" ? "plan" : "direct",
+          description: ""
+        }
+      ]
+    });
   };
 
   const addPromptPreset = () => {
@@ -1105,7 +1183,7 @@ export const AgentChatPanel = () => {
                 </span>
                 <span>
                   <b>{selectedTrace.usage.totalTokens}</b>
-                  <small>Token</small>
+                  <small>{selectedTrace.usage.estimated ? "Token（含估算）" : "Token"}</small>
                 </span>
                 <span>
                   <b>{selectedTrace.context?.semanticHits ?? 0}</b>
@@ -1225,6 +1303,38 @@ export const AgentChatPanel = () => {
                 onChange={(event) => setProviderDraft({ ...providerDraft, apiKey: event.target.value })}
               />
             </label>
+            <label>
+              输入价格 / 1M tok（可选）
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={providerDraft.inputPricePerMillion ?? ""}
+                placeholder="用于发送前费用估算"
+                onChange={(event) =>
+                  setProviderDraft({
+                    ...providerDraft,
+                    inputPricePerMillion: event.target.value === "" ? undefined : Number(event.target.value)
+                  })
+                }
+              />
+            </label>
+            <label>
+              输出价格 / 1M tok（可选）
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={providerDraft.outputPricePerMillion ?? ""}
+                placeholder="币种与你填写的价格一致"
+                onChange={(event) =>
+                  setProviderDraft({
+                    ...providerDraft,
+                    outputPricePerMillion: event.target.value === "" ? undefined : Number(event.target.value)
+                  })
+                }
+              />
+            </label>
           </div>
           <button className="agent-save-provider" type="submit">
             <Check size={15} />
@@ -1322,13 +1432,32 @@ export const AgentChatPanel = () => {
             <summary>
               <ShieldCheck size={13} />
               工具权限 · {allowedTools.length}/{allTools.length}
+              {askBeforeTools.length ? ` · ${askBeforeTools.length} 个逐次询问` : ""}
             </summary>
-            <div className="agent-tool-permissions">
+            <p className="agent-permission-hint">
+              第一列允许 Agent 使用该工具；第二列「每次询问」会在每次调用前暂停并等待你授权，决策会记录在运行追踪里。
+              propose_* 工具只生成提案，写入始终需要你确认。
+            </p>
+            <div className="agent-tool-permissions ask-columns">
               {allTools.map((tool) => (
-                <label key={tool}>
-                  <input type="checkbox" checked={allowedTools.includes(tool)} onChange={() => toggleTool(tool)} />
-                  {toolLabels[tool]}
-                </label>
+                <div className="agent-tool-permission-row" key={tool}>
+                  <label>
+                    <input type="checkbox" checked={allowedTools.includes(tool)} onChange={() => toggleTool(tool)} />
+                    {toolLabels[tool]}
+                  </label>
+                  <label className="ask-every-time" title="每次调用前询问">
+                    <input
+                      type="checkbox"
+                      checked={askBeforeTools.includes(tool)}
+                      onChange={() =>
+                        setAskBeforeTools((state) =>
+                          state.includes(tool) ? state.filter((item) => item !== tool) : [...state, tool]
+                        )
+                      }
+                    />
+                    每次询问
+                  </label>
+                </div>
               ))}
             </div>
           </details>
@@ -2180,6 +2309,17 @@ export const AgentChatPanel = () => {
                 event.currentTarget.value = "";
                 return;
               }
+              if (selected.startsWith("task-template:")) {
+                const task = extensions.taskTemplates.find(
+                  (item) => item.id === selected.slice("task-template:".length)
+                );
+                if (task) {
+                  setMessage(task.message);
+                  setMode(task.mode);
+                }
+                event.currentTarget.value = "";
+                return;
+              }
               const template = selected.startsWith("custom-prompt:")
                 ? extensions.promptPresets.find((item) => item.id === selected.slice("custom-prompt:".length))
                 : promptTemplates.find((item) => item.label === selected);
@@ -2213,7 +2353,25 @@ export const AgentChatPanel = () => {
                 ))}
               </optgroup>
             ) : null}
+            {extensions.taskTemplates.length ? (
+              <optgroup label="任务模板">
+                {extensions.taskTemplates.map((task) => (
+                  <option value={`task-template:${task.id}`} key={task.id}>
+                    {task.name}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
           </select>
+          <button
+            type="button"
+            className="agent-save-task-template"
+            disabled={!message.trim() || !project}
+            title="把当前输入保存为任务模板（含模式），可随扩展 JSON 导入导出"
+            onClick={() => void saveTaskTemplate()}
+          >
+            存为模板
+          </button>
         </div>
         {textDocuments.length ? (
           <div className="agent-document-list" aria-label="待发送的文本文档">
@@ -2268,6 +2426,19 @@ export const AgentChatPanel = () => {
                 ? "AI YOLO：本轮新提案会自动写入"
                 : "Enter 发送 · Shift + Enter 换行") +
               ` · ${composerCharacterCount.toLocaleString("zh-CN")}/${agentMessageCharacterLimit.toLocaleString("zh-CN")} 字符`}
+            {runEstimate && message.trim() ? (
+              <em
+                className="agent-run-estimate"
+                title="发送前估算：输入 = 上下文 + 历史 + 消息 + 系统开销；输出按模型上限计"
+              >
+                {" "}
+                · 估算输入 ~{runEstimate.promptTokens.toLocaleString("zh-CN")} tok / 输出上限{" "}
+                {runEstimate.maxCompletionTokens.toLocaleString("zh-CN")} tok
+                {runEstimate.estimatedCost !== undefined
+                  ? ` / 费用 ≤ ${runEstimate.estimatedCost.toFixed(3)}（估算值）`
+                  : "（估算值）"}
+              </em>
+            ) : null}
           </span>
           {running ? (
             <button className="stop" type="button" disabled={stopping} onClick={cancel} aria-label="停止 Agent">
@@ -2284,6 +2455,44 @@ export const AgentChatPanel = () => {
           )}
         </div>
       </form>
+      {pendingApproval && running ? (
+        <div className="agent-tool-approval" role="alertdialog" aria-label="工具调用授权">
+          <div>
+            <strong>
+              <ShieldCheck size={15} />
+              Agent 请求调用「{toolLabels[pendingApproval.toolName]}」
+            </strong>
+            {pendingApproval.args ? <code>{pendingApproval.args.slice(0, 240)}</code> : null}
+            <small>该工具设置了“每次询问”。拒绝后 Agent 会尝试换一种方式继续；3 分钟未响应视为拒绝。</small>
+          </div>
+          <div className="agent-tool-approval-actions">
+            <button
+              type="button"
+              className="primary-button compact"
+              onClick={() => {
+                if (activeRequestIdRef.current) {
+                  void bridge.approveAgentTool(activeRequestIdRef.current, pendingApproval.callId, true);
+                }
+                setPendingApproval(undefined);
+              }}
+            >
+              允许本次
+            </button>
+            <button
+              type="button"
+              className="secondary-button compact"
+              onClick={() => {
+                if (activeRequestIdRef.current) {
+                  void bridge.approveAgentTool(activeRequestIdRef.current, pendingApproval.callId, false);
+                }
+                setPendingApproval(undefined);
+              }}
+            >
+              拒绝
+            </button>
+          </div>
+        </div>
+      ) : null}
       {confirmation ? (
         <div className="agent-confirm-backdrop">
           <section

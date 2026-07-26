@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentToolNameSchema } from "./agent.js";
+import { AgentToolNameSchema, PipelineSchema } from "./agent.js";
 
 export const BackupSnapshotSchema = z.object({
   id: z.string().min(1),
@@ -236,11 +236,21 @@ export const defaultAgentMembers = AgentMemberSchema.array().parse([
   }
 ]);
 
+export const AgentTaskTemplateSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  message: z.string().min(1),
+  mode: z.enum(["direct", "plan"]).default("direct"),
+  description: z.string().default("")
+});
+
 export const AgentExtensionConfigSchema = z.object({
   promptPresets: z.array(AgentPromptPresetSchema).default([]),
   toolProfiles: z.array(AgentToolProfileSchema).default([]),
   customTools: z.array(AgentCustomToolSchema).default([]),
-  members: z.array(AgentMemberSchema).default(defaultAgentMembers)
+  members: z.array(AgentMemberSchema).default(defaultAgentMembers),
+  taskTemplates: z.array(AgentTaskTemplateSchema).default([]),
+  workflowTemplates: z.array(PipelineSchema).default([])
 });
 
 export type BackupSnapshot = z.infer<typeof BackupSnapshotSchema>;
@@ -258,5 +268,6 @@ export type WritingWorkspace = z.infer<typeof WritingWorkspaceSchema>;
 export type AgentPromptPreset = z.infer<typeof AgentPromptPresetSchema>;
 export type AgentToolProfile = z.infer<typeof AgentToolProfileSchema>;
 export type AgentCustomTool = z.infer<typeof AgentCustomToolSchema>;
+export type AgentTaskTemplate = z.infer<typeof AgentTaskTemplateSchema>;
 export type AgentMember = z.infer<typeof AgentMemberSchema>;
 export type AgentExtensionConfig = z.infer<typeof AgentExtensionConfigSchema>;

@@ -224,6 +224,71 @@ export const AgentToolNameSchema = z.enum([
   "propose_beat_update"
 ]);
 
+export type AgentToolKind = "read" | "proposal";
+
+/**
+ * Single source of truth for the local agent tool inventory. Every tool the
+ * agent can call is registered here with its display label and whether it is
+ * read-only or produces an author-confirmed proposal. TypeScript enforces
+ * completeness against AgentToolNameSchema, so service/UI maps cannot drift.
+ */
+export const agentToolRegistry: Record<AgentToolName, { label: string; kind: AgentToolKind }> = {
+  get_chapter_context: { label: "读取章节上下文", kind: "read" },
+  get_chapter_memory: { label: "读取章节记忆", kind: "read" },
+  get_outline_context: { label: "读取作品大纲", kind: "read" },
+  prepare_narrative_deviation: { label: "准备叙事偏离卡", kind: "read" },
+  get_story_bible: { label: "读取故事圣经", kind: "read" },
+  get_story_entities: { label: "读取地点/势力/冲突/事件", kind: "read" },
+  get_narrative_board: { label: "读取叙事板", kind: "read" },
+  get_simulation_runs: { label: "读取推演走向", kind: "read" },
+  inspect_continuity: { label: "检查故事一致性", kind: "read" },
+  search_project: { label: "搜索项目资料", kind: "read" },
+  semantic_search: { label: "语义检索", kind: "read" },
+  propose_chapter_edit: { label: "生成正文提案", kind: "proposal" },
+  propose_chapter_patch: { label: "生成结构化改稿", kind: "proposal" },
+  propose_scene_plan: { label: "生成场景计划提案", kind: "proposal" },
+  propose_outline_update: { label: "生成大纲提案", kind: "proposal" },
+  propose_character_update: { label: "生成人物状态提案", kind: "proposal" },
+  propose_world_update: { label: "生成世界观提案", kind: "proposal" },
+  propose_clue_update: { label: "生成伏笔提案", kind: "proposal" },
+  propose_term_update: { label: "生成术语提案", kind: "proposal" },
+  propose_timeline_event: { label: "生成时间线提案", kind: "proposal" },
+  propose_conflict_update: { label: "生成冲突提案", kind: "proposal" },
+  propose_beat_update: { label: "生成叙事节拍提案", kind: "proposal" }
+};
+
+export const agentToolLabel = (name: AgentToolName): string => agentToolRegistry[name].label;
+
+export const proposalAgentToolNames: ReadonlySet<AgentToolName> = new Set(
+  (Object.keys(agentToolRegistry) as AgentToolName[]).filter((name) => agentToolRegistry[name].kind === "proposal")
+);
+
+export const readOnlyAgentToolNames: ReadonlySet<AgentToolName> = new Set(
+  (Object.keys(agentToolRegistry) as AgentToolName[]).filter((name) => agentToolRegistry[name].kind === "read")
+);
+
+/**
+ * CJK-aware token estimate shared by context budgeting, pre-send estimation
+ * and usage fallbacks. Roughly 0.65 tokens per CJK char, 0.25 per other char.
+ */
+export const estimateTokensCjkAware = (text: string): number => {
+  let cjk = 0;
+  let other = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (
+      (code >= 0x3000 && code <= 0x9fff) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xff00 && code <= 0xffef)
+    ) {
+      cjk += 1;
+    } else {
+      other += 1;
+    }
+  }
+  return Math.max(1, Math.round(cjk * 0.65 + other * 0.25));
+};
+
 export const AgentSourceReferenceSchema = z.object({
   kind: z.enum(["chapter", "outline", "character", "world", "timeline", "clue", "term", "conflict", "memory"]),
   id: z.string().min(1),
@@ -392,7 +457,8 @@ export const AgentChatSessionSchema = z.object({
 export const AgentRunUsageSchema = z.object({
   promptTokens: z.number().int().nonnegative().default(0),
   completionTokens: z.number().int().nonnegative().default(0),
-  totalTokens: z.number().int().nonnegative().default(0)
+  totalTokens: z.number().int().nonnegative().default(0),
+  estimated: z.boolean().default(false)
 });
 
 export const AgentRunEventSchema = z.object({
@@ -407,6 +473,8 @@ export const AgentRunEventSchema = z.object({
     "tool_started",
     "tool_completed",
     "tool_failed",
+    "tool_approval_requested",
+    "tool_approval_resolved",
     "run_completed",
     "run_failed",
     "run_cancelled"
@@ -446,7 +514,8 @@ export const AgentRunTraceSchema = z.object({
   usage: AgentRunUsageSchema.default({
     promptTokens: 0,
     completionTokens: 0,
-    totalTokens: 0
+    totalTokens: 0,
+    estimated: false
   }),
   context: AgentContextStatsSchema.optional(),
   events: z.array(AgentRunEventSchema).default([]),

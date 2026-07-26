@@ -170,6 +170,9 @@ export interface ProviderStatus {
   authMode: ProviderAuthMode;
   maskedKey?: string;
   updatedAt?: string;
+  maxTokens?: number;
+  inputPricePerMillion?: number;
+  outputPricePerMillion?: number;
 }
 
 export type ProviderAuthMode = "bearer" | "x-api-key" | "raw-authorization" | "none";
@@ -184,6 +187,8 @@ export interface ProviderConfigInput {
   apiKey?: string;
   temperature: number;
   maxTokens: number;
+  inputPricePerMillion?: number;
+  outputPricePerMillion?: number;
 }
 
 export interface AiTaskInput {
@@ -408,4 +413,4 @@ export type {
   WritingWorkspace
 };
 
-export type { RevisionOverview, RevisionProposalSummary } from "../../electron/types";
+export type { AgentRunEstimate, RevisionOverview, RevisionProposalSummary } from "../../electron/types";

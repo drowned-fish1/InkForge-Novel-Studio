@@ -23,6 +23,7 @@ export const PipelinePanel = () => {
   const selectedPresetId = usePipelineStore((state) => state.selectedPresetId);
   const run = usePipelineStore((state) => state.run);
   const running = usePipelineStore((state) => state.running);
+  const customWorkflows = usePipelineStore((state) => state.customWorkflows);
   const error = usePipelineStore((state) => state.error);
   const loadPresets = usePipelineStore((state) => state.loadPresets);
   const selectPreset = usePipelineStore((state) => state.selectPreset);
@@ -38,8 +39,14 @@ export const PipelinePanel = () => {
   }, [loadPresets]);
 
   const selectedPreset = presets.find((preset) => preset.id === selectedPresetId);
+  const selectedCustomWorkflow = customWorkflows.find((workflow) => workflow.id === selectedPresetId);
   const steps: PipelineStepView[] =
-    run?.steps ?? selectedPreset?.steps.map((step) => ({ ...step, status: "pending" as const })) ?? [];
+    run?.steps ??
+    selectedPreset?.steps.map((step) => ({ ...step, status: "pending" as const })) ??
+    selectedCustomWorkflow?.steps
+      .filter((step) => step.enabled)
+      .map((step) => ({ id: step.id, title: step.name, status: "pending" as const })) ??
+    [];
   const activeIndex = steps.findIndex((step) => step.status === "running" || step.status === "paused");
   const literaryOutputs = [
     ["roughDraft", "情节粗稿"],
@@ -67,9 +74,24 @@ export const PipelinePanel = () => {
             {preset.name}
           </option>
         ))}
+        {customWorkflows.length ? (
+          <optgroup label="自定义工作流模板">
+            {customWorkflows.map((workflow) => (
+              <option key={workflow.id} value={workflow.id}>
+                {workflow.name}
+              </option>
+            ))}
+          </optgroup>
+        ) : null}
       </select>
 
       {selectedPreset ? <p>{selectedPreset.description}</p> : null}
+      {selectedCustomWorkflow ? (
+        <p>
+          {selectedCustomWorkflow.description || "导入的自定义工作流模板。"}
+          已知步骤类型按真实链路执行，未识别的步骤会直接跳过。
+        </p>
+      ) : null}
 
       <div className="agent-workflow-steps">
         {steps.map((step, index) => (

@@ -11,6 +11,7 @@ import {
   type WritingScene,
   type WritingSessionState
 } from "@inkforge/agent-engine";
+import { PipelineSchema, type Pipeline as SchemaPipeline } from "@inkforge/schemas";
 import type {
   AiTaskResult,
   PipelinePresetSummary,
@@ -28,6 +29,48 @@ import { StoryStateService } from "./StoryStateService.js";
 import { SummaryService } from "./SummaryService.js";
 
 const demoChainLabel = "演示 / Mock";
+
+// Maps workflow-template step kinds (schemas.PipelineStepKind) onto the ids the
+// real pipeline runner executes. Unmapped kinds run as pass-through steps.
+const customStepKindToRunnerId: Record<string, string> = {
+  context: "context",
+  plan: "scene-plan",
+  draft: "draft",
+  review: "review",
+  revise: "revise",
+  summarize: "summary"
+};
+
+const presetFromCustomPipeline = (
+  pipeline: SchemaPipeline
+): {
+  id: string;
+  name: string;
+  description: string;
+  autoCommit: boolean;
+  stopOnError: boolean;
+  steps: PipelineStep[];
+} => ({
+  id: pipeline.id,
+  name: pipeline.name,
+  description: pipeline.description,
+  autoCommit: false,
+  stopOnError: true,
+  steps: pipeline.steps
+    .filter((step) => step.enabled)
+    .map((step, index): PipelineStep => {
+      const id = customStepKindToRunnerId[step.kind] ?? `${step.kind}-${index}`;
+      return {
+        id,
+        title: step.name,
+        run: () => ({
+          id,
+          output: { note: `${step.name} (demo pass-through)` },
+          message: `${step.name} completed.`
+        })
+      };
+    })
+});
 const demoPipelineNotice = `${demoChainLabel}: 未提供项目章节上下文时，流水线只运行 agent-engine 本地模拟步骤。`;
 const demoWritingNotice = `${demoChainLabel}: 当前自主写作只生成本地模拟草稿，不调用真实 AI provider 或生产链路。`;
 const realPipelineNotice = "真实链路：构建上下文 -> 调用 AI provider -> 本地检查 -> 摘要 -> 作者确认 -> 写入章节。";
@@ -51,6 +94,7 @@ export class AgentService {
   private pipelineView?: PipelineRunView;
   private writingManager?: WritingSessionManager;
   private decisionAccepted = false;
+  private activePipelineRequestId?: string;
 
   constructor(
     private readonly files = new FileRepository(),
@@ -80,7 +124,9 @@ export class AgentService {
   }
 
   async startPipeline(input: PipelineStartInput): Promise<PipelineRunView> {
-    const preset = getPipelinePreset(input.presetId as keyof typeof pipelinePresets);
+    const preset = input.customPipeline
+      ? presetFromCustomPipeline(PipelineSchema.parse(input.customPipeline))
+      : getPipelinePreset(input.presetId as keyof typeof pipelinePresets);
     const isRealRun = Boolean(input.projectPath && input.chapterId);
     const logs = [
       isRealRun ? realPipelineNotice : demoPipelineNotice,
@@ -150,12 +196,29 @@ export class AgentService {
 
   cancelPipeline(): PipelineRunView {
     this.assertPipeline();
+    if (this.activePipelineRequestId) {
+      // Abort the in-flight provider call so cancel is immediate, not view-only.
+      this.ai.cancelTask(this.activePipelineRequestId);
+      this.activePipelineRequestId = undefined;
+    }
     if (this.pipelineView) {
       this.pipelineView.status = "cancelled";
       this.pipelineView.completedAt = new Date().toISOString();
       this.pipelineView.logs.push("Pipeline cancelled by user.");
     }
     return this.renderPipelineView("cancelled");
+  }
+
+  private async runPipelineTask(input: Parameters<AiProviderService["runTask"]>[0]): Promise<AiTaskResult> {
+    const requestId = `pipeline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    this.activePipelineRequestId = requestId;
+    try {
+      return await this.ai.runTask({ ...input, requestId });
+    } finally {
+      if (this.activePipelineRequestId === requestId) {
+        this.activePipelineRequestId = undefined;
+      }
+    }
   }
 
   async runWritingCommand(input: WritingSessionCommandInput): Promise<WritingSessionState> {
@@ -275,7 +338,7 @@ export class AgentService {
     const context = await this.ensureContext(data);
     if (id === "rough-draft") {
       const roughDraft = (
-        await this.ai.runTask({
+        await this.runPipelineTask({
           projectPath: context.projectPath,
           task: "continue",
           instruction:
@@ -298,7 +361,7 @@ export class AgentService {
     if (id === "sensory-pass") {
       const roughDraft = String(data.roughDraft ?? textFromData(previousOutput));
       const sensoryDraft = (
-        await this.ai.runTask({
+        await this.runPipelineTask({
           projectPath: context.projectPath,
           task: "rewrite",
           instruction:
@@ -321,7 +384,7 @@ export class AgentService {
     if (id === "editor-pass") {
       const sensoryDraft = String(data.sensoryDraft ?? textFromData(previousOutput));
       const editorDraft = (
-        await this.ai.runTask({
+        await this.runPipelineTask({
           projectPath: context.projectPath,
           task: "rewrite",
           useEditorModel: true,
@@ -343,7 +406,7 @@ export class AgentService {
       };
     }
     if (id === "scene-plan") {
-      const plan = await this.ai.runTask({
+      const plan = await this.runPipelineTask({
         projectPath: context.projectPath,
         task: "next-goal",
         instruction:
@@ -363,7 +426,7 @@ export class AgentService {
       };
     }
     if (id === "draft" || id === "draft-scenes") {
-      const draft = await this.ai.runTask({
+      const draft = await this.runPipelineTask({
         projectPath: context.projectPath,
         task: "continue",
         instruction:
@@ -397,7 +460,7 @@ export class AgentService {
       const pendingDraft = textFromData(previousOutput) || String(data.pendingDraft ?? "");
       const aiReview =
         id === "review" || id === "final-check"
-          ? await this.ai.runTask({
+          ? await this.runPipelineTask({
               projectPath: context.projectPath,
               task: "ai-inspect",
               instruction:
@@ -431,7 +494,7 @@ export class AgentService {
         return { id, output: previousOutput, message: "No draft revision needed." };
       }
       const revised = (
-        await this.ai.runTask({
+        await this.runPipelineTask({
           projectPath: context.projectPath,
           task: id === "revise" ? "rewrite" : id === "polish" ? "polish" : "typo",
           instruction:
@@ -455,7 +518,7 @@ export class AgentService {
     }
     if (id === "summary") {
       const draft = String(data.pendingDraft ?? "");
-      const summary = await this.ai.runTask({
+      const summary = await this.runPipelineTask({
         projectPath: context.projectPath,
         task: "summary",
         instruction: "Summarize the pending draft and current chapter state for future context.",

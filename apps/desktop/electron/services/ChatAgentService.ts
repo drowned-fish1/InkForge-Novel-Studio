@@ -35,7 +35,11 @@ import {
   defaultAgentMembers,
   type AgentMember,
   analyzeBeatBoard,
-  BeatSchema
+  BeatSchema,
+  agentToolLabel,
+  agentToolRegistry,
+  estimateTokensCjkAware,
+  proposalAgentToolNames
 } from "@inkforge/schemas";
 import type {
   AgentChatInput,
@@ -733,6 +737,7 @@ export const collaborationRequestsRework = (review: string | undefined): boolean
 export class ChatAgentService {
   private readonly activeChapterRuns = new Set<string>();
   private readonly cancelledRequests = new Set<string>();
+  private readonly pendingToolApprovals = new Map<string, { resolve: (approved: boolean) => void }>();
   private readonly collaboration = new MultiAgentRuntimeService();
 
   constructor(
@@ -754,6 +759,87 @@ export class ChatAgentService {
   cancel(requestId: string): void {
     this.cancelledRequests.add(requestId);
     this.ai.cancelTask(requestId);
+    // Deny any tool call waiting on author approval so the run unblocks.
+    for (const [key, pending] of this.pendingToolApprovals) {
+      if (key.startsWith(`${requestId}:`)) {
+        pending.resolve(false);
+      }
+    }
+  }
+
+  approveTool(requestId: string, callId: string, approved: boolean): void {
+    this.pendingToolApprovals.get(`${requestId}:${callId}`)?.resolve(approved);
+  }
+
+  private awaitToolApproval(requestId: string, callId: string, timeoutMs = 180_000): Promise<boolean> {
+    return new Promise<boolean>((resolvePromise) => {
+      const key = `${requestId}:${callId}`;
+      const timer = setTimeout(() => {
+        this.pendingToolApprovals.delete(key);
+        resolvePromise(false);
+      }, timeoutMs);
+      this.pendingToolApprovals.set(key, {
+        resolve: (approved: boolean) => {
+          clearTimeout(timer);
+          this.pendingToolApprovals.delete(key);
+          resolvePromise(approved);
+        }
+      });
+    });
+  }
+
+  /**
+   * Pre-send estimate for the next agent turn. Builds the same budgeted
+   * context as a real run and returns CJK-aware token estimates plus an
+   * optional cost estimate when the provider config carries prices.
+   * Every number is an estimate and is marked as such.
+   */
+  async estimateRun(
+    input: Pick<AgentChatInput, "projectPath" | "chapterId" | "message" | "context" | "limits">
+  ): Promise<import("../types.js").AgentRunEstimate> {
+    const session = await this.load(input.projectPath, input.chapterId);
+    const automaticContext = await this.buildBudgetedContext(
+      input.projectPath,
+      input.chapterId,
+      input.message,
+      input.context
+    );
+    const totalTokenLimit = clampNumber(input.limits?.maxTotalTokens, defaultAgentTotalTokenLimit, 4_000, 1_000_000);
+    const historyBudget = conversationBudgetForMessage(
+      input.message,
+      totalTokenLimit,
+      automaticContext.stats.estimatedTokens
+    );
+    const historyTokens = selectConversationHistory(session, historyBudget).reduce(
+      (total, message) => total + estimateAgentTokens(String(message.content ?? "")),
+      0
+    );
+    const contextTokens = automaticContext.stats.estimatedTokens;
+    const messageTokens = estimateAgentTokens(input.message);
+    // System instructions + tool schemas are near-constant per run.
+    const fixedOverheadTokens = 2_400;
+    const promptTokens = contextTokens + historyTokens + messageTokens + fixedOverheadTokens;
+    let status;
+    try {
+      status = await this.ai.getStatus();
+    } catch {
+      status = undefined;
+    }
+    const maxCompletionTokens = Math.max(status?.maxTokens ?? 0, 4_096);
+    const estimate: import("../types.js").AgentRunEstimate = {
+      estimated: true,
+      promptTokens,
+      maxCompletionTokens,
+      contextTokens,
+      historyTokens,
+      messageTokens
+    };
+    if (status && typeof status.inputPricePerMillion === "number" && typeof status.outputPricePerMillion === "number") {
+      estimate.estimatedCost =
+        (promptTokens / 1_000_000) * status.inputPricePerMillion +
+        (maxCompletionTokens / 1_000_000) * status.outputPricePerMillion;
+    }
+    return estimate;
   }
 
   async load(projectPath: string, chapterId: string): Promise<AgentChatSession> {
@@ -868,7 +954,8 @@ export class ChatAgentService {
       usage: {
         promptTokens: 0,
         completionTokens: 0,
-        totalTokens: 0
+        totalTokens: 0,
+        estimated: false
       },
       events: [],
       error: ""
@@ -1045,8 +1132,8 @@ export class ChatAgentService {
                 input.writingApproach === "compare") &&
               (input.writingApproach !== "compare" || !proposalToolNames.has(tool.function.name as AgentToolName))
           );
-    const turnLimit = mode === "plan" ? 1 : clampNumber(input.limits?.maxTurns, maxAgentTurns, 1, 8);
-    const toolCallLimit = clampNumber(input.limits?.maxToolCalls, 12, 0, 24);
+    const turnLimit = mode === "plan" ? 1 : clampNumber(input.limits?.maxTurns, maxAgentTurns, 1, 12);
+    const toolCallLimit = clampNumber(input.limits?.maxToolCalls, 12, 0, 32);
     let completed = false;
     let executedToolCount = 0;
     let lastToolFailure = "";
@@ -1263,6 +1350,55 @@ export class ChatAgentService {
           break;
         }
         seenToolCalls.add(fingerprint);
+        if (toolName && input.requestId && input.askBeforeTools?.includes(toolName)) {
+          // Register the waiter BEFORE emitting the event so an instant
+          // approval (or auto-responder) cannot race past the pending map.
+          const approvalPromise = this.awaitToolApproval(input.requestId, call.id);
+          this.recordTraceEvent(
+            trace,
+            {
+              type: "tool_approval_requested",
+              turn,
+              toolName,
+              label: `等待作者授权 · ${toolLabel(toolName)}`,
+              detail: JSON.stringify({ callId: call.id, arguments: limitText(call.function.arguments ?? "", 600) })
+            },
+            onEvent
+          );
+          const approved = await approvalPromise;
+          this.recordTraceEvent(
+            trace,
+            {
+              type: "tool_approval_resolved",
+              turn,
+              toolName,
+              label: approved ? `作者已允许 · ${toolLabel(toolName)}` : `作者已拒绝 · ${toolLabel(toolName)}`,
+              detail: JSON.stringify({ callId: call.id, approved })
+            },
+            onEvent
+          );
+          this.assertNotCancelled(input.requestId);
+          if (!approved) {
+            const deniedResult: ToolResult = {
+              modelContent: jsonForModel({
+                error: "作者拒绝了本次工具调用。请换一种不需要该工具的方式继续，或结束回答。"
+              }),
+              uiContent: `作者拒绝了 ${toolLabel(toolName)} 调用`
+            };
+            session.messages.push({
+              id: createId("message"),
+              role: "tool",
+              content: deniedResult.uiContent,
+              createdAt: new Date().toISOString(),
+              toolName,
+              toolStatus: "failed",
+              branchId,
+              sources: []
+            });
+            modelMessages.push({ role: "tool", tool_call_id: call.id, content: deniedResult.modelContent });
+            continue;
+          }
+        }
         this.recordTraceEvent(
           trace,
           {
@@ -3365,7 +3501,7 @@ export class ChatAgentService {
   }
 
   private async save(projectPath: string, session: AgentChatSession): Promise<void> {
-    await this.files.writeJsonAtomic(this.sessionPath(projectPath, session.chapterId), session);
+    await this.files.writeJsonAtomic(this.sessionPath(projectPath, session.chapterId), compactAgentSession(session));
   }
 
   private assertNotCancelled(requestId?: string): void {
@@ -3606,44 +3742,11 @@ const safeId = (value: string): string => value.replace(/[^a-zA-Z0-9_-]/g, "_").
 const chapterRunKey = (projectPath: string, chapterId: string): string =>
   `${path.resolve(projectPath).toLocaleLowerCase()}::${chapterId}`;
 
-const agentToolNames = new Set<AgentToolName>([
-  "get_chapter_context",
-  "get_chapter_memory",
-  "get_outline_context",
-  "prepare_narrative_deviation",
-  "get_story_bible",
-  "get_story_entities",
-  "get_narrative_board",
-  "get_simulation_runs",
-  "inspect_continuity",
-  "search_project",
-  "semantic_search",
-  "propose_chapter_edit",
-  "propose_chapter_patch",
-  "propose_outline_update",
-  "propose_scene_plan",
-  "propose_character_update",
-  "propose_world_update",
-  "propose_clue_update",
-  "propose_term_update",
-  "propose_timeline_event",
-  "propose_conflict_update",
-  "propose_beat_update"
-]);
+// Derived from the schema-level registry so the enum, labels and read/proposal
+// classification cannot drift between the service and the UI.
+const agentToolNames = new Set<AgentToolName>(Object.keys(agentToolRegistry) as AgentToolName[]);
 
-const proposalToolNames = new Set<AgentToolName>([
-  "propose_chapter_edit",
-  "propose_chapter_patch",
-  "propose_outline_update",
-  "propose_scene_plan",
-  "propose_character_update",
-  "propose_world_update",
-  "propose_clue_update",
-  "propose_term_update",
-  "propose_timeline_event",
-  "propose_conflict_update",
-  "propose_beat_update"
-]);
+const proposalToolNames = proposalAgentToolNames;
 
 const isAgentToolName = (value: string): value is AgentToolName => agentToolNames.has(value as AgentToolName);
 
@@ -3705,7 +3808,7 @@ const contentHash = (value: string): string => createHash("sha256").update(value
 
 const limitText = (value: string, maxLength: number): string => value.slice(0, maxLength);
 
-const estimateAgentTokens = (value: string): number => Math.ceil(value.length / 3);
+const estimateAgentTokens = (value: string): number => estimateTokensCjkAware(value);
 
 export const formatOutlineMemory = (outline: Outline, chapterId: string): string => {
   const currentVolume = outline.volumes.find((volume) => volume.chapters.some((chapter) => chapter.id === chapterId));
@@ -3747,11 +3850,35 @@ export const conversationBudgetForMessage = (
 };
 
 const fitTextToTokens = (value: string, tokenBudget: number): string => {
-  const maxCharacters = Math.max(0, tokenBudget) * 3;
-  if (value.length <= maxCharacters) {
+  const budget = Math.max(0, tokenBudget);
+  if (estimateAgentTokens(value) <= budget) {
     return value;
   }
-  return `${value.slice(0, Math.max(0, maxCharacters - 1)).trimEnd()}…`;
+  // CJK-aware estimate: start from the worst-case char count and trim until it fits.
+  let candidate = value.slice(0, Math.max(0, budget * 4));
+  while (candidate.length > 0 && estimateAgentTokens(candidate) > budget) {
+    candidate = candidate.slice(0, Math.max(0, Math.floor(candidate.length * 0.9) - 1));
+  }
+  return `${candidate.trimEnd()}…`;
+};
+
+const maxPersistedSessionMessages = 240;
+
+/**
+ * Long-session hygiene: cap persisted chat messages so the per-chapter session
+ * file cannot grow unbounded. Proposals, data proposals, branches and
+ * collaboration runs are always kept; only the oldest chat messages are
+ * dropped once the cap is exceeded (branch fork anchors degrade gracefully —
+ * visibleBranchMessages falls back to the parent tail when an anchor is gone).
+ */
+export const compactAgentSession = (session: AgentChatSession): AgentChatSession => {
+  if (session.messages.length <= maxPersistedSessionMessages) {
+    return session;
+  }
+  return {
+    ...session,
+    messages: session.messages.slice(session.messages.length - maxPersistedSessionMessages)
+  };
 };
 
 const normalizeAgentSession = (session: AgentChatSession): AgentChatSession => ({
@@ -3831,58 +3958,37 @@ const selectConversationHistory = (
   return selected.reverse();
 };
 
-const normalizeUsage = (usage?: ChatCompletionUsage) => ({
+const normalizeUsage = (usage?: ChatCompletionUsage & { estimated?: boolean }) => ({
   promptTokens: usage?.prompt_tokens ?? 0,
   completionTokens: usage?.completion_tokens ?? 0,
-  totalTokens: usage?.total_tokens ?? (usage?.prompt_tokens ?? 0) + (usage?.completion_tokens ?? 0)
+  totalTokens: usage?.total_tokens ?? (usage?.prompt_tokens ?? 0) + (usage?.completion_tokens ?? 0),
+  estimated: usage?.estimated ?? false
 });
 
 const estimateCompletionUsage = (
   messages: ChatCompletionMessage[],
   content: string,
   toolCalls: ChatCompletionToolCall[]
-): ChatCompletionUsage => {
+): ChatCompletionUsage & { estimated: true } => {
   const promptTokens = estimateAgentTokens(JSON.stringify(messages));
   const completionTokens = estimateAgentTokens(`${content}${JSON.stringify(toolCalls)}`);
   return {
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
-    total_tokens: promptTokens + completionTokens
+    total_tokens: promptTokens + completionTokens,
+    estimated: true
   };
 };
 
-const addTraceUsage = (trace: AgentRunTrace, usage?: ChatCompletionUsage): void => {
+const addTraceUsage = (trace: AgentRunTrace, usage?: ChatCompletionUsage & { estimated?: boolean }): void => {
   const normalized = normalizeUsage(usage);
   trace.usage.promptTokens += normalized.promptTokens;
   trace.usage.completionTokens += normalized.completionTokens;
   trace.usage.totalTokens += normalized.totalTokens;
+  trace.usage.estimated = trace.usage.estimated || normalized.estimated;
 };
 
-const toolLabel = (toolName: AgentToolName): string =>
-  ({
-    get_chapter_context: "读取章节上下文",
-    get_chapter_memory: "读取章节记忆",
-    get_outline_context: "读取作品大纲",
-    prepare_narrative_deviation: "准备叙事偏离卡",
-    get_story_bible: "读取故事圣经",
-    get_story_entities: "读取地点/势力/冲突/事件",
-    get_narrative_board: "读取叙事板",
-    get_simulation_runs: "读取推演走向",
-    inspect_continuity: "检查故事一致性",
-    search_project: "搜索项目资料",
-    semantic_search: "语义检索",
-    propose_chapter_edit: "生成正文提案",
-    propose_chapter_patch: "生成结构化改稿",
-    propose_outline_update: "生成大纲提案",
-    propose_scene_plan: "生成场景计划提案",
-    propose_character_update: "生成人物状态提案",
-    propose_world_update: "生成世界观提案",
-    propose_clue_update: "生成伏笔提案",
-    propose_term_update: "生成术语提案",
-    propose_timeline_event: "生成时间线提案",
-    propose_conflict_update: "生成冲突提案",
-    propose_beat_update: "生成叙事节拍提案"
-  })[toolName];
+const toolLabel = (toolName: AgentToolName): string => agentToolLabel(toolName);
 
 const isAbortError = (error: unknown): boolean =>
   error instanceof Error && (error.name === "AbortError" || /cancelled|canceled|aborted/i.test(error.message));

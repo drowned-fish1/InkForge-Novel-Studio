@@ -14,6 +14,8 @@ interface StoredProviderConfig {
   encryptedApiKey?: string;
   temperature: number;
   maxTokens: number;
+  inputPricePerMillion?: number;
+  outputPricePerMillion?: number;
   updatedAt: string;
 }
 
@@ -60,7 +62,10 @@ export class SecureConfigService {
       editorModel: stored.editorModel,
       authMode: stored.authMode,
       maskedKey: maskSecret(apiKey),
-      updatedAt: stored.updatedAt || undefined
+      updatedAt: stored.updatedAt || undefined,
+      maxTokens: stored.maxTokens,
+      inputPricePerMillion: stored.inputPricePerMillion,
+      outputPricePerMillion: stored.outputPricePerMillion
     };
   }
 
@@ -93,6 +98,14 @@ export class SecureConfigService {
       encryptedApiKey,
       temperature: input.temperature,
       maxTokens: input.maxTokens,
+      inputPricePerMillion:
+        typeof input.inputPricePerMillion === "number" && input.inputPricePerMillion >= 0
+          ? input.inputPricePerMillion
+          : undefined,
+      outputPricePerMillion:
+        typeof input.outputPricePerMillion === "number" && input.outputPricePerMillion >= 0
+          ? input.outputPricePerMillion
+          : undefined,
       updatedAt: new Date().toISOString()
     };
 
