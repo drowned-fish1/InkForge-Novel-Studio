@@ -10403,3 +10403,150 @@ span.revision-chapter {
   display: flex;
   gap: 8px;
 }
+
+/* Export centre v1 (phase 6): persisted config, preflight, preview */
+.export-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.export-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.export-toolbar input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.export-preview {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.export-preview > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.export-preview > header strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.export-preview > header span {
+  color: var(--text-secondary);
+}
+
+.export-preview ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.export-preview ol ol {
+  padding-left: 16px;
+  color: var(--text-secondary);
+}
+
+.export-preview-meta {
+  color: var(--accent-text);
+  list-style: none;
+  margin-left: -18px;
+}
+
+.export-preflight-result {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.export-preflight-result > header strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.export-preflight-result article {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--border-faint);
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.export-preflight-result article em {
+  flex-shrink: 0;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--text-secondary);
+}
+
+.export-preflight-result article.severity-error {
+  border-left: 3px solid var(--danger);
+}
+
+.export-preflight-result article.severity-error em {
+  color: var(--danger);
+}
+
+.export-preflight-result article.severity-warning {
+  border-left: 3px solid #b08948;
+}
+
+.export-preflight-result article small {
+  display: block;
+  color: var(--text-secondary);
+}
+
+.epub-cover-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  grid-column: 1 / -1;
+  font-size: 12px;
+}
+
+.epub-cover-row code {
+  overflow: hidden;
+  max-width: 360px;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.epub-config-grid .check-inline {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+}

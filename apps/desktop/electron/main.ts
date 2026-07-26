@@ -5,6 +5,7 @@ import type {
   AgentExtensionConfig,
   BackupSettings,
   BeatBoard,
+  ExportConfig,
   ScenePlan,
   SimulationScenario,
   WritingWorkspace
@@ -282,6 +283,18 @@ const registerIpc = (): void => {
   ipcMain.handle("export:manuscript", async (_event, input: ExportInput) => {
     return exportsService.exportManuscript(input);
   });
+
+  ipcMain.handle("export:config:load", async (_event, projectPath: string) =>
+    exportsService.loadExportConfig(projectPath)
+  );
+
+  ipcMain.handle("export:config:save", async (_event, projectPath: string, config: ExportConfig) =>
+    exportsService.saveExportConfig(projectPath, config)
+  );
+
+  ipcMain.handle("export:preflight", async (_event, projectPath: string) => exportsService.preflight(projectPath));
+
+  ipcMain.handle("export:choose-cover", async () => exportsService.chooseCoverImage());
 
   ipcMain.handle("backup:list", async (_event, projectPath: string) => workspace.listBackups(projectPath));
   ipcMain.handle("backup:inspect", async (_event, projectPath: string) => workspace.inspectBackups(projectPath));

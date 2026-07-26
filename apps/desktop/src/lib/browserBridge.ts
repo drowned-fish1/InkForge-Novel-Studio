@@ -2,7 +2,10 @@ import {
   defaultProviderConfig,
   defaultAgentMembers,
   estimateTokensCjkAware,
+  runExportPreflight,
   BeatBoardSchema,
+  ExportConfigSchema,
+  type ExportConfig,
   compileBeatBoardToInk,
   compileBeatBoardToTwee,
   dedupeSimulationBranches,
@@ -147,6 +150,7 @@ let browserBatchRuns: BatchRun[] = [];
 const browserBackups = new Map<string, BackupSnapshot[]>();
 const browserBackupSettings = new Map<string, BackupSettings>();
 const browserRevisionStates = new Map<string, RevisionState>();
+const browserExportConfigs = new Map<string, ExportConfig>();
 const browserSimulations = new Map<string, SimulationDocument[]>();
 const browserWritingWorkspaces = new Map<string, WritingWorkspace>();
 const browserAgentExtensions = new Map<string, AgentExtensionConfig>();
@@ -242,6 +246,34 @@ export const browserBridge: InkforgeApi = {
   ...browserLibraryService,
   async exportManuscript(input: ExportInput): Promise<string> {
     return exportManuscriptInBrowser(input);
+  },
+  async loadExportConfig(projectPath) {
+    return structuredClone(browserExportConfigs.get(projectPath) ?? ExportConfigSchema.parse({}));
+  },
+  async saveExportConfig(projectPath, config) {
+    const parsed = ExportConfigSchema.parse(config);
+    browserExportConfigs.set(projectPath, parsed);
+    return structuredClone(parsed);
+  },
+  async exportPreflight(projectPath) {
+    const record = getProjectRecord(projectPath);
+    const config = browserExportConfigs.get(projectPath) ?? ExportConfigSchema.parse({});
+    return runExportPreflight({
+      volumes: record.summary.outline.volumes.map((volume) => ({
+        title: volume.title,
+        chapters: volume.chapters.map((chapter) => ({
+          id: chapter.id,
+          title: chapter.title,
+          content: record.chapterBodies[chapter.file] ?? "",
+          archived: chapter.archived
+        }))
+      })),
+      epub: config.epub,
+      coverExists: config.epub.coverImagePath ? false : undefined
+    });
+  },
+  async chooseCoverImage() {
+    return undefined;
   },
   async listBackups(projectPath) {
     return structuredClone(browserBackups.get(projectPath) ?? []);

@@ -207,6 +207,9 @@ export const TopBar = ({
             <button type="button" onClick={() => void exportManuscript("docx")}>
               DOCX
             </button>
+            <button type="button" onClick={() => void exportManuscript("epub")}>
+              EPUB
+            </button>
           </div>
         </details>
       </div>

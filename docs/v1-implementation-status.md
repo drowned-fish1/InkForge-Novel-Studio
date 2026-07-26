@@ -42,7 +42,7 @@ npm run test:desktop-smoke
 | 3. 故事资料关系中心 | 完成（浏览器实测验证通过） | 见 git log |
 | 4. 集中修订工作台 | 完成（浏览器实测验证通过） | 见 git log |
 | 5. Agent 控制与扩展 | 完成（浏览器实测验证通过） | 见 git log |
-| 6. EPUB 与交付 | 未开始 | - |
+| 6. EPUB 与交付 | 完成（浏览器实测验证通过） | 见 git log |
 | 7. 发布级质量收口 | 未开始 | - |
 
 ## 阶段一：已完成内容（2026-07-27）
@@ -120,6 +120,20 @@ npm run test:desktop-smoke
 验证：typecheck ✅ / 271 tests ✅ / lint ✅ / 浏览器实测（估算行显示并标记估算值、22 工具双列授权与"1 个逐次询问"摘要、存为模板按钮）✅。
 
 已知限制：费用估算依赖用户填写单价（无内置价目表）；输出费用按模型上限计为上界；自定义工作流的未知步骤类型不执行真实动作。
+
+## 阶段六：已完成内容（2026-07-27）
+
+- **导出配置持久化**：`ExportConfigSchema`（schemas）存 `.inkforge/export.json`（避开 schemaVersion literal）：书名/作者/语言/简介/出版方/版权声明/封面路径/主题/行距/段首缩进/分卷成页 + 分卷/章节标题开关；ExportPanel 加载编辑保存，TopBar 快捷导出（含新增 EPUB 项）走同一份配置。
+- **EPUB 3 完整生成**（`buildEpubArchive`，可测纯函数）：封面页+封面图（JPG/PNG 二进制嵌入，`properties="cover-image"` + 旧阅读器 `<meta name="cover">`）、版权页（dc:rights/dc:publisher 同步写入 OPF）、分卷标题页（分页规则）、分卷嵌套 nav TOC + landmarks + 兼容旧阅读器的 NCX（spine toc）、按卷/章的回退编号、URN 标识符、escapeXml 补齐单引号转义、配置化 CSS（主题/行距/缩进）。
+- **导出前检查**：`runExportPreflight` 纯函数（schemas，浏览器镜像共用）：空章节（error）、重复章节/分卷标题、会被移除的相对链接、正文图片引用、封面缺失（error）、元数据提示；EPUB 导出前自动运行并在有 error 时阻断。
+- **导出后验证**：`validateEpubArchive` 解包校验必需文件/mimetype/manifest↔spine↔实体一致性 + 自研 XML 良构检查器（标签配对/自闭合/裸 &）；校验不过导出即报错（修复了检查器把 XML `<meta>` 误当 HTML 空元素的缺陷）。
+- **统一体验**：导出预览（卷章树+字数+封面/版权摘要）、取消不再误报为错误、DOCX 分卷/章节自动分页（pageBreakBefore）、TopBar 增加 EPUB。
+- 浏览器镜像：配置存取/preflight（共享纯函数）/封面选择提示走桌面版。
+- 测试：EPUB 构建（封面/版权/嵌套 TOC/NCX/回退编号/转义）、结构校验（manifest 缺失检出）、XML 良构检查器、markdown→XHTML 渲染安全性、preflight 全类别（277 total）。
+
+验证：typecheck ✅ / 277 tests ✅ / lint ✅ / 浏览器实测（导出预览结构树、导出前检查 2 项提示、配置面板齐全）✅。
+
+已知限制：浏览器预览的 EPUB 生成仍为降级实现（无封面/NCX，用于界面演示；桌面版为完整实现）；正文图片不嵌入（预检查会提示）。
 
 ## 审计差距摘要（阶段二至七实施依据）
 

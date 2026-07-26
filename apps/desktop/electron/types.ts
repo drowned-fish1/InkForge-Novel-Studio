@@ -17,6 +17,8 @@ import type {
   Character,
   Clue,
   Conflict,
+  ExportConfig,
+  ExportPreflightIssue,
   Outline,
   Pipeline,
   QualityFinding,
@@ -547,6 +549,10 @@ export interface InkforgeApi {
   createChapter: (input: CreateChapterInput) => Promise<ProjectSummary>;
   updateOutline: (input: UpdateOutlineInput) => Promise<ProjectSummary>;
   exportManuscript: (input: ExportInput) => Promise<string | undefined>;
+  loadExportConfig: (projectPath: string) => Promise<ExportConfig>;
+  saveExportConfig: (projectPath: string, config: ExportConfig) => Promise<ExportConfig>;
+  exportPreflight: (projectPath: string) => Promise<ExportPreflightIssue[]>;
+  chooseCoverImage: () => Promise<string | undefined>;
   listBackups: (projectPath: string) => Promise<BackupSnapshot[]>;
   inspectBackups: (projectPath: string) => Promise<BackupInspection>;
   createBackup: (projectPath: string, label?: string) => Promise<BackupSnapshot>;
