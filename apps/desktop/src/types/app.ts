@@ -416,6 +416,8 @@ export type {
 export type {
   AgentRunEstimate,
   ProjectSearchResult,
+  QualitySweepEntry,
+  QualitySweepResult,
   RevisionOverview,
   RevisionProposalSummary
 } from "../../electron/types";

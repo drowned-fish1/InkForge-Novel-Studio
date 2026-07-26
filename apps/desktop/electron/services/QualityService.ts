@@ -7,6 +7,7 @@ import {
   type QualityFinding,
   type QualityReport
 } from "@inkforge/schemas";
+import type { QualitySweepResult } from "../types.js";
 import { FileRepository } from "./FileRepository.js";
 import { ProjectService } from "./ProjectService.js";
 import { StoryStateService } from "./StoryStateService.js";
@@ -46,6 +47,61 @@ export class QualityService {
       [withDelta, ...reports].slice(0, reportLimit)
     );
     return withDelta;
+  }
+
+  async evaluateAll(projectPath: string): Promise<QualitySweepResult> {
+    const project = await this.projects.openProject(projectPath);
+    const [issues, clues] = await Promise.all([this.story.inspect(projectPath), this.story.listClues(projectPath)]);
+    const context = {
+      continuityIssueCount: issues.filter((issue) => issue.severity !== "info").length,
+      openClueCount: clues.filter((clue) => clue.status !== "resolved" && clue.status !== "abandoned").length
+    };
+    const chapters = project.outline.volumes
+      .flatMap((volume) => volume.chapters)
+      .filter((chapter) => !chapter.archived);
+    const entries = [];
+    for (const chapter of chapters) {
+      let content = "";
+      try {
+        content = await this.files.readText(this.files.assertInsideProject(projectPath, chapter.file));
+      } catch {
+        // Chapter file missing on disk: evaluate as empty so the sweep surfaces it instead of aborting.
+      }
+      const report = await this.evaluateText(chapter.id, chapter.title, content, context);
+      const baseline = await this.getBaseline(projectPath, chapter.id);
+      const withDelta = QualityReportSchema.parse({
+        ...report,
+        baselineDelta: baseline ? round(report.overallScore - baseline.overallScore) : undefined
+      });
+      const history = await this.listReports(projectPath, chapter.id);
+      const unchanged = history[0]?.fingerprint === withDelta.fingerprint;
+      if (!unchanged) {
+        await this.files.writeJsonAtomic(
+          this.reportPath(projectPath, chapter.id),
+          [withDelta, ...history].slice(0, reportLimit)
+        );
+      }
+      entries.push({
+        chapterId: chapter.id,
+        chapterTitle: chapter.title,
+        wordCount: withDelta.wordCount,
+        overallScore: withDelta.overallScore,
+        baselineDelta: withDelta.baselineDelta,
+        warningCount: withDelta.findings.filter((item) => item.severity === "warning").length,
+        infoCount: withDelta.findings.filter((item) => item.severity === "info").length,
+        topFinding: withDelta.findings[0]?.title
+      });
+    }
+    entries.sort((a, b) => a.overallScore - b.overallScore);
+    return {
+      generatedAt: new Date().toISOString(),
+      chapterCount: entries.length,
+      averageScore: entries.length
+        ? round(entries.reduce((total, entry) => total + entry.overallScore, 0) / entries.length)
+        : 0,
+      continuityIssueCount: context.continuityIssueCount,
+      entries
+    };
   }
 
   async evaluateText(

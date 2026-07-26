@@ -15,7 +15,7 @@ import {
   Wand2,
   Wrench
 } from "lucide-react";
-import type { RevisionOverview, RevisionProposalSummary } from "@/types/app";
+import type { QualitySweepResult, RevisionOverview, RevisionProposalSummary } from "@/types/app";
 import { bridge } from "@/lib/browserBridge";
 import { diffTextLines, summarizeDiff, type TextDiffLine } from "@/lib/textDiffLines";
 import { mutateWritingWorkspace } from "@/lib/writingWorkspaceStore";
@@ -85,6 +85,22 @@ export const RevisionWorkbench = () => {
   const [diffPreview, setDiffPreview] = useState<
     { proposal: RevisionProposalSummary; lines: TextDiffLine[]; added: number; removed: number } | undefined
   >();
+  const [sweep, setSweep] = useState<QualitySweepResult | undefined>();
+  const [sweeping, setSweeping] = useState(false);
+
+  const runQualitySweep = async () => {
+    if (!project) return;
+    setSweeping(true);
+    setError("");
+    try {
+      setSweep(await bridge.evaluateProjectQuality(project.projectPath));
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "全项目质量巡检失败");
+    } finally {
+      setSweeping(false);
+    }
+  };
 
   const refresh = async () => {
     if (!project) return;
@@ -103,6 +119,7 @@ export const RevisionWorkbench = () => {
     setOverview(undefined);
     setSelectedKeys(new Set());
     setDiffPreview(undefined);
+    setSweep(undefined);
     void refresh();
   }, [project?.projectPath]);
 
@@ -364,12 +381,60 @@ export const RevisionWorkbench = () => {
             <ClipboardList size={16} />
             待处理 <b>{counts.open}</b> · 待修改 {counts.marks} · 提案 {counts.proposals}
           </span>
+          <button
+            className="secondary-button compact"
+            type="button"
+            disabled={sweeping || loading}
+            title="对全部未归档章节运行本地质量评估并汇总结果"
+            onClick={() => void runQualitySweep()}
+          >
+            {sweeping ? <Loader2 className="spinning" size={14} /> : <Gauge size={14} />}
+            全项目质量巡检
+          </button>
           <button className="secondary-button compact" type="button" disabled={loading} onClick={() => void refresh()}>
             {loading ? <Loader2 className="spinning" size={14} /> : <RefreshCw size={14} />}
             刷新
           </button>
         </div>
       </header>
+
+      {sweep ? (
+        <section className="quality-sweep-panel" aria-label="全项目质量巡检结果">
+          <header>
+            <strong>
+              <Gauge size={14} />
+              巡检结果 · {sweep.chapterCount} 章 · 均分 {sweep.averageScore}
+              {sweep.continuityIssueCount ? ` · ${sweep.continuityIssueCount} 个一致性问题` : ""}
+            </strong>
+            <span className="muted">{new Date(sweep.generatedAt).toLocaleString("zh-CN")} · 按分数从低到高</span>
+            <button className="tiny-text-button" type="button" onClick={() => setSweep(undefined)}>
+              关闭
+            </button>
+          </header>
+          <div className="quality-sweep-list">
+            {sweep.entries.slice(0, 20).map((entry) => (
+              <button key={entry.chapterId} type="button" onClick={() => openChapter(entry.chapterId)}>
+                <strong className={entry.overallScore < 80 ? "low" : ""}>{entry.overallScore}</strong>
+                {entry.baselineDelta !== undefined ? (
+                  <em className={entry.baselineDelta >= 0 ? "up" : "down"}>
+                    {entry.baselineDelta >= 0 ? "+" : ""}
+                    {entry.baselineDelta}
+                  </em>
+                ) : null}
+                <span>{entry.chapterTitle}</span>
+                <small>
+                  {entry.wordCount} 字{entry.warningCount ? ` · ${entry.warningCount} 警告` : ""}
+                  {entry.topFinding ? ` · ${entry.topFinding}` : ""}
+                </small>
+              </button>
+            ))}
+            {sweep.entries.length > 20 ? (
+              <span className="muted">仅显示分数最低的 20 章，共 {sweep.entries.length} 章。</span>
+            ) : null}
+            {!sweep.entries.length ? <span className="muted">没有可评估的章节。</span> : null}
+          </div>
+        </section>
+      ) : null}
 
       {overview?.qualityReports.length ? (
         <div className="revision-quality-strip" aria-label="章节质量分">

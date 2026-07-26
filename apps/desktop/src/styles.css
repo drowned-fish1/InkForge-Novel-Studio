@@ -10659,3 +10659,91 @@ span.revision-chapter {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Project-wide quality sweep results in the revision workbench */
+.quality-sweep-panel {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.quality-sweep-panel > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quality-sweep-panel > header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.quality-sweep-panel > header .muted {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.quality-sweep-list {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.quality-sweep-list > button {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-faint);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.quality-sweep-list > button:hover {
+  border-color: var(--accent);
+}
+
+.quality-sweep-list strong {
+  min-width: 38px;
+  font-size: 14px;
+}
+
+.quality-sweep-list strong.low {
+  color: var(--danger);
+}
+
+.quality-sweep-list em {
+  font-size: 11px;
+  font-style: normal;
+}
+
+.quality-sweep-list em.up {
+  color: var(--success, #22a06b);
+}
+
+.quality-sweep-list em.down {
+  color: var(--danger);
+}
+
+.quality-sweep-list span {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.quality-sweep-list small {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

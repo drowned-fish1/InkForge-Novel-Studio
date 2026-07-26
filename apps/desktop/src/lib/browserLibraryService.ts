@@ -227,6 +227,50 @@ export const browserLibraryService = {
         });
       }
     }
+    const normalize = (value: string) => value.trim().toLocaleLowerCase("zh-CN");
+    const knownCharacterNames = new Set(
+      record.characters.flatMap((character) => [character.name, ...character.aliases]).map(normalize)
+    );
+    const knownWorldTitles = new Set(record.worldEntries.map((entry) => normalize(entry.title)));
+    const chapters = record.summary.outline.volumes.flatMap((volume) => volume.chapters);
+    const chapterIds = new Set(chapters.map((chapter) => chapter.id));
+    for (const chapter of chapters) {
+      if (chapter.archived) continue;
+      for (const name of chapter.characters) {
+        if (name.trim() && !knownCharacterNames.has(normalize(name))) {
+          issues.push({
+            id: `chapter-unknown-character-${name.trim()}-${chapter.id}`,
+            severity: "warning",
+            scope: "project",
+            title: "章节出场人物不在人物库",
+            detail: `“${name.trim()}”出现在《${chapter.title}》的出场名单，但人物库中没有同名或别名条目。`
+          });
+        }
+      }
+      for (const ref of chapter.worldRefs) {
+        if (ref.trim() && !knownWorldTitles.has(normalize(ref))) {
+          issues.push({
+            id: `chapter-unknown-worldref-${ref.trim()}-${chapter.id}`,
+            severity: "warning",
+            scope: "project",
+            title: "章节引用的世界观条目不存在",
+            detail: `“${ref.trim()}”被《${chapter.title}》引用，但世界观库中没有同名条目。`
+          });
+        }
+      }
+    }
+    for (const conflict of record.conflicts ?? []) {
+      const dangling = (conflict.chapterIds ?? []).filter((id) => !chapterIds.has(id));
+      if (dangling.length) {
+        issues.push({
+          id: `conflict-bad-chapter-${conflict.id}`,
+          severity: "error",
+          scope: "project",
+          title: "冲突关联了不存在的章节",
+          detail: `${conflict.title} 的 ${dangling.length} 个关联章节已不在大纲中。`
+        });
+      }
+    }
     return issues.length
       ? issues
       : [

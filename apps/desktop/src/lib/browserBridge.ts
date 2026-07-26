@@ -40,6 +40,8 @@ import type {
   ChapterHistoryEntry,
   ExportInput,
   ProjectSearchResult,
+  QualitySweepEntry,
+  QualitySweepResult,
   RevisionProposalSummary,
   PlayableExportInput,
   SimulationRunEvent,
@@ -1163,6 +1165,37 @@ export const browserBridge: InkforgeApi = {
     };
     browserQualityReports = [report, ...browserQualityReports];
     return structuredClone(report);
+  },
+  async evaluateProjectQuality(projectPath): Promise<QualitySweepResult> {
+    const record = getProjectRecord(projectPath);
+    const chapters = record.summary.outline.volumes
+      .flatMap((volume) => volume.chapters)
+      .filter((chapter) => !chapter.archived);
+    const entries: QualitySweepEntry[] = [];
+    for (const chapter of chapters) {
+      const report = await browserBridge.evaluateChapterQuality(projectPath, chapter.id);
+      entries.push({
+        chapterId: chapter.id,
+        chapterTitle: chapter.title,
+        wordCount: report.wordCount,
+        overallScore: report.overallScore,
+        baselineDelta: report.baselineDelta,
+        warningCount: report.findings.filter((item) => item.severity === "warning").length,
+        infoCount: report.findings.filter((item) => item.severity === "info").length,
+        topFinding: report.findings[0]?.title
+      });
+    }
+    entries.sort((a, b) => a.overallScore - b.overallScore);
+    const issues = await browserLibraryService.inspectStory(projectPath);
+    return {
+      generatedAt: new Date().toISOString(),
+      chapterCount: entries.length,
+      averageScore: entries.length
+        ? Math.round((entries.reduce((total, entry) => total + entry.overallScore, 0) / entries.length) * 10) / 10
+        : 0,
+      continuityIssueCount: issues.filter((issue) => issue.severity !== "info").length,
+      entries
+    };
   },
   async listChapterQualityReports(_projectPath, chapterId): Promise<QualityReport[]> {
     return structuredClone(browserQualityReports.filter((report) => report.chapterId === chapterId));

@@ -2,6 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { FileRepository } from "./FileRepository.js";
+import { LibraryService } from "./LibraryService.js";
+import { ProjectService } from "./ProjectService.js";
 import { StoryStateService } from "./StoryStateService.js";
 
 const temporaryProjects: string[] = [];
@@ -89,5 +92,77 @@ describe("StoryStateService conflicts", () => {
     expect(await service.deleteTimelineEvent(projectPath, "ev-1")).toHaveLength(0);
     expect(await service.deleteClue(projectPath, "clue-1")).toHaveLength(0);
     expect(await service.deleteTerm(projectPath, "term-1")).toHaveLength(0);
+  });
+});
+
+describe("StoryStateService inspect reference checks", () => {
+  it("flags unknown chapter characters, missing world refs and dangling conflict chapters", async () => {
+    const root = await createProjectFixture();
+    const files = new FileRepository();
+    const projects = new ProjectService(files);
+    const library = new LibraryService(files);
+    const service = new StoryStateService(files, projects, library);
+    const project = await projects.createProject(root, {
+      title: "一致性测试",
+      author: "tester",
+      genre: [],
+      targetWords: 100000,
+      style: "",
+      protagonist: "",
+      premise: ""
+    });
+    const chapter = project.outline.volumes[0].chapters[0];
+    project.outline.volumes[0].chapters[0] = {
+      ...chapter,
+      characters: ["林烬", "不存在的人"],
+      worldRefs: ["旧车站", "未登记的地方"]
+    };
+    await projects.updateOutline({ projectPath: project.projectPath, outline: project.outline });
+    await library.saveCharacter(project.projectPath, {
+      id: "char-1",
+      name: "林烬",
+      aliases: ["阿烬"],
+      role: "protagonist",
+      tags: [],
+      profile: { age: "", identity: "", motivation: "", personality: "" },
+      currentState: { arc: "", powerLevel: "", location: "", relationships: [], secrets: [] },
+      voiceNotes: ""
+    });
+    await library.saveWorldEntry(project.projectPath, {
+      id: "world-1",
+      title: "旧车站",
+      type: "location",
+      locked: false,
+      tags: [],
+      summary: "",
+      content: "",
+      relatedCharacters: [],
+      relatedClues: []
+    });
+    await service.saveConflict(project.projectPath, {
+      id: "conf-1",
+      title: "主线冲突",
+      kind: "main",
+      status: "active",
+      parties: [],
+      stakes: "",
+      relatedCharacters: [],
+      relatedFactions: [],
+      chapterIds: [chapter.id, "chapter-deleted"],
+      summary: "",
+      notes: ""
+    });
+
+    const issues = await service.inspect(project.projectPath);
+    const unknownCharacter = issues.find((issue) => issue.id === "chapter-unknown-character-不存在的人");
+    expect(unknownCharacter?.severity).toBe("warning");
+    expect(unknownCharacter?.detail).toContain(chapter.title);
+    expect(issues.some((issue) => issue.id === "chapter-unknown-character-林烬")).toBe(false);
+    const unknownWorld = issues.find((issue) => issue.id === "chapter-unknown-worldref-未登记的地方");
+    expect(unknownWorld?.severity).toBe("warning");
+    expect(issues.some((issue) => issue.id === "chapter-unknown-worldref-旧车站")).toBe(false);
+    const danglingConflict = issues.find((issue) => issue.id === "conflict-bad-chapter-conf-1");
+    expect(danglingConflict?.severity).toBe("error");
+    expect(danglingConflict?.detail).toContain("chapter-deleted");
   });
 });

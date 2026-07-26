@@ -93,7 +93,7 @@ const library = new LibraryService(files);
 const exportsService = new ExportService(projects, files);
 const aiProvider = new AiProviderService();
 const summaries = new SummaryService(files);
-const storyState = new StoryStateService(files, projects);
+const storyState = new StoryStateService(files, projects, library);
 const scenePlans = new ScenePlanService(files);
 const chatAgent = new ChatAgentService(files, projects, library, storyState, aiProvider);
 const planning = new PlanningService(files, projects, library, storyState);
@@ -590,6 +590,10 @@ const registerIpc = (): void => {
 
   ipcMain.handle("quality:evaluate", async (_event, projectPath: string, chapterId: string) => {
     return quality.evaluateChapter(projectPath, chapterId);
+  });
+
+  ipcMain.handle("quality:evaluate-all", async (_event, projectPath: string) => {
+    return quality.evaluateAll(projectPath);
   });
 
   ipcMain.handle("quality:list", async (_event, projectPath: string, chapterId: string) => {

@@ -10,12 +10,14 @@ import {
 } from "@inkforge/schemas";
 import type { ConsistencyIssue } from "../types.js";
 import { FileRepository } from "./FileRepository.js";
+import { LibraryService } from "./LibraryService.js";
 import { ProjectService } from "./ProjectService.js";
 
 export class StoryStateService {
   constructor(
     private readonly files = new FileRepository(),
-    private readonly projects = new ProjectService(files)
+    private readonly projects = new ProjectService(files),
+    private readonly library = new LibraryService(files)
   ) {}
 
   async listConflicts(projectPath: string): Promise<Conflict[]> {
@@ -96,15 +98,72 @@ export class StoryStateService {
 
   async inspect(projectPath: string): Promise<ConsistencyIssue[]> {
     const project = await this.projects.openProject(projectPath);
-    const [timeline, clues, terms] = await Promise.all([
+    const [timeline, clues, terms, conflicts, characters, worldEntries] = await Promise.all([
       this.listTimeline(projectPath),
       this.listClues(projectPath),
-      this.listTerms(projectPath)
+      this.listTerms(projectPath),
+      this.listConflicts(projectPath),
+      this.library.listCharacters(projectPath),
+      this.library.listWorldEntries(projectPath)
     ]);
-    const chapterIds = new Set(
-      project.outline.volumes.flatMap((volume) => volume.chapters.map((chapter) => chapter.id))
-    );
+    const chapters = project.outline.volumes.flatMap((volume) => volume.chapters);
+    const chapterIds = new Set(chapters.map((chapter) => chapter.id));
     const issues: ConsistencyIssue[] = [];
+
+    const normalize = (value: string) => value.trim().toLocaleLowerCase("zh-CN");
+    const knownCharacterNames = new Set(
+      characters.flatMap((character) => [character.name, ...character.aliases]).map(normalize)
+    );
+    const knownWorldTitles = new Set(worldEntries.map((entry) => normalize(entry.title)));
+    const unknownCharacterChapters = new Map<string, string[]>();
+    const unknownWorldRefChapters = new Map<string, string[]>();
+    for (const chapter of chapters) {
+      if (chapter.archived) {
+        continue;
+      }
+      for (const name of chapter.characters) {
+        const trimmed = name.trim();
+        if (trimmed && !knownCharacterNames.has(normalize(trimmed))) {
+          unknownCharacterChapters.set(trimmed, [...(unknownCharacterChapters.get(trimmed) ?? []), chapter.title]);
+        }
+      }
+      for (const ref of chapter.worldRefs) {
+        const trimmed = ref.trim();
+        if (trimmed && !knownWorldTitles.has(normalize(trimmed))) {
+          unknownWorldRefChapters.set(trimmed, [...(unknownWorldRefChapters.get(trimmed) ?? []), chapter.title]);
+        }
+      }
+    }
+    for (const [name, titles] of unknownCharacterChapters) {
+      issues.push({
+        id: `chapter-unknown-character-${name}`,
+        severity: "warning",
+        scope: "project",
+        title: "章节出场人物不在人物库",
+        detail: `“${name}”出现在 ${titles.slice(0, 3).join("、")}${titles.length > 3 ? ` 等 ${titles.length} 章` : ""} 的出场名单，但人物库中没有同名或别名条目。改名后请同步章节名单，或补建人物卡。`
+      });
+    }
+    for (const [ref, titles] of unknownWorldRefChapters) {
+      issues.push({
+        id: `chapter-unknown-worldref-${ref}`,
+        severity: "warning",
+        scope: "project",
+        title: "章节引用的世界观条目不存在",
+        detail: `“${ref}”被 ${titles.slice(0, 3).join("、")}${titles.length > 3 ? ` 等 ${titles.length} 章` : ""} 引用，但世界观库中没有同名条目。`
+      });
+    }
+    for (const conflict of conflicts) {
+      const dangling = conflict.chapterIds.filter((id) => !chapterIds.has(id));
+      if (dangling.length) {
+        issues.push({
+          id: `conflict-bad-chapter-${conflict.id}`,
+          severity: "error",
+          scope: "project",
+          title: "冲突关联了不存在的章节",
+          detail: `${conflict.title} 的 ${dangling.length} 个关联章节（${dangling.slice(0, 3).join("、")}${dangling.length > 3 ? " 等" : ""}）已不在大纲中。`
+        });
+      }
+    }
 
     for (const event of timeline) {
       if (!event.chapterId) {

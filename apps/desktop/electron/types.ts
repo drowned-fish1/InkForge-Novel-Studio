@@ -297,6 +297,25 @@ export interface SaveConflictInput {
   conflict: Conflict;
 }
 
+export interface QualitySweepEntry {
+  chapterId: string;
+  chapterTitle: string;
+  wordCount: number;
+  overallScore: number;
+  baselineDelta?: number;
+  warningCount: number;
+  infoCount: number;
+  topFinding?: string;
+}
+
+export interface QualitySweepResult {
+  generatedAt: string;
+  chapterCount: number;
+  averageScore: number;
+  continuityIssueCount: number;
+  entries: QualitySweepEntry[];
+}
+
 export interface ProjectSearchResult {
   kind: "chapter" | "character" | "world" | "location" | "faction" | "conflict" | "clue" | "term" | "event";
   id: string;
@@ -661,6 +680,7 @@ export interface InkforgeApi {
   listScenePlans: (projectPath: string, chapterId: string) => Promise<ScenePlan[]>;
   saveScenePlans: (projectPath: string, chapterId: string, scenes: ScenePlan[]) => Promise<ScenePlan[]>;
   evaluateChapterQuality: (projectPath: string, chapterId: string) => Promise<QualityReport>;
+  evaluateProjectQuality: (projectPath: string) => Promise<QualitySweepResult>;
   listChapterQualityReports: (projectPath: string, chapterId: string) => Promise<QualityReport[]>;
   setChapterQualityBaseline: (projectPath: string, chapterId: string, reportId: string) => Promise<QualityReport>;
   listStoryBranches: (projectPath: string, chapterId?: string) => Promise<StoryBranch[]>;

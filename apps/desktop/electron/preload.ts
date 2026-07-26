@@ -230,6 +230,7 @@ const api: InkforgeApi = {
   saveScenePlans: (projectPath, chapterId, scenes) =>
     ipcRenderer.invoke("agent:scenes:save", projectPath, chapterId, scenes),
   evaluateChapterQuality: (projectPath, chapterId) => ipcRenderer.invoke("quality:evaluate", projectPath, chapterId),
+  evaluateProjectQuality: (projectPath) => ipcRenderer.invoke("quality:evaluate-all", projectPath),
   listChapterQualityReports: (projectPath, chapterId) => ipcRenderer.invoke("quality:list", projectPath, chapterId),
   setChapterQualityBaseline: (projectPath, chapterId, reportId) =>
     ipcRenderer.invoke("quality:baseline", projectPath, chapterId, reportId),
