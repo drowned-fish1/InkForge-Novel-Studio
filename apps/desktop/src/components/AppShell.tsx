@@ -53,6 +53,7 @@ const implementedModules = [
 ];
 const placeholderModules = ["locations", "factions", "conflicts", "events", "export"];
 const paneStorageKey = "inkforge:pane-widths:v2";
+const agentCollapsedStorageKey = "inkforge:agent-collapsed:v1";
 const compactLayoutQuery = "(max-width: 1179px)";
 
 const readCompactLayout = () => typeof window !== "undefined" && window.matchMedia(compactLayoutQuery).matches;
@@ -82,6 +83,9 @@ export const AppShell = () => {
   const [paneWidths, setPaneWidths] = useState<PaneWidths>(readPaneWidths);
   const [compactLayout, setCompactLayout] = useState(readCompactLayout);
   const [compactPane, setCompactPane] = useState<"navigation" | "agent" | null>(null);
+  const [agentCollapsed, setAgentCollapsed] = useState(
+    () => typeof window !== "undefined" && window.localStorage.getItem(agentCollapsedStorageKey) === "true"
+  );
   const current = useProjectStore((state) => state.current);
   const project = useProjectStore((state) => state.project);
   const saveState = useProjectStore((state) => state.saveState);
@@ -112,6 +116,10 @@ export const AppShell = () => {
       setCompactPane(null);
     }
   }, [focusMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem(agentCollapsedStorageKey, String(agentCollapsed));
+  }, [agentCollapsed]);
 
   useEffect(() => {
     if (!compactPane) {
@@ -313,8 +321,10 @@ export const AppShell = () => {
         compactLayout={compactLayout && !focusMode}
         navigationOpen={compactPane === "navigation"}
         agentOpen={compactPane === "agent"}
+        agentCollapsed={agentCollapsed}
         onToggleNavigation={() => setCompactPane((pane) => (pane === "navigation" ? null : "navigation"))}
         onToggleAgent={() => setCompactPane((pane) => (pane === "agent" ? null : "agent"))}
+        onToggleAgentCollapsed={() => setAgentCollapsed((value) => !value)}
       />
       {compactLayout && compactPane && !focusMode ? (
         <button
@@ -325,7 +335,9 @@ export const AppShell = () => {
         />
       ) : null}
       <main
-        className={`studio-main ${focusMode ? "focus-writing" : ""} ${compactLayout ? "compact-layout" : ""}`}
+        className={`studio-main ${focusMode ? "focus-writing" : ""} ${compactLayout ? "compact-layout" : ""} ${
+          agentCollapsed && !compactLayout && !focusMode ? "agent-collapsed" : ""
+        }`}
         ref={mainRef}
         style={focusMode ? undefined : layoutStyle}
       >
@@ -357,7 +369,7 @@ export const AppShell = () => {
         {placeholderModules.includes(selectedModule) || !implementedModules.includes(selectedModule) ? (
           <ModulePlaceholder />
         ) : null}
-        {focusMode || compactLayout ? null : renderResizeHandle("agent")}
+        {focusMode || compactLayout || agentCollapsed ? null : renderResizeHandle("agent")}
         {focusMode ? null : compactLayout ? (
           <div
             className={`compact-pane compact-pane-agent ${compactPane === "agent" ? "open" : ""}`}
@@ -366,7 +378,7 @@ export const AppShell = () => {
           >
             <AgentChatPanel />
           </div>
-        ) : (
+        ) : agentCollapsed ? null : (
           <AgentChatPanel />
         )}
       </main>

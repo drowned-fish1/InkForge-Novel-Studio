@@ -1,5 +1,5 @@
 export const sidebarShortcutModules = [
-  { key: "1", module: "chapters", label: "章节" },
+  { key: "1", module: "chapters", label: "章节写作台" },
   { key: "2", module: "characters", label: "人物" },
   { key: "3", module: "world", label: "世界" },
   { key: "4", module: "overview", label: "总览" },
@@ -13,7 +13,8 @@ export const keybindingHints = [
   "Ctrl+N 新章",
   "Ctrl+Shift+N 新卷",
   "Ctrl+E 导出 MD",
-  "Ctrl+B 专注",
+  "Ctrl+B 专注（正文内=加粗）",
+  "Ctrl+I 斜体（正文内）",
   "Ctrl+1~7 模块",
   "Esc 关闭/退出"
 ];

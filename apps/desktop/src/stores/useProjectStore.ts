@@ -485,7 +485,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       await get().updateChapterPlan(current.plan.id, { actualWords: countCjkAwareWords(content) });
       await get().loadChapterHistory();
     } catch (error) {
-      set({ saveState: "error", error: error instanceof Error ? error.message : "鍘嗗彶鐗堟湰鎭㈠澶辫触" });
+      set({ saveState: "error", error: error instanceof Error ? error.message : "历史版本恢复失败" });
     }
   },
   createChapter: async (preferredVolumeId) => {

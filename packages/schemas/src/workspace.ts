@@ -18,6 +18,8 @@ export const WritingAnnotationSchema = z.object({
   quote: z.string().default(""),
   note: z.string().default(""),
   color: z.enum(["green", "amber", "rose"]).default("green"),
+  kind: z.enum(["comment", "revision"]).default("comment"),
+  status: z.enum(["open", "resolved", "deferred"]).default("open"),
   createdAt: z.string()
 });
 

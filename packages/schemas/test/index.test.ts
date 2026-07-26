@@ -409,3 +409,43 @@ describe("AgentRunTraceSchema", () => {
     expect(trace.events[0].toolName).toBe("semantic_search");
   });
 });
+
+describe("writing workspace annotations", () => {
+  it("defaults legacy annotations to comment kind with open status", async () => {
+    const { WritingWorkspaceSchema } = await import("../src/workspace");
+    const workspace = WritingWorkspaceSchema.parse({
+      annotations: [
+        {
+          id: "annotation-1",
+          chapterId: "chapter-1",
+          start: 0,
+          end: 4,
+          quote: "旧数据",
+          note: "升级前创建",
+          color: "green",
+          createdAt: "2026-01-01T00:00:00.000Z"
+        }
+      ]
+    });
+    expect(workspace.annotations[0].kind).toBe("comment");
+    expect(workspace.annotations[0].status).toBe("open");
+  });
+
+  it("round-trips revision marks with resolved status", async () => {
+    const { WritingAnnotationSchema } = await import("../src/workspace");
+    const mark = WritingAnnotationSchema.parse({
+      id: "annotation-2",
+      chapterId: "chapter-1",
+      start: 10,
+      end: 24,
+      quote: "需要返工的句子",
+      note: "节奏太拖",
+      color: "rose",
+      kind: "revision",
+      status: "resolved",
+      createdAt: "2026-01-01T00:00:00.000Z"
+    });
+    expect(mark.kind).toBe("revision");
+    expect(mark.status).toBe("resolved");
+  });
+});

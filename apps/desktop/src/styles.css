@@ -9089,3 +9089,165 @@ body.resizing-panes * {
 .simulation-branch footer .secondary-button {
   justify-self: start;
 }
+
+/* Chapter writing workbench (v1 phase 1): heading jump, typewriter, revision marks, stats, agent collapse */
+.studio-main.agent-collapsed {
+  grid-template-columns:
+    var(--project-nav-width, 248px)
+    7px
+    minmax(420px, 1fr);
+}
+
+.agent-collapse-toggle.panel-open {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.editor-heading-jump {
+  position: relative;
+}
+
+.editor-heading-jump > summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--transparent);
+  color: var(--text-button);
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+}
+
+.editor-heading-jump > summary::-webkit-details-marker {
+  display: none;
+}
+
+.editor-heading-jump[open] > summary,
+.editor-heading-jump > summary:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.heading-jump-popover {
+  display: grid;
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 8px);
+  left: 0;
+  overflow: auto;
+  width: 240px;
+  max-height: 300px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-overlay);
+  box-shadow: 0 16px 40px var(--shadow-strong);
+}
+
+.heading-jump-popover button {
+  display: block;
+  overflow: hidden;
+  min-height: 30px;
+  border-radius: 6px;
+  background: var(--transparent);
+  color: var(--text-button);
+  cursor: pointer;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.heading-jump-popover button:hover,
+.heading-jump-popover button:focus-visible {
+  background: var(--surface-hover);
+}
+
+.heading-jump-popover .muted {
+  margin: 6px 8px;
+  font-size: 12px;
+}
+
+.editor-format-actions .revision-mark-button:not(:disabled) {
+  color: var(--danger);
+}
+
+.writing-notes-panel {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.writing-note-column article.resolved > button:first-child {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.writing-stats-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.writing-stats-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.writing-stats-card {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.writing-stats-card strong {
+  font-size: 16px;
+}
+
+.writing-stats-card span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.writing-stats-days {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.writing-stats-day {
+  display: grid;
+  grid-template-columns: 82px minmax(60px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.writing-stats-day-label {
+  color: var(--text-secondary);
+}
+
+.writing-stats-day-bar {
+  overflow: hidden;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-hover);
+}
+
+.writing-stats-day-bar > div {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.writing-stats-day-value {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}

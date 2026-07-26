@@ -31,7 +31,7 @@ const moduleGroups = [
     title: "写作",
     items: [
       ["outline", "大纲", ListTree],
-      ["chapters", "章节", PenLine],
+      ["chapters", "章节写作台", PenLine],
       ["drafts", "草稿箱", FileText]
     ]
   },

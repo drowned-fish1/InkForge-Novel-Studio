@@ -1,19 +1,26 @@
 import {
+  AlignVerticalSpaceAround,
+  BarChart3,
   Bold,
   Bookmark,
+  CheckCircle2,
   ChevronDown,
   CircleDot,
   Eye,
+  Flag,
   Heading2,
   History,
   Italic,
+  List,
   MessageSquareText,
   Minimize2,
   PencilLine,
+  Quote,
   Replace,
   RotateCcw,
   Search,
   Trash2,
+  Undo2,
   Wand2
 } from "lucide-react";
 import { marked } from "marked";
@@ -22,6 +29,7 @@ import type { MouseEvent } from "react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ScenePlanner } from "@/features/agent/ScenePlanner";
 import { bridge } from "@/lib/browserBridge";
+import { listMarkdownHeadings } from "@/lib/chapterContent";
 import { countCjkAwareWords } from "@/lib/textMetrics";
 import { useLibraryStore } from "@/stores/useLibraryStore";
 import { useProjectStore } from "@/stores/useProjectStore";
@@ -35,9 +43,17 @@ const chapterStatusLabels = {
 } as const;
 
 type EditorTab = "write" | "preview";
-type SupportTab = "scenes" | "details" | "notes" | "history";
+type SupportTab = "scenes" | "details" | "notes" | "history" | "stats";
 
 const MAX_RENDERED_LINE_NUMBERS = 3000;
+const typewriterStorageKey = "inkforge.typewriterScroll";
+
+const dayKeyOf = (value: string | number | Date): string => new Date(value).toLocaleDateString("zh-CN");
+
+const formatMinutes = (seconds: number): string => {
+  const minutes = Math.round(seconds / 60);
+  return minutes >= 60 ? `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟` : `${minutes} 分钟`;
+};
 
 interface ReferenceEntry {
   id: string;
@@ -270,6 +286,9 @@ export const ChapterEditor = () => {
   const [findText, setFindText] = useState("");
   const [replaceText, setReplaceText] = useState("");
   const [matchIndex, setMatchIndex] = useState(0);
+  const [typewriterScroll, setTypewriterScroll] = useState(
+    () => typeof window !== "undefined" && window.localStorage.getItem(typewriterStorageKey) === "true"
+  );
   const [writingWorkspace, setWritingWorkspace] = useState<WritingWorkspace>({
     annotations: [],
     bookmarks: [],
@@ -309,6 +328,10 @@ export const ChapterEditor = () => {
     if (!project) return;
     void bridge.loadWritingWorkspace(project.projectPath).then(setWritingWorkspace);
   }, [project?.projectPath]);
+
+  useEffect(() => {
+    window.localStorage.setItem(typewriterStorageKey, String(typewriterScroll));
+  }, [typewriterScroll]);
 
   useEffect(() => {
     if (!project || !current) return;
@@ -358,8 +381,13 @@ export const ChapterEditor = () => {
     () => (focusMode && editorTab === "write" ? buildParagraphSegments(current?.content ?? "", selectionStart) : []),
     [current?.content, editorTab, focusMode, selectionStart]
   );
-  const caretBefore = focusMode ? (current?.content.slice(0, selectionStart) ?? "") : "";
-  const caretAfter = focusMode ? current?.content.slice(selectionStart) || "\u200b" : "";
+  const caretTrackingActive = focusMode || typewriterScroll;
+  const caretBefore = caretTrackingActive ? (current?.content.slice(0, selectionStart) ?? "") : "";
+  const caretAfter = caretTrackingActive ? current?.content.slice(selectionStart) || "\u200b" : "";
+  const headings = useMemo(
+    () => (editorTab === "write" ? listMarkdownHeadings(current?.content ?? "") : []),
+    [current?.content, editorTab]
+  );
   const findMatches = useMemo(() => {
     const source = current?.content ?? "";
     const needle = findText.trim();
@@ -375,11 +403,30 @@ export const ChapterEditor = () => {
     return result;
   }, [current?.content, findText]);
   const chapterAnnotations = writingWorkspace.annotations.filter((item) => item.chapterId === current?.plan.id);
+  const chapterComments = chapterAnnotations.filter((item) => item.kind !== "revision");
+  const chapterRevisions = chapterAnnotations.filter((item) => item.kind === "revision");
   const chapterBookmarks = writingWorkspace.bookmarks.filter((item) => item.chapterId === current?.plan.id);
-  const todayKey = new Date().toLocaleDateString("zh-CN");
-  const todaySessions = writingWorkspace.sessions.filter(
-    (item) => new Date(item.startedAt).toLocaleDateString("zh-CN") === todayKey
-  );
+  const todayKey = dayKeyOf(Date.now());
+  const todaySessions = writingWorkspace.sessions.filter((item) => dayKeyOf(item.startedAt) === todayKey);
+  const dailyStats = useMemo(() => {
+    const byDay = new Map<string, { words: number; seconds: number }>();
+    for (const session of writingWorkspace.sessions) {
+      const key = dayKeyOf(session.startedAt);
+      const entry = byDay.get(key) ?? { words: 0, seconds: 0 };
+      entry.words += session.wordsAdded;
+      entry.seconds += session.durationSeconds;
+      byDay.set(key, entry);
+    }
+    const days: Array<{ key: string; words: number; seconds: number }> = [];
+    for (let offset = 0; offset < 7; offset += 1) {
+      const key = dayKeyOf(Date.now() - offset * 24 * 60 * 60 * 1000);
+      const entry = byDay.get(key) ?? { words: 0, seconds: 0 };
+      days.push({ key, ...entry });
+    }
+    const totalSeconds = writingWorkspace.sessions.reduce((total, item) => total + item.durationSeconds, 0);
+    const totalWords = writingWorkspace.sessions.reduce((total, item) => total + Math.max(0, item.wordsAdded), 0);
+    return { days, totalSeconds, totalWords };
+  }, [writingWorkspace.sessions]);
 
   const syncEditorScroll = () => {
     const editor = editorRef.current;
@@ -436,13 +483,48 @@ export const ChapterEditor = () => {
     setMatchIndex(0);
   };
 
+  const readLiveSelection = () => {
+    const editor = editorRef.current;
+    return editor
+      ? {
+          start: Math.min(editor.selectionStart, editor.selectionEnd),
+          end: Math.max(editor.selectionStart, editor.selectionEnd)
+        }
+      : { start: Math.min(selectionStart, selectionEnd), end: Math.max(selectionStart, selectionEnd) };
+  };
+
   const applyMarkdown = (before: string, after = before) => {
     if (!current) return;
-    const start = selectionStart;
-    const end = selectionEnd;
+    const { start, end } = readLiveSelection();
     const selected = current.content.slice(start, end);
     updateContent(`${current.content.slice(0, start)}${before}${selected}${after}${current.content.slice(end)}`);
     window.requestAnimationFrame(() => selectOffset(start + before.length, end + before.length));
+  };
+
+  const applyLinePrefix = (prefix: string) => {
+    if (!current) return;
+    const content = current.content;
+    const { start, end } = readLiveSelection();
+    const lineStart = content.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+    const rangeEnd = Math.max(end, start);
+    const segment = content.slice(lineStart, rangeEnd);
+    const updated = segment ? segment.replace(/^/gmu, prefix) : prefix;
+    updateContent(`${content.slice(0, lineStart)}${updated}${content.slice(rangeEnd)}`);
+    window.requestAnimationFrame(() => selectOffset(lineStart, rangeEnd + (updated.length - segment.length)));
+  };
+
+  const scrollEditorToOffset = (offset: number) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const lineHeight = Number.parseFloat(window.getComputedStyle(editor).lineHeight) || 32;
+    const line = (current?.content.slice(0, offset) ?? "").split("\n").length;
+    editor.scrollTo({ top: Math.max(0, (line - 1) * lineHeight - editor.clientHeight / 3) });
+    window.requestAnimationFrame(syncEditorScroll);
+  };
+
+  const jumpToHeading = (offset: number) => {
+    selectOffset(offset);
+    scrollEditorToOffset(offset);
   };
 
   const saveWritingWorkspace = async (update: (workspace: WritingWorkspace) => WritingWorkspace) => {
@@ -454,9 +536,11 @@ export const ChapterEditor = () => {
     }
   };
 
-  const addAnnotation = () => {
-    if (!current || selectionEnd <= selectionStart) return;
-    const note = window.prompt("为选中文字添加批注", "");
+  const addAnnotation = (kind: "comment" | "revision") => {
+    if (!current) return;
+    const { start, end } = readLiveSelection();
+    if (end <= start) return;
+    const note = window.prompt(kind === "revision" ? "说明需要修改什么（可留空）" : "为选中文字添加批注", "");
     if (note === null) return;
     const now = Date.now();
     void saveWritingWorkspace((workspace) => ({
@@ -466,20 +550,30 @@ export const ChapterEditor = () => {
         {
           id: `annotation-${now}`,
           chapterId: current.plan.id,
-          start: selectionStart,
-          end: selectionEnd,
-          quote: current.content.slice(selectionStart, selectionEnd),
+          start,
+          end,
+          quote: current.content.slice(start, end),
           note,
-          color: "green",
+          color: kind === "revision" ? "rose" : "green",
+          kind,
+          status: "open",
           createdAt: new Date(now).toISOString()
         }
       ]
     }));
   };
 
+  const setAnnotationStatus = (annotationId: string, status: "open" | "resolved") => {
+    void saveWritingWorkspace((workspace) => ({
+      ...workspace,
+      annotations: workspace.annotations.map((item) => (item.id === annotationId ? { ...item, status } : item))
+    }));
+  };
+
   const addBookmark = () => {
     if (!current) return;
-    const line = current.content.slice(0, selectionStart).split(/\r?\n/u).length;
+    const { start } = readLiveSelection();
+    const line = current.content.slice(0, start).split(/\r?\n/u).length;
     const now = Date.now();
     void saveWritingWorkspace((workspace) => ({
       ...workspace,
@@ -488,7 +582,7 @@ export const ChapterEditor = () => {
         {
           id: `bookmark-${now}`,
           chapterId: current.plan.id,
-          offset: selectionStart,
+          offset: start,
           label: `第 ${line} 行`,
           createdAt: new Date(now).toISOString()
         }
@@ -499,7 +593,7 @@ export const ChapterEditor = () => {
   const centerCaretInFocusMode = () => {
     const editor = editorRef.current;
     const marker = caretMarkerRef.current;
-    if (!focusMode || !editor || !marker || document.activeElement !== editor) {
+    if (!caretTrackingActive || !editor || !marker || document.activeElement !== editor) {
       return;
     }
     const lineHeight = Number.parseFloat(window.getComputedStyle(editor).lineHeight) || 32;
@@ -509,7 +603,7 @@ export const ChapterEditor = () => {
   };
 
   useEffect(() => {
-    if (!focusMode) {
+    if (!caretTrackingActive) {
       return;
     }
     const handleSelectionChange = () => {
@@ -519,15 +613,15 @@ export const ChapterEditor = () => {
     };
     document.addEventListener("selectionchange", handleSelectionChange);
     return () => document.removeEventListener("selectionchange", handleSelectionChange);
-  }, [focusMode]);
+  }, [caretTrackingActive]);
 
   useEffect(() => {
-    if (!focusMode || editorTab !== "write") {
+    if (!caretTrackingActive || editorTab !== "write") {
       return;
     }
     const frame = window.requestAnimationFrame(centerCaretInFocusMode);
     return () => window.cancelAnimationFrame(frame);
-  }, [focusMode, editorTab, selectionStart, current?.content]);
+  }, [caretTrackingActive, editorTab, selectionStart, current?.content]);
 
   if (!current) {
     return (
@@ -665,6 +759,13 @@ export const ChapterEditor = () => {
             >
               批注书签
             </button>
+            <button
+              className={supportTab === "stats" ? "active" : ""}
+              type="button"
+              onClick={() => setSupportTab("stats")}
+            >
+              写作统计
+            </button>
           </div>
 
           <div className="chapter-support-content">
@@ -801,11 +902,17 @@ export const ChapterEditor = () => {
                   <header>
                     <MessageSquareText size={15} />
                     <strong>批注</strong>
-                    <span>{chapterAnnotations.length}</span>
+                    <span>{chapterComments.length}</span>
                   </header>
-                  {chapterAnnotations.map((annotation) => (
+                  {chapterComments.map((annotation) => (
                     <article key={annotation.id}>
-                      <button type="button" onClick={() => selectOffset(annotation.start, annotation.end)}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          selectOffset(annotation.start, annotation.end);
+                          scrollEditorToOffset(annotation.start);
+                        }}
+                      >
                         <strong>“{annotation.quote.slice(0, 60)}”</strong>
                         <small>{annotation.note || "无附加说明"}</small>
                       </button>
@@ -824,8 +931,59 @@ export const ChapterEditor = () => {
                       </button>
                     </article>
                   ))}
-                  {!chapterAnnotations.length ? (
+                  {!chapterComments.length ? (
                     <p className="muted">在正文中选中文字，然后点击工具栏中的“批注”。</p>
+                  ) : null}
+                </div>
+                <div className="writing-note-column">
+                  <header>
+                    <Flag size={15} />
+                    <strong>待修改</strong>
+                    <span>{chapterRevisions.filter((item) => item.status !== "resolved").length}</span>
+                  </header>
+                  {chapterRevisions.map((annotation) => (
+                    <article key={annotation.id} className={annotation.status === "resolved" ? "resolved" : ""}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          selectOffset(annotation.start, annotation.end);
+                          scrollEditorToOffset(annotation.start);
+                        }}
+                      >
+                        <strong>“{annotation.quote.slice(0, 60)}”</strong>
+                        <small>
+                          {annotation.status === "resolved" ? "已解决 · " : ""}
+                          {annotation.note || "待修改"}
+                        </small>
+                      </button>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        aria-label={annotation.status === "resolved" ? "重新打开" : "标记已解决"}
+                        title={annotation.status === "resolved" ? "重新打开" : "标记已解决"}
+                        onClick={() =>
+                          setAnnotationStatus(annotation.id, annotation.status === "resolved" ? "open" : "resolved")
+                        }
+                      >
+                        {annotation.status === "resolved" ? <Undo2 size={14} /> : <CheckCircle2 size={14} />}
+                      </button>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        aria-label="删除待修改标记"
+                        onClick={() =>
+                          void saveWritingWorkspace((workspace) => ({
+                            ...workspace,
+                            annotations: workspace.annotations.filter((item) => item.id !== annotation.id)
+                          }))
+                        }
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </article>
+                  ))}
+                  {!chapterRevisions.length ? (
+                    <p className="muted">选中需要返工的文字，点击工具栏中的“待修改”。</p>
                   ) : null}
                 </div>
                 <div className="writing-note-column">
@@ -857,6 +1015,60 @@ export const ChapterEditor = () => {
                   ))}
                   {!chapterBookmarks.length ? <p className="muted">把光标放到需要返回的位置，然后添加书签。</p> : null}
                 </div>
+              </section>
+            ) : null}
+
+            {supportTab === "stats" ? (
+              <section className="writing-stats-panel">
+                <div className="writing-stats-summary" aria-label="写作统计概览">
+                  <div className="writing-stats-card">
+                    <strong>
+                      {todayWords >= 0 ? "+" : ""}
+                      {todayWords.toLocaleString("zh-CN")}
+                    </strong>
+                    <span>今日字数</span>
+                  </div>
+                  <div className="writing-stats-card">
+                    <strong>{todayMinutes}</strong>
+                    <span>今日分钟</span>
+                  </div>
+                  <div className="writing-stats-card">
+                    <strong>{completion}%</strong>
+                    <span>本章进度</span>
+                  </div>
+                  <div className="writing-stats-card">
+                    <strong>{dailyStats.totalWords.toLocaleString("zh-CN")}</strong>
+                    <span>累计人工字数</span>
+                  </div>
+                  <div className="writing-stats-card">
+                    <strong>{formatMinutes(dailyStats.totalSeconds)}</strong>
+                    <span>累计写作时长</span>
+                  </div>
+                </div>
+                <div className="writing-stats-days">
+                  <div className="section-heading">
+                    <span>最近 7 天</span>
+                    <BarChart3 size={15} />
+                  </div>
+                  {dailyStats.days.map((day) => {
+                    const maxWords = Math.max(1, ...dailyStats.days.map((item) => Math.max(0, item.words)));
+                    return (
+                      <div className="writing-stats-day" key={day.key}>
+                        <span className="writing-stats-day-label">{day.key === todayKey ? "今天" : day.key}</span>
+                        <div className="writing-stats-day-bar" aria-hidden="true">
+                          <div style={{ width: `${Math.round((Math.max(0, day.words) / maxWords) * 100)}%` }} />
+                        </div>
+                        <span className="writing-stats-day-value">
+                          {day.words >= 0 ? "+" : ""}
+                          {day.words.toLocaleString("zh-CN")} 字 · {formatMinutes(day.seconds)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="muted">
+                  统计来自本机写作会话记录：进入章节到离开章节之间的字数变化和停留时长，不含未打开编辑器的改动。
+                </p>
               </section>
             ) : null}
           </div>
@@ -896,6 +1108,31 @@ export const ChapterEditor = () => {
               <Search size={14} />
               查找替换
             </button>
+            {editorTab === "write" ? (
+              <details className="editor-heading-jump">
+                <summary title="跳转到正文标题" aria-label="跳转到正文标题">
+                  <List size={14} />
+                  标题
+                  <ChevronDown size={12} />
+                </summary>
+                <div
+                  className="heading-jump-popover"
+                  onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")}
+                >
+                  {headings.map((heading) => (
+                    <button
+                      key={`${heading.offset}-${heading.text}`}
+                      type="button"
+                      style={{ paddingLeft: `${8 + (heading.level - 1) * 14}px` }}
+                      onClick={() => jumpToHeading(heading.offset)}
+                    >
+                      {heading.text}
+                    </button>
+                  ))}
+                  {!headings.length ? <p className="muted">正文中还没有 Markdown 标题。</p> : null}
+                </div>
+              </details>
+            ) : null}
             <button
               type="button"
               aria-label="插入二级标题"
@@ -904,20 +1141,48 @@ export const ChapterEditor = () => {
             >
               <Heading2 size={14} />
             </button>
-            <button type="button" aria-label="加粗" title="加粗" onClick={() => applyMarkdown("**")}>
+            <button
+              type="button"
+              aria-label="加粗（Ctrl+B）"
+              title="加粗（Ctrl+B）"
+              onClick={() => applyMarkdown("**")}
+            >
               <Bold size={14} />
             </button>
-            <button type="button" aria-label="斜体" title="斜体" onClick={() => applyMarkdown("*")}>
+            <button type="button" aria-label="斜体（Ctrl+I）" title="斜体（Ctrl+I）" onClick={() => applyMarkdown("*")}>
               <Italic size={14} />
+            </button>
+            <button type="button" aria-label="引用段落" title="引用段落" onClick={() => applyLinePrefix("> ")}>
+              <Quote size={14} />
+            </button>
+            <button
+              type="button"
+              className={typewriterScroll ? "active" : ""}
+              aria-pressed={typewriterScroll}
+              title={typewriterScroll ? "关闭打字机滚动" : "开启打字机滚动：输入时保持当前行居中"}
+              onClick={() => setTypewriterScroll((value) => !value)}
+            >
+              <AlignVerticalSpaceAround size={14} />
+              打字机
             </button>
             <button
               type="button"
               disabled={selectionEnd <= selectionStart}
               title={selectionEnd <= selectionStart ? "请先选择需要批注的文字" : "添加批注"}
-              onClick={addAnnotation}
+              onClick={() => addAnnotation("comment")}
             >
               <MessageSquareText size={14} />
               批注
+            </button>
+            <button
+              type="button"
+              className="revision-mark-button"
+              disabled={selectionEnd <= selectionStart}
+              title={selectionEnd <= selectionStart ? "请先选择需要标记的文字" : "标记为待修改"}
+              onClick={() => addAnnotation("revision")}
+            >
+              <Flag size={14} />
+              待修改
             </button>
             <button type="button" onClick={addBookmark}>
               <Bookmark size={14} />
@@ -1001,13 +1266,29 @@ export const ChapterEditor = () => {
                 onSelect={updateSelectionFromEditor}
                 onScroll={syncEditorScroll}
                 onKeyDown={(event) => {
-                  if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase("en-US") === "f") {
+                  if (!(event.ctrlKey || event.metaKey) || event.altKey) {
+                    return;
+                  }
+                  const key = event.key.toLocaleLowerCase("en-US");
+                  if (key === "f") {
                     event.preventDefault();
                     setFindOpen(true);
+                    return;
+                  }
+                  if (key === "b" && !event.shiftKey) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    applyMarkdown("**");
+                    return;
+                  }
+                  if (key === "i" && !event.shiftKey) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    applyMarkdown("*");
                   }
                 }}
               />
-              {focusMode ? (
+              {caretTrackingActive ? (
                 <div className="caret-mirror" aria-hidden="true">
                   {caretBefore}
                   <span ref={caretMarkerRef} />

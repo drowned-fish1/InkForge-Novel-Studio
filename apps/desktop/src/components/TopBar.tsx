@@ -33,16 +33,20 @@ interface TopBarProps {
   compactLayout?: boolean;
   navigationOpen?: boolean;
   agentOpen?: boolean;
+  agentCollapsed?: boolean;
   onToggleNavigation?: () => void;
   onToggleAgent?: () => void;
+  onToggleAgentCollapsed?: () => void;
 }
 
 export const TopBar = ({
   compactLayout = false,
   navigationOpen = false,
   agentOpen = false,
+  agentCollapsed = false,
   onToggleNavigation,
-  onToggleAgent
+  onToggleAgent,
+  onToggleAgentCollapsed
 }: TopBarProps) => {
   const { theme, toggleTheme } = useAppTheme();
   const project = useProjectStore((state) => state.project);
@@ -106,7 +110,18 @@ export const TopBar = ({
           >
             <Bot size={18} />
           </button>
-        ) : null}
+        ) : (
+          <button
+            className={`icon-button agent-collapse-toggle ${agentCollapsed ? "" : "panel-open"}`}
+            type="button"
+            aria-label={agentCollapsed ? "展开 Agent 面板" : "收起 Agent 面板"}
+            aria-pressed={!agentCollapsed}
+            title={agentCollapsed ? "展开 Agent 面板" : "收起 Agent 面板"}
+            onClick={onToggleAgentCollapsed}
+          >
+            <Bot size={17} />
+          </button>
+        )}
         <span className={`top-save-state ${saveState}`} aria-live="polite">
           <Check size={14} />
           {saveLabel[saveState]}
