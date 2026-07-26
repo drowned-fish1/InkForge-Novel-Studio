@@ -57,21 +57,19 @@ export class RevisionService {
     }
 
     const proposals: RevisionProposalSummary[] = [];
-    for (const chapter of chapters) {
-      let session;
-      try {
-        session = await this.chatAgent.load(projectPath, chapter.id);
-      } catch {
-        continue;
-      }
+    // One directory scan instead of a per-chapter load (which re-parses the
+    // whole project each call) — keeps the workbench fast on large novels.
+    const sessions = await this.chatAgent.listExistingSessions(projectPath);
+    for (const session of sessions) {
+      const title = chapterTitle.get(session.chapterId) ?? session.chapterId;
       for (const proposal of session.proposals) {
         if (proposal.status !== "pending") {
           continue;
         }
         proposals.push({
           id: proposal.id,
-          chapterId: chapter.id,
-          chapterTitle: chapter.title,
+          chapterId: session.chapterId,
+          chapterTitle: title,
           kind: "change",
           mode: proposal.mode,
           title: proposal.mode === "append" ? "续写提案" : proposal.mode === "replace" ? "替换提案" : "结构化改稿",
@@ -87,8 +85,8 @@ export class RevisionService {
         }
         proposals.push({
           id: proposal.id,
-          chapterId: chapter.id,
-          chapterTitle: chapter.title,
+          chapterId: session.chapterId,
+          chapterTitle: title,
           kind: "data",
           entityType: proposal.entityType,
           title: proposal.title,

@@ -28,22 +28,22 @@ npm run test:desktop-smoke
 - 项目数据为文件夹格式（`project.novel.json` / `outline.json` / `chapters/**.md` / `.inkforge/*`），schema 版本 `0.1.0`（`z.literal`，无迁移机制——阶段七需处理）。
 - 备份：`WorkspaceService`，10 分钟自动快照、上限 20 个、恢复前自动建保护点；快照为整目录复制存于 `.inkforge/backups/<id>/project`。
 - 写作工作区：`.inkforge/writing-workspace.json`（批注/书签/写作会话，均已有 schema）。
-- Agent：20 个工具名（get_* 只读 / propose_* 提案），`AgentChangeProposal`（append/replace/patch + baseContentHash + snapshotId 回滚）与 `AgentDataProposal`（8 类实体 upsert）双提案通道；`AgentRunTrace` 记录 usage 与事件。
+- Agent：20 个工具名（get*\* 只读 / propose*\* 提案），`AgentChangeProposal`（append/replace/patch + baseContentHash + snapshotId 回滚）与 `AgentDataProposal`（8 类实体 upsert）双提案通道；`AgentRunTrace` 记录 usage 与事件。
 - 导出：`ExportService` 已支持 markdown/txt/docx/epub（EPUB3 基础：nav+opf+spine，两种 css 主题；无封面/版权/分卷层级/导出前检查/配置持久化）。
 - 导航：`ProjectNav` 四组模块；占位模块 = `locations/factions/conflicts/events`（AppShell `placeholderModules` 还含 `export`，但 export 实际渲染 `ExportPanel`）。
 
 ## 阶段总览
 
-| 阶段 | 状态 | 提交 |
-| --- | --- | --- |
-| 0. 审计 + 本文档 | 完成（8 代理并行审计，差距摘要见下） | 与阶段一同提交 |
-| 1. 人工写作工作台 | 完成（浏览器实测验证通过） | 见 git log |
-| 2. 备份/恢复/草稿 | 完成（浏览器实测验证通过） | 见 git log |
-| 3. 故事资料关系中心 | 完成（浏览器实测验证通过） | 见 git log |
-| 4. 集中修订工作台 | 完成（浏览器实测验证通过） | 见 git log |
-| 5. Agent 控制与扩展 | 完成（浏览器实测验证通过） | 见 git log |
-| 6. EPUB 与交付 | 完成（浏览器实测验证通过） | 见 git log |
-| 7. 发布级质量收口 | 完成 | 见 git log |
+| 阶段                | 状态                                 | 提交           |
+| ------------------- | ------------------------------------ | -------------- |
+| 0. 审计 + 本文档    | 完成（8 代理并行审计，差距摘要见下） | 与阶段一同提交 |
+| 1. 人工写作工作台   | 完成（浏览器实测验证通过）           | 见 git log     |
+| 2. 备份/恢复/草稿   | 完成（浏览器实测验证通过）           | 见 git log     |
+| 3. 故事资料关系中心 | 完成（浏览器实测验证通过）           | 见 git log     |
+| 4. 集中修订工作台   | 完成（浏览器实测验证通过）           | 见 git log     |
+| 5. Agent 控制与扩展 | 完成（浏览器实测验证通过）           | 见 git log     |
+| 6. EPUB 与交付      | 完成（浏览器实测验证通过）           | 见 git log     |
+| 7. 发布级质量收口   | 完成                                 | 见 git log     |
 
 ## 阶段一：已完成内容（2026-07-27）
 
@@ -62,7 +62,7 @@ npm run test:desktop-smoke
 ## 阶段二：已完成内容（2026-07-27）
 
 - **备份设置**：`BackupSettingsSchema`（间隔/保留数/磁盘上限 MB/自定义目录），存 `.inkforge/backup-settings.json`；自定义目录必须是项目外绝对路径，按 `<项目名>-<路径hash8>` 建子目录；恢复时保留备份根目录与设置文件（`preservedRestorePaths`）。
-- **快照元数据**：manifest 增加 `chapterHashes`（chapters/**.md 的 sha256）与 `changedChapterFiles`（对比上一快照，含增/改/删）；旧快照靠 zod default 兼容。
+- **快照元数据**：manifest 增加 `chapterHashes`（chapters/\*\*.md 的 sha256）与 `changedChapterFiles`（对比上一快照，含增/改/删）；旧快照靠 zod default 兼容。
 - **完整性检查**：`backup:verify` 重算章节哈希+文件数/大小对账；损坏快照目录由 `backup:inspect` 单独列出（不再静默隐藏）。
 - **恢复前差异**：`backup:diff` 汇总（回退/删除/找回章节 + 元文件变化），`backup:read-file`（防穿越）+ 渲染层 `diffTextLines`（LCS，>4M 单元格退化为前后缀裁剪 diff）逐章行级预览；确认后才恢复。
 - **磁盘上限**：createBackup 后按时间序淘汰最旧自动快照直到达标（手动/恢复保护点与刚建快照不淘汰）。
@@ -107,7 +107,7 @@ npm run test:desktop-smoke
 
 ## 阶段五：已完成内容（2026-07-27）
 
-- **工具注册表（唯一事实来源）**：`agentToolRegistry`（schemas）以 `Record<AgentToolName,{label,kind:read|proposal}>` 定义全部 22 个工具；服务端 agentToolNames/proposalToolNames/toolLabel 与 UI toolLabels/readOnlyTools 全部派生；TS 完备性+测试双保险（注册表 === 枚举、propose_* 必为 proposal）。第三方/自定义工具只能引用注册表内工具名（zod 枚举强制），写操作只能经 propose_* 提案通道。
+- **工具注册表（唯一事实来源）**：`agentToolRegistry`（schemas）以 `Record<AgentToolName,{label,kind:read|proposal}>` 定义全部 22 个工具；服务端 agentToolNames/proposalToolNames/toolLabel 与 UI toolLabels/readOnlyTools 全部派生；TS 完备性+测试双保险（注册表 === 枚举、propose*\* 必为 proposal）。第三方/自定义工具只能引用注册表内工具名（zod 枚举强制），写操作只能经 propose*\* 提案通道。
 - **统一 CJK 估算器**：`estimateTokensCjkAware`（0.65/CJK 字符 + 0.25/其他）替换 chars/3；fitTextToTokens 迭代裁剪保证不超预算。
 - **发送前估算**：`agent:chat:estimate` IPC 复用真实上下文构建（上下文+历史+消息+固定开销），返回输入估算/输出上限/分项，全部标记 estimated；Provider 配置新增可选输入/输出价格（每 1M tok，SecureConfig 持久化），填了价格则显示"费用 ≤ X（估算值）"；写作面板输入 700ms 防抖展示。
 - **估算标记**：`AgentRunUsage.estimated` 字段（默认 false）；provider 未返回 usage 的回退估算全部打标；运行追踪 Token 指标显示"（含估算）"。
@@ -137,29 +137,38 @@ npm run test:desktop-smoke
 
 ## 阶段七：已完成内容（2026-07-27）
 
-- **死代码与过时文案**：删除未挂载的 AiCockpit.tsx 与 PlanningPanel.tsx（Esc 关闭设置事件改由 AgentChatPanel 监听，恢复了此前失效的快捷键路径）；roadmap-next 重写为"已完成 + v1 后候选方向"；dev-log 补 v1 条目；project-format.md 更新为真实 v1 布局（含全部 .inkforge/* 文件与版本策略）；README 全面刷新（移除 placeholder 文案）；新增 docs/user-guide.md 与 docs/release-windows.md；dev-guide 补质量门禁与镜像/注册表规则。
+- **死代码与过时文案**：删除未挂载的 AiCockpit.tsx 与 PlanningPanel.tsx（Esc 关闭设置事件改由 AgentChatPanel 监听，恢复了此前失效的快捷键路径）；roadmap-next 重写为"已完成 + v1 后候选方向"；dev-log 补 v1 条目；project-format.md 更新为真实 v1 布局（含全部 .inkforge/\* 文件与版本策略）；README 全面刷新（移除 placeholder 文案）；新增 docs/user-guide.md 与 docs/release-windows.md；dev-guide 补质量门禁与镜像/注册表规则。
 - **安全加固**：`theme:set` 输入校验；`project:reveal` 仅允许最近项目列表内路径（阻断任意路径 shell.openPath）；`session.setPermissionRequestHandler` 默认拒绝全部权限请求；FileRepository.assertInsideProject 新增穿越/绝对路径/同前缀兄弟目录攻击测试与原子写测试。sandbox 保持关闭（ESM preload 限制，见已知限制）。
 - **测试补齐（本轮累计新增）**：ChapterService、ExportService（EPUB 构建/校验/渲染）、StoryStateService、references 引擎、RevisionService、AgentControl（注册表/估算/压缩/逐工具拒绝）、WorkspaceService 扩展、FileRepository、textDiffLines、schemas（workspace/conflict/export）。
 - **desktop-smoke 扩展**：mock loader 补 session/openExternal；smoke 现覆盖 15 项真实构建主进程端到端检查（建项目→写作+历史→四格式导出（EPUB 结构断言）→备份创建/校验/差异/快照读取/保护性恢复→备份设置→冲突 CRUD+引用保护替换删除→修订聚合与处置→无 Provider 发送前估算→导出配置+preflight→项目完整性检查→密钥不落项目目录）。
 - **真实桌面启动**：以构建产物直接启动 Electron，12 秒存活无任何错误输出后正常退出。
-- **版本策略**：root 与 apps/desktop 升至 `1.0.0-rc.1`；packages/* 保持内部 0.1.0；项目数据 schemaVersion 冻结 0.1.0（新增字段一律带 zod 默认值，旧项目直接可开——由全部 schema 测试与 smoke 的 reopen 流程验证）。
+- **版本策略**：root 与 apps/desktop 升至 `1.0.0-rc.1`；packages/\* 保持内部 0.1.0；项目数据 schemaVersion 冻结 0.1.0（新增字段一律带 zod 默认值，旧项目直接可开——由全部 schema 测试与 smoke 的 reopen 流程验证）。
 - **Windows 发布**：`docs/release-windows.md` 记录构建命令、安装包验证清单、签名接入（certificateFile / signtoolOptions / azure）与 electron-updater 更新源接入步骤；证书与更新源为外部阻塞，不影响本地打包（`npm run dist:windows` 可用）。
 
 ---
+
+# Post-1.0 拓展记录
+
+## 拓展一：发布闭环与规模验证（2026-07-27）
+
+- **CI**：`.github/workflows/ci.yml` — push/PR 触发，windows+ubuntu 矩阵跑 lint/typecheck/test/desktop-smoke；主分支追加未签名 Windows 安装包构建并上传工件（签名接入仍待外部证书，见 release-windows.md）。仓库当前无远端，推送到 GitHub 即生效。
+- **规模压测**：`npm run perf:probe`（scripts/perf-probe.mjs，复用 smoke 的真实主进程）生成 4 卷 × 100 章 × 7000 字（约 280 万字）项目并计时热路径。
+- **压测结论与修复**：唯一热点为 `revision:overview`（逐章 `chatAgent.load` 各自重新解析整个项目，1446ms）；新增 `ChatAgentService.listExistingSessions`（单次会话目录扫描，跳过损坏文件，不触碰 project/outline 解析），RevisionService 改用后 **1446ms → 36ms**。其余路径在 400 章规模全部健康：重开 9ms、单次大纲编辑 ~140ms、全量备份 1.5s/7.6MB、校验 194ms、导出检查 106ms、聚合历史 85ms。
+- 验证：typecheck ✅ / 281 tests ✅ / lint ✅ / desktop-smoke ✅ / 探针前后对比 ✅。
 
 # 最终交付摘要（v1.0-rc.1）
 
 ## 提交列表（基线 87ff6cf 之后）
 
-| 提交 | 阶段 | 内容 |
-| --- | --- | --- |
-| b945891 | 阶段一 | 章节写作台（标题跳转/快捷键/打字机/待修改标记/统计/Agent 面板收起） |
-| 5c93998 | 阶段二 | 备份设置/校验/差异/损坏恢复 + 草稿批量/聚合历史/灵感片段 + Agent 读取门控 |
-| dd5ad18 | 阶段三 | 地点/势力/冲突/事件页面 + 引用引擎与删除保护 + 关系中心双向引用 + 实体工具 |
-| c648352 | 阶段四 | 集中修订工作台（聚合/批量处置/差异/质量分变化） |
-| 6bb2dae | 阶段五 | 工具注册表/发送前估算/逐工具授权/取消修复/会话压缩/模板导入导出 |
-| 2682136 | 阶段六 | EPUB 3 完整交付（封面/版权/嵌套目录/NCX/检查/校验/预览/持久化配置） |
-| （本提交） | 阶段七 | 安全加固/死代码清理/测试与 smoke 扩展/文档刷新/版本 1.0.0-rc.1 |
+| 提交       | 阶段   | 内容                                                                       |
+| ---------- | ------ | -------------------------------------------------------------------------- |
+| b945891    | 阶段一 | 章节写作台（标题跳转/快捷键/打字机/待修改标记/统计/Agent 面板收起）        |
+| 5c93998    | 阶段二 | 备份设置/校验/差异/损坏恢复 + 草稿批量/聚合历史/灵感片段 + Agent 读取门控  |
+| dd5ad18    | 阶段三 | 地点/势力/冲突/事件页面 + 引用引擎与删除保护 + 关系中心双向引用 + 实体工具 |
+| c648352    | 阶段四 | 集中修订工作台（聚合/批量处置/差异/质量分变化）                            |
+| 6bb2dae    | 阶段五 | 工具注册表/发送前估算/逐工具授权/取消修复/会话压缩/模板导入导出            |
+| 2682136    | 阶段六 | EPUB 3 完整交付（封面/版权/嵌套目录/NCX/检查/校验/预览/持久化配置）        |
+| （本提交） | 阶段七 | 安全加固/死代码清理/测试与 smoke 扩展/文档刷新/版本 1.0.0-rc.1             |
 
 ## 最终验证结果
 
@@ -193,6 +202,7 @@ npm run test:desktop-smoke
 完整差距清单见审计输出（scratchpad/audit-gaps.txt，270 行）。关键结论：
 
 ### 阶段二（备份/草稿）
+
 - 备份频率(10min)/保留(20)为硬编码常量，无设置 schema/IPC/UI，无磁盘上限；快照为全量复制（含 exports/.inkforge 缓存），体积复利。
 - 无变更章节元数据、无恢复前差异、无完整性校验（manifest 无 checksum）；损坏项目无法走 `project:open`（inspectProject 硬失败）恢复备份。
 - DraftCenter 仅单条操作；无批量多选；moveChapter 不移动 .md 文件。
@@ -200,32 +210,37 @@ npm run test:desktop-smoke
 - 陷阱：restoreDirectory 只保留 backups 根，新增 `.inkforge` 设置文件会被恢复回滚，需加入保留集；listBackups 对 manifest parse 失败静默丢弃 → 新字段必须带 zod default。
 
 ### 阶段三（故事资料）
+
 - locations/factions 数据已存在于 WorldEntry(type: location/faction/organization)；conflicts 无实体（仅散落文本字段）；events=TimelineEvent。
 - 全部实体无删除能力（无 IPC/service/UI），引用全部是名字字符串（改名即断链）；RelationshipCenter 靠名字匹配。
 - Agent 提案 action 仅 upsert（z.literal），加 delete/unlink 需向后兼容。
 - ChatAgentService ~3800 行单体，加工具要同步 5 处（agentTools、AgentToolNameSchema、entityTypeByTool、toolLabel、UI toolLabels）。
 
 ### 阶段四（修订工作台）
+
 - 无聚合入口；四类来源分散（批注/质量/连续性/提案）；QualityFinding 无 status 且 id 每次 randomUUID（需按 fingerprint+dimension+title 关联）；ConsistencyIssue 不持久化。
 - 提案必须走 ChatAgentService.resolveChange/resolveDataChange（章节锁+hash 冲突检测+快照回滚），工作台不可直接写章节。
 - 跨章节提案不可见（按章节文件存储）。BranchService.diffLines 可复用做差异。
 
 ### 阶段五（Agent 控制）
+
 - 无发送前 token/费用估算（3 处估算逻辑不一致：chars/3 两处、CJK 加权一处，需统一 CJK-aware）；估算与真实 usage 混存不可区分（AgentRunUsage 需加 estimated 标记，带 default）。
 - 无逐工具 per-call 授权（需在 runChat 循环加 pending-authorization map + 渲染层回复通道）；无权限决策日志。
 - 工具清单四处重复硬编码；PipelineSchema 是死代码（无持久化/CRUD/导入导出）；无第三方工具机制。
 - AgentService pipeline 单例内存态，cancel 不中止 AI 调用（runTask 未传 requestId）；UI 限额与服务端 clamp 不一致（32vs24, 30vs8）。
 
 ### 阶段六（EPUB/导出）
+
 - EPUB3 基础已有（fflate 手工打包，nav/opf/spine，两主题 CSS）；缺封面（需二进制读取+媒体类型）、版权字段、分卷嵌套 TOC、NCX、页面分隔/字体/段距配置、导出前检查、配置持久化（建议 .inkforge/export.json 侧车避开 schemaVersion literal）、导出预览、输出验证。
 - 桌面/浏览器双 EPUB 生成器分叉，建议抽共享纯函数模块。
 - TopBar 快捷导出缺 EPUB；导出取消被误报为“未打开项目”。escapeXml 不转义单引号（当前安全，模板改动需注意）。
 
 ### 阶段七（收口）
+
 - schemaVersion z.literal("0.1.0") 无任何迁移机制——bump 即炸所有旧项目；需迁移框架或冻结 0.1.0 并文档化。
 - IPC 弱点：theme:set 未验证、project:reveal 任意路径 shell.openPath、sandbox:false、复杂输入无 zod 边界校验；无 session.setPermissionRequestHandler。
 - 缺测试：ChapterService（数据丢失路径）、ExportService、SecureConfigService、FileRepository.assertInsideProject、React 组件层全空。
-- 文档全面过期：dev-log 停在 2026-05-13、roadmap-next 仍列已实现功能、project-format.md 缺 .inkforge/* 全部文件。
+- 文档全面过期：dev-log 停在 2026-05-13、roadmap-next 仍列已实现功能、project-format.md 缺 .inkforge/\* 全部文件。
 - 死代码：AiCockpit（唯一 inkforge:close-settings 监听者，未挂载）、PlanningPanel 未挂载、ModulePlaceholder 的 outline/drafts/backup 条目不可达。
 - 无签名证书/更新源（外部阻塞项）；无 CI；desktop-smoke 用已废弃 node --loader。
 - 版本错位：app 0.2.1 vs packages 0.1.0 vs schema 0.1.0，v1 需统一 bump 策略。

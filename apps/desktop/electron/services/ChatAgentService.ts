@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import type {
   ChatCompletionMessage,
@@ -888,6 +889,29 @@ export class ChatAgentService {
 
   async listTraces(projectPath: string, chapterId: string): Promise<AgentRunTrace[]> {
     return this.traces.list(projectPath, chapterId);
+  }
+
+  /**
+   * Reads every persisted chat session directly from the sessions directory.
+   * Unlike load(), this never touches project.novel.json/outline.json, so
+   * aggregators (revision workbench) stay O(existing sessions) instead of
+   * O(chapters × project parses). Corrupted session files are skipped.
+   */
+  async listExistingSessions(projectPath: string): Promise<AgentChatSession[]> {
+    const dir = this.files.assertInsideProject(projectPath, path.posix.join(".inkforge", "agents", "chat"));
+    const names = await readdir(dir).catch(() => [] as string[]);
+    const sessions: AgentChatSession[] = [];
+    for (const name of names.filter((entry) => entry.endsWith(".json"))) {
+      try {
+        const loaded = normalizeAgentSession(
+          AgentChatSessionSchema.parse(await this.files.readJson(path.join(dir, name)))
+        );
+        sessions.push(sanitizeLegacyAgentSession(loaded));
+      } catch {
+        // Skip unreadable session files; load() handles per-chapter recovery.
+      }
+    }
+    return sessions;
   }
 
   async manageSession(input: AgentSessionCommandInput): Promise<AgentChatSession> {
