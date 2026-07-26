@@ -1254,7 +1254,13 @@ export class ChatAgentService {
         let toolStatus: "completed" | "failed" = "completed";
         let toolResult: ToolResult;
         try {
-          toolResult = await this.executeTool(input.projectPath, input.chapterId, session, call);
+          toolResult = await this.executeTool(
+            input.projectPath,
+            input.chapterId,
+            session,
+            call,
+            new Set(input.context?.excludedSourceKeys ?? [])
+          );
           if (isToolFailureResult(toolResult)) {
             toolStatus = "failed";
           }
@@ -1493,7 +1499,13 @@ export class ChatAgentService {
             );
             let toolResult: ToolResult;
             try {
-              toolResult = await this.executeTool(input.projectPath, input.chapterId, session, call);
+              toolResult = await this.executeTool(
+                input.projectPath,
+                input.chapterId,
+                session,
+                call,
+                new Set(input.context?.excludedSourceKeys ?? [])
+              );
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
               toolResult = {
@@ -2489,9 +2501,11 @@ export class ChatAgentService {
     projectPath: string,
     chapterId: string,
     session: AgentChatSession,
-    call: ChatCompletionToolCall
+    call: ChatCompletionToolCall,
+    excludedSourceKeys: Set<string> = new Set()
   ): Promise<ToolResult> {
     const args = parseArguments(call.function.arguments);
+    const notExcluded = (kind: string, id: string): boolean => !excludedSourceKeys.has(`${kind}:${id}`);
     if (call.function.name === "get_chapter_context") {
       const project = await this.projects.openProject(projectPath);
       const chapter = this.findChapter(project.outline.volumes, chapterId);
@@ -2529,7 +2543,9 @@ export class ChatAgentService {
       const chapters = project.outline.volumes.flatMap((volume) => volume.chapters);
       const currentIndex = chapters.findIndex((chapter) => chapter.id === chapterId);
       const previousCount = clampNumber(args.previous_chapters, 3, 0, 8);
-      const selected = chapters.slice(Math.max(0, currentIndex - previousCount), currentIndex + 1);
+      const selected = chapters
+        .slice(Math.max(0, currentIndex - previousCount), currentIndex + 1)
+        .filter((chapter) => notExcluded("memory", chapter.id));
       const memories = (
         await Promise.all(
           selected.map(async (chapter) => ({
@@ -2607,13 +2623,18 @@ export class ChatAgentService {
       const sections = requested.length
         ? new Set(requested)
         : new Set(["characters", "world", "timeline", "clues", "terms"]);
-      const [characters, world, timeline, clues, terms] = await Promise.all([
+      const [allCharacters, allWorld, allTimeline, allClues, allTerms] = await Promise.all([
         sections.has("characters") ? this.library.listCharacters(projectPath) : [],
         sections.has("world") ? this.library.listWorldEntries(projectPath) : [],
         sections.has("timeline") ? this.story.listTimeline(projectPath) : [],
         sections.has("clues") ? this.story.listClues(projectPath) : [],
         sections.has("terms") ? this.story.listTerms(projectPath) : []
       ]);
+      const characters = allCharacters.filter((item) => notExcluded("character", item.id));
+      const world = allWorld.filter((item) => notExcluded("world", item.id));
+      const timeline = allTimeline.filter((item) => notExcluded("timeline", item.id));
+      const clues = allClues.filter((item) => notExcluded("clue", item.id));
+      const terms = allTerms.filter((item) => notExcluded("term", item.id));
       return {
         modelContent: jsonForModel({
           characters: characters.slice(0, 30),
@@ -2767,6 +2788,7 @@ export class ChatAgentService {
         }))
       ];
       const matches = candidates
+        .filter((item) => notExcluded(item.type, item.id))
         .filter((item) => `${item.title} ${item.text}`.toLocaleLowerCase().includes(query))
         .slice(0, 20);
       return {
@@ -2787,14 +2809,15 @@ export class ChatAgentService {
         return { modelContent: jsonForModel({ error: "query is required" }), uiContent: "语义检索参数为空" };
       }
       const result = await this.semantic.search(projectPath, query, clampNumber(args.limit, 6, 1, 12));
+      const hits = result.hits.filter((hit) => notExcluded(hit.kind, hit.id));
       return {
         modelContent: jsonForModel({
           query,
           indexedDocuments: result.indexedDocuments,
-          hits: result.hits
+          hits
         }),
-        uiContent: `语义检索“${query}”，从 ${result.indexedDocuments} 条资料中命中 ${result.hits.length} 条`,
-        sources: result.hits
+        uiContent: `语义检索“${query}”，从 ${result.indexedDocuments} 条资料中命中 ${hits.length} 条`,
+        sources: hits
       };
     }
 

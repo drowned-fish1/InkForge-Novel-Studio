@@ -1,7 +1,24 @@
 import { FormEvent, useState } from "react";
-import { BookOpen, FolderInput, FolderOpen, Sparkles } from "lucide-react";
+import {
+  ArchiveRestore,
+  BookOpen,
+  DatabaseBackup,
+  FolderInput,
+  FolderOpen,
+  Sparkles,
+  TriangleAlert,
+  X
+} from "lucide-react";
+import type { BackupSnapshot } from "@inkforge/schemas";
 import { ImportPanel } from "@/features/project/ImportPanel";
+import { bridge } from "@/lib/browserBridge";
 import { useProjectStore } from "@/stores/useProjectStore";
+
+interface RecoveryState {
+  path: string;
+  issues: string[];
+  backups: BackupSnapshot[];
+}
 
 export const ProjectStart = () => {
   const createProject = useProjectStore((state) => state.createProject);
@@ -12,6 +29,7 @@ export const ProjectStart = () => {
   const [genre, setGenre] = useState("");
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recovery, setRecovery] = useState<RecoveryState | undefined>();
 
   const runProjectAction = async (action: () => Promise<void>) => {
     if (busy) {
@@ -26,6 +44,52 @@ export const ProjectStart = () => {
     } finally {
       setBusy(false);
     }
+  };
+
+  const offerRecovery = async (path: string, issues: string[]) => {
+    const backups = await bridge.listBackups(path).catch(() => [] as BackupSnapshot[]);
+    setRecovery({ path, issues, backups });
+  };
+
+  const openWithRecovery = async (projectPath?: string) => {
+    setRecovery(undefined);
+    let path = projectPath;
+    if (!path) {
+      path = await bridge.chooseProjectFolder();
+      if (!path) {
+        if (!window.inkforge) {
+          await openProject();
+        }
+        return;
+      }
+    }
+    const issues = await bridge.inspectProjectFolder(path).catch(() => [] as string[]);
+    if (issues.length) {
+      await offerRecovery(path, issues);
+      return;
+    }
+    try {
+      await openProject(path);
+    } catch (error) {
+      const inspected = await bridge.inspectProjectFolder(path).catch(() => [] as string[]);
+      if (inspected.length) {
+        await offerRecovery(path, inspected);
+        return;
+      }
+      throw error;
+    }
+  };
+
+  const restoreFromBackup = async (snapshot: BackupSnapshot) => {
+    if (!recovery) return;
+    await bridge.restoreBackup(recovery.path, snapshot.id);
+    const issues = await bridge.inspectProjectFolder(recovery.path).catch(() => [] as string[]);
+    if (issues.length) {
+      await offerRecovery(recovery.path, issues);
+      throw new Error(`恢复后项目仍不完整：${issues.join("、")}。可尝试更早的快照。`);
+    }
+    setRecovery(undefined);
+    await openProject(recovery.path);
   };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -75,6 +139,57 @@ export const ProjectStart = () => {
             </button>
           </div>
         </form>
+
+        {recovery ? (
+          <section className="project-recovery-panel">
+            <header>
+              <strong>
+                <TriangleAlert size={16} />
+                项目文件不完整
+              </strong>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="关闭恢复面板"
+                onClick={() => setRecovery(undefined)}
+              >
+                <X size={15} />
+              </button>
+            </header>
+            <p className="project-recovery-path" title={recovery.path}>
+              {recovery.path}
+            </p>
+            <ul>
+              {recovery.issues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+            {recovery.backups.length ? (
+              <div className="project-recovery-backups">
+                <strong>
+                  <DatabaseBackup size={15} />
+                  从项目备份恢复（{recovery.backups.length} 个快照）
+                </strong>
+                {recovery.backups.slice(0, 6).map((snapshot) => (
+                  <button
+                    key={snapshot.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void runProjectAction(() => restoreFromBackup(snapshot))}
+                  >
+                    <ArchiveRestore size={14} />
+                    <span>
+                      {new Date(snapshot.createdAt).toLocaleString("zh-CN")} · {snapshot.fileCount} 个文件
+                    </span>
+                    <small>{snapshot.label || snapshot.reason}</small>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">该文件夹内没有可用的 InkForge 备份快照，无法自动恢复。</p>
+            )}
+          </section>
+        ) : null}
       </section>
 
       <aside className="start-brief">
@@ -93,7 +208,7 @@ export const ProjectStart = () => {
                 key={item.projectPath}
                 type="button"
                 disabled={busy}
-                onClick={() => void runProjectAction(() => openProject(item.projectPath))}
+                onClick={() => void runProjectAction(() => openWithRecovery(item.projectPath))}
               >
                 <span>{item.title}</span>
                 <small>
@@ -110,7 +225,7 @@ export const ProjectStart = () => {
             className="secondary-button"
             type="button"
             disabled={busy}
-            onClick={() => void runProjectAction(() => openProject())}
+            onClick={() => void runProjectAction(() => openWithRecovery())}
           >
             <FolderOpen size={17} />
             打开 InkForge 项目

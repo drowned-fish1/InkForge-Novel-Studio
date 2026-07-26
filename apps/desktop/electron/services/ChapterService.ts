@@ -17,6 +17,14 @@ export class ChapterService {
     await this.files.writeTextAtomic(targetPath, input.content);
   }
 
+  async listHistoryOverview(projectPath: string, files: string[]): Promise<Record<string, ChapterHistoryEntry[]>> {
+    const overview: Record<string, ChapterHistoryEntry[]> = {};
+    for (const file of files) {
+      overview[file] = await this.listHistoryVersions(projectPath, file);
+    }
+    return overview;
+  }
+
   async listHistoryVersions(projectPath: string, file: string): Promise<ChapterHistoryEntry[]> {
     const dir = this.historyDir(projectPath, file);
     try {

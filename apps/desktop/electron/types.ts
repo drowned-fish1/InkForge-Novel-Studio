@@ -6,7 +6,11 @@ import type {
   AgentRunEvent,
   AgentRunTrace,
   BatchRun,
+  BackupDiffSummary,
+  BackupInspection,
+  BackupSettings,
   BackupSnapshot,
+  BackupVerification,
   BeatBoard,
   BranchDiffLine,
   ChapterPlan,
@@ -482,9 +486,19 @@ export interface InkforgeApi {
   updateOutline: (input: UpdateOutlineInput) => Promise<ProjectSummary>;
   exportManuscript: (input: ExportInput) => Promise<string | undefined>;
   listBackups: (projectPath: string) => Promise<BackupSnapshot[]>;
+  inspectBackups: (projectPath: string) => Promise<BackupInspection>;
   createBackup: (projectPath: string, label?: string) => Promise<BackupSnapshot>;
   restoreBackup: (projectPath: string, snapshotId: string) => Promise<ProjectSummary>;
   deleteBackup: (projectPath: string, snapshotId: string) => Promise<void>;
+  verifyBackup: (projectPath: string, snapshotId: string) => Promise<BackupVerification>;
+  diffBackup: (projectPath: string, snapshotId: string) => Promise<BackupDiffSummary>;
+  readBackupFile: (projectPath: string, snapshotId: string, file: string) => Promise<string>;
+  loadBackupSettings: (projectPath: string) => Promise<BackupSettings>;
+  saveBackupSettings: (projectPath: string, settings: BackupSettings) => Promise<BackupSettings>;
+  chooseBackupDirectory: () => Promise<string | undefined>;
+  inspectProjectFolder: (projectPath: string) => Promise<string[]>;
+  chooseProjectFolder: () => Promise<string | undefined>;
+  listChapterHistoryOverview: (projectPath: string, files: string[]) => Promise<Record<string, ChapterHistoryEntry[]>>;
   loadWritingWorkspace: (projectPath: string) => Promise<WritingWorkspace>;
   saveWritingWorkspace: (projectPath: string, workspace: WritingWorkspace) => Promise<WritingWorkspace>;
   loadAgentExtensions: (projectPath: string) => Promise<AgentExtensionConfig>;

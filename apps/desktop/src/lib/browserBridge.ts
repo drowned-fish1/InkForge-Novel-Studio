@@ -8,6 +8,7 @@ import {
   SimulationDocumentSchema,
   SimulationScenarioSchema,
   type BatchRun,
+  type BackupSettings,
   type BackupSnapshot,
   type BeatBoard,
   type BranchDiffLine,
@@ -31,6 +32,7 @@ import type {
   AgentRunTrace,
   AiTaskInput,
   AiTaskResult,
+  ChapterHistoryEntry,
   ExportInput,
   PlayableExportInput,
   SimulationRunEvent,
@@ -137,6 +139,7 @@ let browserQualityReports: QualityReport[] = [];
 let browserBranches: StoryBranch[] = [];
 let browserBatchRuns: BatchRun[] = [];
 const browserBackups = new Map<string, BackupSnapshot[]>();
+const browserBackupSettings = new Map<string, BackupSettings>();
 const browserSimulations = new Map<string, SimulationDocument[]>();
 const browserWritingWorkspaces = new Map<string, WritingWorkspace>();
 const browserAgentExtensions = new Map<string, AgentExtensionConfig>();
@@ -236,6 +239,15 @@ export const browserBridge: InkforgeApi = {
   async listBackups(projectPath) {
     return structuredClone(browserBackups.get(projectPath) ?? []);
   },
+  async inspectBackups(projectPath) {
+    const snapshots = structuredClone(browserBackups.get(projectPath) ?? []);
+    return {
+      snapshots,
+      corrupted: [],
+      totalSize: snapshots.reduce((total, item) => total + item.size, 0),
+      backupRoot: "浏览器本地存储（模拟备份，仅用于预览界面）"
+    };
+  },
   async createBackup(projectPath, label) {
     const snapshot: BackupSnapshot = {
       id: `browser-backup-${Date.now()}`,
@@ -243,7 +255,9 @@ export const browserBridge: InkforgeApi = {
       reason: "manual",
       label: label ?? "",
       fileCount: 8,
-      size: 16_384
+      size: 16_384,
+      chapterHashes: {},
+      changedChapterFiles: []
     };
     browserBackups.set(projectPath, [snapshot, ...(browserBackups.get(projectPath) ?? [])]);
     return structuredClone(snapshot);
@@ -257,9 +271,59 @@ export const browserBridge: InkforgeApi = {
       (browserBackups.get(projectPath) ?? []).filter((item) => item.id !== snapshotId)
     );
   },
+  async verifyBackup(_projectPath, snapshotId) {
+    return {
+      snapshotId,
+      ok: true,
+      checkedFiles: 0,
+      issues: ["浏览器预览使用模拟备份，未执行真实文件校验。"]
+    };
+  },
+  async diffBackup(_projectPath, snapshotId) {
+    return {
+      snapshotId,
+      addedChapters: [],
+      removedChapters: [],
+      modifiedChapters: [],
+      changedMetaFiles: []
+    };
+  },
+  async readBackupFile() {
+    throw new Error("浏览器预览的模拟备份不保存文件内容，请在桌面版查看差异。");
+  },
+  async loadBackupSettings(projectPath) {
+    return structuredClone(
+      browserBackupSettings.get(projectPath) ?? {
+        automaticIntervalMinutes: 10,
+        maxAutomaticSnapshots: 20,
+        maxTotalSizeMb: 512,
+        backupDirectory: ""
+      }
+    );
+  },
+  async saveBackupSettings(projectPath, settings) {
+    browserBackupSettings.set(projectPath, structuredClone(settings));
+    return structuredClone(settings);
+  },
+  async chooseBackupDirectory() {
+    return undefined;
+  },
+  async inspectProjectFolder() {
+    return [];
+  },
+  async chooseProjectFolder() {
+    return undefined;
+  },
+  async listChapterHistoryOverview(projectPath, files) {
+    const overview: Record<string, ChapterHistoryEntry[]> = {};
+    for (const file of files) {
+      overview[file] = await browserProjectService.listChapterHistory(projectPath, file);
+    }
+    return overview;
+  },
   async loadWritingWorkspace(projectPath) {
     return structuredClone(
-      browserWritingWorkspaces.get(projectPath) ?? { annotations: [], bookmarks: [], sessions: [] }
+      browserWritingWorkspaces.get(projectPath) ?? { annotations: [], bookmarks: [], sessions: [], fragments: [] }
     );
   },
   async saveWritingWorkspace(projectPath, workspace) {

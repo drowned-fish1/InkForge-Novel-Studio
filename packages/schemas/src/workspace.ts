@@ -7,7 +7,38 @@ export const BackupSnapshotSchema = z.object({
   reason: z.enum(["automatic", "manual", "before-restore"]),
   label: z.string().default(""),
   fileCount: z.number().int().nonnegative(),
-  size: z.number().int().nonnegative()
+  size: z.number().int().nonnegative(),
+  chapterHashes: z.record(z.string(), z.string()).default({}),
+  changedChapterFiles: z.array(z.string()).default([])
+});
+
+export const BackupSettingsSchema = z.object({
+  automaticIntervalMinutes: z.number().int().min(1).max(1440).default(10),
+  maxAutomaticSnapshots: z.number().int().min(1).max(200).default(20),
+  maxTotalSizeMb: z.number().int().min(10).max(102400).default(512),
+  backupDirectory: z.string().default("")
+});
+
+export const BackupInspectionSchema = z.object({
+  snapshots: z.array(BackupSnapshotSchema).default([]),
+  corrupted: z.array(z.string()).default([]),
+  totalSize: z.number().int().nonnegative().default(0),
+  backupRoot: z.string().default("")
+});
+
+export const BackupVerificationSchema = z.object({
+  snapshotId: z.string().min(1),
+  ok: z.boolean(),
+  checkedFiles: z.number().int().nonnegative().default(0),
+  issues: z.array(z.string()).default([])
+});
+
+export const BackupDiffSummarySchema = z.object({
+  snapshotId: z.string().min(1),
+  addedChapters: z.array(z.string()).default([]),
+  removedChapters: z.array(z.string()).default([]),
+  modifiedChapters: z.array(z.string()).default([]),
+  changedMetaFiles: z.array(z.string()).default([])
 });
 
 export const WritingAnnotationSchema = z.object({
@@ -40,10 +71,21 @@ export const WritingSessionRecordSchema = z.object({
   durationSeconds: z.number().int().nonnegative()
 });
 
+export const InspirationFragmentSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().default(""),
+  content: z.string().default(""),
+  tags: z.array(z.string()).default([]),
+  archived: z.boolean().default(false),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
 export const WritingWorkspaceSchema = z.object({
   annotations: z.array(WritingAnnotationSchema).default([]),
   bookmarks: z.array(WritingBookmarkSchema).default([]),
-  sessions: z.array(WritingSessionRecordSchema).default([])
+  sessions: z.array(WritingSessionRecordSchema).default([]),
+  fragments: z.array(InspirationFragmentSchema).default([])
 });
 
 export const AgentPromptPresetSchema = z.object({
@@ -186,6 +228,11 @@ export const AgentExtensionConfigSchema = z.object({
 });
 
 export type BackupSnapshot = z.infer<typeof BackupSnapshotSchema>;
+export type BackupSettings = z.infer<typeof BackupSettingsSchema>;
+export type BackupInspection = z.infer<typeof BackupInspectionSchema>;
+export type BackupVerification = z.infer<typeof BackupVerificationSchema>;
+export type BackupDiffSummary = z.infer<typeof BackupDiffSummarySchema>;
+export type InspirationFragment = z.infer<typeof InspirationFragmentSchema>;
 export type WritingAnnotation = z.infer<typeof WritingAnnotationSchema>;
 export type WritingBookmark = z.infer<typeof WritingBookmarkSchema>;
 export type WritingSessionRecord = z.infer<typeof WritingSessionRecordSchema>;

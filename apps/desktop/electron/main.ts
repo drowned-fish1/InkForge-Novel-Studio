@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
   AgentExtensionConfig,
+  BackupSettings,
   BeatBoard,
   ScenePlan,
   SimulationScenario,
@@ -277,6 +278,7 @@ const registerIpc = (): void => {
   });
 
   ipcMain.handle("backup:list", async (_event, projectPath: string) => workspace.listBackups(projectPath));
+  ipcMain.handle("backup:inspect", async (_event, projectPath: string) => workspace.inspectBackups(projectPath));
   ipcMain.handle("backup:create", async (_event, projectPath: string, label?: string) =>
     workspace.createBackup(projectPath, "manual", label)
   );
@@ -286,6 +288,39 @@ const registerIpc = (): void => {
   });
   ipcMain.handle("backup:delete", async (_event, projectPath: string, snapshotId: string) =>
     workspace.deleteBackup(projectPath, snapshotId)
+  );
+  ipcMain.handle("backup:verify", async (_event, projectPath: string, snapshotId: string) =>
+    workspace.verifyBackup(projectPath, snapshotId)
+  );
+  ipcMain.handle("backup:diff", async (_event, projectPath: string, snapshotId: string) =>
+    workspace.diffBackup(projectPath, snapshotId)
+  );
+  ipcMain.handle("backup:read-file", async (_event, projectPath: string, snapshotId: string, file: string) =>
+    workspace.readBackupFile(projectPath, snapshotId, file)
+  );
+  ipcMain.handle("backup:settings:load", async (_event, projectPath: string) =>
+    workspace.loadBackupSettings(projectPath)
+  );
+  ipcMain.handle("backup:settings:save", async (_event, projectPath: string, settings: BackupSettings) =>
+    workspace.saveBackupSettings(projectPath, settings)
+  );
+  ipcMain.handle("backup:choose-directory", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "选择备份保存目录",
+      properties: ["openDirectory", "createDirectory"]
+    });
+    return result.canceled || !result.filePaths.length ? undefined : result.filePaths[0];
+  });
+  ipcMain.handle("project:inspect", async (_event, projectPath: string) => projects.inspectProject(projectPath));
+  ipcMain.handle("project:choose-folder", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "选择 InkForge 项目文件夹",
+      properties: ["openDirectory"]
+    });
+    return result.canceled || !result.filePaths.length ? undefined : result.filePaths[0];
+  });
+  ipcMain.handle("chapter:history:overview", async (_event, projectPath: string, files: string[]) =>
+    chapters.listHistoryOverview(projectPath, Array.isArray(files) ? files : [])
   );
   ipcMain.handle("writing-workspace:load", async (_event, projectPath: string) =>
     workspace.loadWritingWorkspace(projectPath)

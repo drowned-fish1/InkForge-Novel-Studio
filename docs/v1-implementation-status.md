@@ -38,7 +38,7 @@ npm run test:desktop-smoke
 | --- | --- | --- |
 | 0. 审计 + 本文档 | 完成（8 代理并行审计，差距摘要见下） | 与阶段一同提交 |
 | 1. 人工写作工作台 | 完成（浏览器实测验证通过） | 见 git log |
-| 2. 备份/恢复/草稿 | 未开始 | - |
+| 2. 备份/恢复/草稿 | 完成（浏览器实测验证通过） | 见 git log |
 | 3. 故事资料关系中心 | 未开始 | - |
 | 4. 集中修订工作台 | 未开始 | - |
 | 5. Agent 控制与扩展 | 未开始 | - |
@@ -58,6 +58,25 @@ npm run test:desktop-smoke
 - 修复 useProjectStore.ts:488 GBK 乱码错误文案 → “历史版本恢复失败”。
 
 验证：typecheck ✅ / 239 tests ✅ / lint ✅ / 浏览器预览逐项功能实测 ✅（标题跳转光标精确定位、Ctrl+B 不再误触专注、折叠状态刷新后保持、统计页渲染、待修改标记全生命周期）。
+
+## 阶段二：已完成内容（2026-07-27）
+
+- **备份设置**：`BackupSettingsSchema`（间隔/保留数/磁盘上限 MB/自定义目录），存 `.inkforge/backup-settings.json`；自定义目录必须是项目外绝对路径，按 `<项目名>-<路径hash8>` 建子目录；恢复时保留备份根目录与设置文件（`preservedRestorePaths`）。
+- **快照元数据**：manifest 增加 `chapterHashes`（chapters/**.md 的 sha256）与 `changedChapterFiles`（对比上一快照，含增/改/删）；旧快照靠 zod default 兼容。
+- **完整性检查**：`backup:verify` 重算章节哈希+文件数/大小对账；损坏快照目录由 `backup:inspect` 单独列出（不再静默隐藏）。
+- **恢复前差异**：`backup:diff` 汇总（回退/删除/找回章节 + 元文件变化），`backup:read-file`（防穿越）+ 渲染层 `diffTextLines`（LCS，>4M 单元格退化为前后缀裁剪 diff）逐章行级预览；确认后才恢复。
+- **磁盘上限**：createBackup 后按时间序淘汰最旧自动快照直到达标（手动/恢复保护点与刚建快照不淘汰）。
+- **损坏项目恢复**：新 IPC `project:inspect` / `project:choose-folder`；ProjectStart 打开失败或结构检查不过时展示恢复面板（列出该目录快照，恢复后重开；仍损坏则提示换更早快照）。
+- **草稿箱**：三页签（章节草稿/历史版本/灵感片段）。章节多选批量归档/恢复/改状态/移动分卷（`batchUpdateChapterPlans`/`batchMoveChapters`，单次 updateOutline 提交）；新增"已归档"筛选。
+- **聚合历史**：`chapter:history:overview` 单次 IPC 聚合全部章节历史（消除 N+1）；按时间排序跨章列出，行级差异预览（历史→当前），可恢复。
+- **灵感片段**：`InspirationFragmentSchema` 入 writing-workspace；CRUD/标签/归档/一键转为章节（建章+写入内容+改标题）。
+- **Agent 读取门控**：`executeTool` 接收 `excludedSourceKeys`，get_story_bible/search_project/semantic_search/get_chapter_memory 全部过滤被排除资料（此前仅提示词上下文过滤，工具可绕过）。
+- 共享 `mutateWritingWorkspace`（writingWorkspaceStore.ts）供编辑器与草稿箱串行化写工作区文件。
+- 新增测试：WorkspaceService（设置校验/哈希与变更章节/防篡改校验/差异/恢复保留设置/磁盘淘汰）、ChapterService（历史写入/跳过未变/恢复/聚合/非法 id）、textDiffLines。
+
+验证：typecheck ✅ / 254 tests ✅ / lint ✅ / 浏览器实测（备份创建与设置卡、草稿批量栏、聚合历史差异 +1/-1 精确、灵感片段创建并转为章节全流程）✅。
+
+已知限制：浏览器预览的备份为内存模拟（恢复/差异仅桌面版真实）；备份自定义目录选择依赖桌面对话框。
 
 ## 审计差距摘要（阶段二至七实施依据）
 

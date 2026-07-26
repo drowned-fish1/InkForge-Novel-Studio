@@ -158,7 +158,9 @@ interface ProjectState {
   renameVolume: (volumeId: string, title: string) => Promise<void>;
   deleteVolume: (volumeId: string) => Promise<void>;
   updateChapterPlan: (chapterId: string, patch: Partial<ChapterPlan>) => Promise<void>;
+  batchUpdateChapterPlans: (updates: Array<{ chapterId: string; patch: Partial<ChapterPlan> }>) => Promise<void>;
   moveChapter: (chapterId: string, targetVolumeId: string, targetIndex?: number) => Promise<void>;
+  batchMoveChapters: (chapterIds: string[], targetVolumeId: string) => Promise<void>;
   deleteChapterPlan: (chapterId: string) => Promise<void>;
   archiveChapter: (chapterId: string) => Promise<void>;
   exportManuscript: (
@@ -604,6 +606,39 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
     }
   },
+  batchUpdateChapterPlans: async (updates) => {
+    const { project } = get();
+    if (!project || !updates.length) {
+      return;
+    }
+    const patchById = new Map(updates.map((update) => [update.chapterId, update.patch]));
+    let nextCurrentPlan: ChapterPlan | undefined;
+    const currentId = get().current?.plan.id;
+    const outline = {
+      ...project.outline,
+      volumes: project.outline.volumes.map((volume) => ({
+        ...volume,
+        chapters: volume.chapters.map((chapter) => {
+          const patch = patchById.get(chapter.id);
+          if (!patch) {
+            return chapter;
+          }
+          const next = { ...chapter, ...patch };
+          if (chapter.id === currentId) {
+            nextCurrentPlan = next;
+          }
+          return next;
+        })
+      }))
+    };
+    await get().updateOutline(outline);
+    if (nextCurrentPlan) {
+      const refreshedPlan = nextCurrentPlan;
+      set((state) => ({
+        current: state.current ? { ...state.current, plan: refreshedPlan } : undefined
+      }));
+    }
+  },
   moveChapter: async (chapterId, targetVolumeId, targetIndex) => {
     if (!(await flushCurrentChapterIfNeeded(get))) {
       return;
@@ -622,6 +657,38 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const targetChapters = outline.volumes[targetVolumeIndex].chapters;
     const insertionIndex = Math.max(0, Math.min(targetIndex ?? targetChapters.length, targetChapters.length));
     targetChapters.splice(insertionIndex, 0, chapter);
+    await get().updateOutline(outline);
+  },
+  batchMoveChapters: async (chapterIds, targetVolumeId) => {
+    if (!chapterIds.length || !(await flushCurrentChapterIfNeeded(get))) {
+      return;
+    }
+    const { project } = get();
+    if (!project) {
+      return;
+    }
+    const outline = structuredClone(project.outline);
+    const targetVolumeIndex = outline.volumes.findIndex((volume) => volume.id === targetVolumeId);
+    if (targetVolumeIndex < 0) {
+      return;
+    }
+    const wanted = new Set(chapterIds);
+    const moved: ChapterPlan[] = [];
+    for (const volume of outline.volumes) {
+      if (volume.id === targetVolumeId) {
+        continue;
+      }
+      const keep: ChapterPlan[] = [];
+      for (const chapter of volume.chapters) {
+        if (wanted.has(chapter.id)) {
+          moved.push(chapter);
+        } else {
+          keep.push(chapter);
+        }
+      }
+      volume.chapters = keep;
+    }
+    outline.volumes[targetVolumeIndex].chapters.push(...moved);
     await get().updateOutline(outline);
   },
   deleteChapterPlan: async (chapterId) => {

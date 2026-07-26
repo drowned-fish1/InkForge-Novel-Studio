@@ -31,6 +31,7 @@ import { ScenePlanner } from "@/features/agent/ScenePlanner";
 import { bridge } from "@/lib/browserBridge";
 import { listMarkdownHeadings } from "@/lib/chapterContent";
 import { countCjkAwareWords } from "@/lib/textMetrics";
+import { mutateWritingWorkspace } from "@/lib/writingWorkspaceStore";
 import { useLibraryStore } from "@/stores/useLibraryStore";
 import { useProjectStore } from "@/stores/useProjectStore";
 
@@ -62,31 +63,6 @@ interface ReferenceEntry {
 }
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const writingWorkspaceMutations = new Map<string, Promise<void>>();
-
-const mutateWritingWorkspace = (
-  projectPath: string,
-  update: (workspace: WritingWorkspace) => WritingWorkspace
-): Promise<WritingWorkspace> => {
-  const previous = writingWorkspaceMutations.get(projectPath) ?? Promise.resolve();
-  const operation = previous
-    .catch(() => undefined)
-    .then(async () => {
-      const latest = await bridge.loadWritingWorkspace(projectPath);
-      return bridge.saveWritingWorkspace(projectPath, update(latest));
-    });
-  const settled = operation.then(
-    () => undefined,
-    () => undefined
-  );
-  writingWorkspaceMutations.set(projectPath, settled);
-  void settled.finally(() => {
-    if (writingWorkspaceMutations.get(projectPath) === settled) {
-      writingWorkspaceMutations.delete(projectPath);
-    }
-  });
-  return operation;
-};
 
 const slugifyHeading = (value: string, fallback: number) => {
   const slug = value
@@ -292,7 +268,8 @@ export const ChapterEditor = () => {
   const [writingWorkspace, setWritingWorkspace] = useState<WritingWorkspace>({
     annotations: [],
     bookmarks: [],
-    sessions: []
+    sessions: [],
+    fragments: []
   });
   const sessionStartedRef = useRef({ chapterId: "", startedAt: Date.now(), initialWords: 0 });
   const [draftMeta, setDraftMeta] = useState({
