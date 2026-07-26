@@ -39,7 +39,7 @@ npm run test:desktop-smoke
 | 0. 审计 + 本文档 | 完成（8 代理并行审计，差距摘要见下） | 与阶段一同提交 |
 | 1. 人工写作工作台 | 完成（浏览器实测验证通过） | 见 git log |
 | 2. 备份/恢复/草稿 | 完成（浏览器实测验证通过） | 见 git log |
-| 3. 故事资料关系中心 | 未开始 | - |
+| 3. 故事资料关系中心 | 完成（浏览器实测验证通过） | 见 git log |
 | 4. 集中修订工作台 | 未开始 | - |
 | 5. Agent 控制与扩展 | 未开始 | - |
 | 6. EPUB 与交付 | 未开始 | - |
@@ -77,6 +77,21 @@ npm run test:desktop-smoke
 验证：typecheck ✅ / 254 tests ✅ / lint ✅ / 浏览器实测（备份创建与设置卡、草稿批量栏、聚合历史差异 +1/-1 精确、灵感片段创建并转为章节全流程）✅。
 
 已知限制：浏览器预览的备份为内存模拟（恢复/差异仅桌面版真实）；备份自定义目录选择依赖桌面对话框。
+
+## 阶段三：已完成内容（2026-07-27）
+
+- **统一事实来源**：地点=WorldEntry(location)，势力=WorldEntry(faction/organization)，事件=TimelineEvent，冲突=新 `ConflictSchema`（conflicts.json，kind/status/parties/stakes/relatedCharacters/relatedFactions/chapterIds）。四个"规划中"页面全部替换为完整功能页，导航"规划中"徽章清零。
+- **四个新页面**：地点/势力（参数化 WorldSubsetLibrary：CRUD+搜索+类型/标签过滤+被引用面板+锁定）；冲突板（类型/状态筛选、各方、赌注、章节多选关联）；事件板（章节下拉、参与人物/地点 datalist、顺序、章节过滤）。
+- **引用引擎**：纯函数 `findStoryReferences`/`detachStoryReferences` 抽到 packages/schemas/references.ts，主进程 StoryReferenceService 与浏览器镜像共用同一逻辑（含别名匹配、关系句内替换、world 标量位置字段、章节 characters/worldRefs）。
+- **删除保护**：全部六类实体（人物/世界观/事件/伏笔/术语/冲突）新增删除；EntityDeleteDialog 引用检查 → 取消 / 解除引用后删除 / 替换为新名并删除；接入人物库、世界观库与四个新页面。
+- **RelationshipCenter 重写**：节点覆盖人物/地点/势力/世界观/事件/伏笔/冲突/章节；边含冲突方、展开于章节、位于、出场等；选中节点显示出向引用+被引用双列表；类别筛选；章节节点可直接打开。
+- **Agent 工具**：新增只读 `get_story_entities`（location/faction/conflict/event + 关键词，遵守 excludedSourceKeys）与提案 `propose_conflict_update`（走确认流，apply 合并更新 conflicts.json）；AgentDataProposal entityType + AgentSourceReference kind 增加 conflict（枚举扩展向后兼容）；默认成员导演/资料员获得新工具。
+- WorldLibrary 类型下拉补齐 organization/skill/race；ModulePlaceholder 缩减为 export 转发 + unknown 诊断页（清除死条目）。
+- 新增测试：references 纯函数（跨实体查找/unlink/replace/world 标量）、ConflictSchema 默认值、StoryStateService 冲突 CRUD 与删除（263 total）。
+
+验证：typecheck ✅ / 263 tests ✅ / lint ✅ / 浏览器实测（导航无占位徽章、冲突创建保存、删除对话框正确列出引用并"替换并删除"后冲突各方自动改名、关系中心双向引用、四页全部渲染无控制台错误）✅。
+
+已知限制：跨实体引用仍为名字字符串匹配（沿用现有数据格式，改名不自动同步——列入阶段七已知限制文档）；scene plans 的 clueRefs 未纳入引用检查。
 
 ## 审计差距摘要（阶段二至七实施依据）
 

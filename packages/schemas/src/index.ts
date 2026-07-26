@@ -5,6 +5,7 @@ export * from "./defaults.js";
 export * from "./agent.js";
 export * from "./narrative.js";
 export * from "./production.js";
+export * from "./references.js";
 export * from "./simulation.js";
 export * from "./workspace.js";
 
@@ -140,6 +141,20 @@ export const ClueSchema = z.object({
   notes: z.string().default("")
 });
 
+export const ConflictSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  kind: z.enum(["main", "sub", "character", "faction"]).default("sub"),
+  status: z.enum(["planned", "active", "escalating", "resolved", "abandoned"]).default("planned"),
+  parties: z.array(z.string()).default([]),
+  stakes: z.string().default(""),
+  relatedCharacters: z.array(z.string()).default([]),
+  relatedFactions: z.array(z.string()).default([]),
+  chapterIds: z.array(z.string()).default([]),
+  summary: z.string().default(""),
+  notes: z.string().default("")
+});
+
 export const TermSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -265,6 +280,7 @@ export type Character = z.infer<typeof CharacterSchema>;
 export type WorldEntry = z.infer<typeof WorldEntrySchema>;
 export type TimelineEvent = z.infer<typeof TimelineEventSchema>;
 export type Clue = z.infer<typeof ClueSchema>;
+export type Conflict = z.infer<typeof ConflictSchema>;
 export type Term = z.infer<typeof TermSchema>;
 export type PromptTemplate = z.infer<typeof PromptTemplateSchema>;
 export type ChapterSummary = z.infer<typeof ChapterSummarySchema>;

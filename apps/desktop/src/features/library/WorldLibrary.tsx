@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { BookMarked, Lock, Plus, Save } from "lucide-react";
+import { BookMarked, Lock, Plus, Save, Trash2 } from "lucide-react";
 import type { WorldEntry } from "@inkforge/schemas";
+import { EntityDeleteDialog } from "@/features/library/EntityDeleteDialog";
 import { useLibraryStore } from "@/stores/useLibraryStore";
 
 const newEntry = (seed: number): WorldEntry => ({
@@ -22,6 +23,7 @@ export const WorldLibrary = () => {
   const [selectedId, setSelectedId] = useState(entries[0]?.id ?? "");
   const selected = useMemo(() => entries.find((item) => item.id === selectedId) ?? entries[0], [entries, selectedId]);
   const [draft, setDraft] = useState<WorldEntry | undefined>(selected);
+  const [deleting, setDeleting] = useState<WorldEntry | undefined>();
   const filteredEntries = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) {
@@ -117,8 +119,11 @@ export const WorldLibrary = () => {
                     <option value="note">普通设定</option>
                     <option value="location">地点</option>
                     <option value="faction">势力</option>
+                    <option value="organization">组织</option>
                     <option value="power-system">修炼体系</option>
                     <option value="item">物品</option>
+                    <option value="skill">技能</option>
+                    <option value="race">种族</option>
                     <option value="rule">规则</option>
                     <option value="history">历史事件</option>
                   </select>
@@ -163,16 +168,36 @@ export const WorldLibrary = () => {
                   onChange={(event) => setDraft({ ...draft, content: event.target.value })}
                 />
               </label>
-              <button className="primary-button" type="submit">
-                <Save size={17} />
-                保存设定
-              </button>
+              <div className="library-editor-actions">
+                <button className="primary-button" type="submit">
+                  <Save size={17} />
+                  保存设定
+                </button>
+                {entries.some((item) => item.id === draft.id) ? (
+                  <button className="secondary-button danger" type="button" onClick={() => setDeleting(draft)}>
+                    <Trash2 size={15} />
+                    删除
+                  </button>
+                ) : null}
+              </div>
             </>
           ) : (
             <div className="library-empty">还没有世界观设定。</div>
           )}
         </form>
       </div>
+
+      {deleting ? (
+        <EntityDeleteDialog
+          target={{ kind: "world", id: deleting.id }}
+          title={deleting.title}
+          onClose={() => setDeleting(undefined)}
+          onDeleted={() => {
+            setDraft(undefined);
+            setSelectedId("");
+          }}
+        />
+      ) : null}
     </section>
   );
 };

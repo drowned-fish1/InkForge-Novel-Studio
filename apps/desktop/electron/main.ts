@@ -31,7 +31,9 @@ import type {
   SaveStoryBranchInput,
   SaveCharacterInput,
   SaveClueInput,
+  SaveConflictInput,
   SaveTermInput,
+  StoryEntityRef,
   SaveTimelineEventInput,
   SaveWorldEntryInput,
   SimulationRunInput,
@@ -57,6 +59,7 @@ import { ReleaseService } from "./services/ReleaseService.js";
 import { ScenePlanService } from "./services/ScenePlanService.js";
 import { SimulationService } from "./services/SimulationService.js";
 import { PlanningService } from "./services/PlanningService.js";
+import { StoryReferenceService } from "./services/StoryReferenceService.js";
 import { StoryStateService } from "./services/StoryStateService.js";
 import { SummaryService } from "./services/SummaryService.js";
 import { WorkspaceService } from "./services/WorkspaceService.js";
@@ -97,6 +100,7 @@ const branches = new BranchService(files, projects, chapters);
 const batches = new BatchProductionService(files, projects, aiProvider, branches, quality);
 const release = new ReleaseService(projects, aiProvider, quality, branches, batches);
 const workspace = new WorkspaceService(files);
+const storyReferences = new StoryReferenceService(files, projects, library, storyState);
 const narrativeBoards = new NarrativeBoardService(files);
 const playableExports = new PlayableExportService(projects, files, narrativeBoards);
 const simulations = new SimulationService(files, library, aiProvider);
@@ -399,6 +403,31 @@ const registerIpc = (): void => {
   ipcMain.handle("story:terms:save", async (_event, input: SaveTermInput) => {
     return storyState.saveTerm(input.projectPath, input.term);
   });
+
+  ipcMain.handle("story:conflicts:list", async (_event, projectPath: string) => {
+    return storyState.listConflicts(projectPath);
+  });
+
+  ipcMain.handle("story:conflicts:save", async (_event, input: SaveConflictInput) => {
+    return storyState.saveConflict(input.projectPath, input.conflict);
+  });
+
+  ipcMain.handle("story:entity:references", async (_event, projectPath: string, target: StoryEntityRef) => {
+    return storyReferences.findReferences(projectPath, target);
+  });
+
+  ipcMain.handle(
+    "story:entity:delete",
+    async (
+      _event,
+      projectPath: string,
+      target: StoryEntityRef,
+      mode: "force" | "unlink" | "replace",
+      replacement?: string
+    ) => {
+      await storyReferences.deleteEntity(projectPath, target, mode, replacement);
+    }
+  );
 
   ipcMain.handle("story:inspect", async (_event, projectPath: string) => {
     return storyState.inspect(projectPath);

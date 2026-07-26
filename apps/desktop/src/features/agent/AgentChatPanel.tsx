@@ -80,6 +80,7 @@ const toolLabels: Record<AgentToolName, string> = {
   get_outline_context: "读取作品大纲",
   prepare_narrative_deviation: "准备叙事偏离卡",
   get_story_bible: "读取故事圣经",
+  get_story_entities: "读取地点/势力/冲突/事件",
   get_narrative_board: "读取叙事板",
   get_simulation_runs: "读取推演走向",
   inspect_continuity: "检查故事一致性",
@@ -94,6 +95,7 @@ const toolLabels: Record<AgentToolName, string> = {
   propose_clue_update: "生成伏笔提案",
   propose_term_update: "生成术语提案",
   propose_timeline_event: "生成时间线提案",
+  propose_conflict_update: "生成冲突提案",
   propose_beat_update: "生成叙事节拍提案"
 };
 const allTools = Object.keys(toolLabels) as AgentToolName[];
@@ -1995,6 +1997,7 @@ export const AgentChatPanel = () => {
                       clue: "伏笔",
                       term: "术语",
                       timeline: "时间线",
+                      conflict: "冲突",
                       beat: "叙事节拍"
                     }[proposal.entityType]
                   }{" "}

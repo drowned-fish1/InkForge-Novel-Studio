@@ -18,7 +18,10 @@ import { ProjectNav } from "@/features/project/ProjectNav";
 import { NarrativeBoard } from "@/features/narrative/NarrativeBoard";
 import { SimulationLab } from "@/features/simulation/SimulationLab";
 import { OutlineEditor } from "@/features/outline/OutlineEditor";
+import { FactionLibrary, LocationLibrary } from "@/features/library/WorldSubsetLibrary";
 import { CluePanel } from "@/features/story/CluePanel";
+import { ConflictBoard } from "@/features/story/ConflictBoard";
+import { EventBoard } from "@/features/story/EventBoard";
 import { ProductionWorkbench } from "@/features/production/ProductionWorkbench";
 import { TermPanel } from "@/features/story/TermPanel";
 import { TimelinePanel } from "@/features/story/TimelinePanel";
@@ -49,9 +52,13 @@ const implementedModules = [
   "backup",
   "relationships",
   "narrative",
-  "simulation"
+  "simulation",
+  "locations",
+  "factions",
+  "conflicts",
+  "events"
 ];
-const placeholderModules = ["locations", "factions", "conflicts", "events", "export"];
+const placeholderModules = ["export"];
 const paneStorageKey = "inkforge:pane-widths:v2";
 const agentCollapsedStorageKey = "inkforge:agent-collapsed:v1";
 const compactLayoutQuery = "(max-width: 1179px)";
@@ -366,6 +373,10 @@ export const AppShell = () => {
         {selectedModule === "drafts" ? <DraftCenter /> : null}
         {selectedModule === "backup" ? <BackupCenter /> : null}
         {selectedModule === "relationships" ? <RelationshipCenter /> : null}
+        {selectedModule === "locations" ? <LocationLibrary /> : null}
+        {selectedModule === "factions" ? <FactionLibrary /> : null}
+        {selectedModule === "conflicts" ? <ConflictBoard /> : null}
+        {selectedModule === "events" ? <EventBoard /> : null}
         {placeholderModules.includes(selectedModule) || !implementedModules.includes(selectedModule) ? (
           <ModulePlaceholder />
         ) : null}

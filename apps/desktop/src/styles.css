@@ -9823,3 +9823,234 @@ body.resizing-panes * {
 .fragment-list footer button.danger {
   color: var(--danger);
 }
+
+/* Story data centre v1 (phase 3): entity delete guard, reference panels, conflict/event boards */
+.entity-delete-backdrop {
+  display: flex;
+  position: fixed;
+  z-index: 80;
+  align-items: center;
+  justify-content: center;
+  inset: 0;
+  background: rgba(21, 27, 24, 0.42);
+  backdrop-filter: blur(2px);
+}
+
+.entity-delete-dialog {
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+  width: min(520px, 92vw);
+  max-height: 80vh;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-overlay);
+  box-shadow: 0 24px 60px var(--shadow-strong);
+}
+
+.entity-delete-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.entity-delete-dialog > header strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+}
+
+.entity-delete-warning {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.entity-reference-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entity-reference-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--border-faint);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.entity-reference-list li em {
+  flex-shrink: 0;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.entity-reference-list li span {
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-delete-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.entity-replace-row {
+  display: flex;
+  gap: 8px;
+}
+
+.entity-replace-row input {
+  flex: 1;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.entity-reference-panel {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.entity-reference-panel > header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.entity-reference-panel ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entity-reference-panel li {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.entity-reference-panel li em {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.entity-reference-panel li span {
+  color: var(--text-secondary);
+}
+
+.library-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.secondary-button.danger {
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.primary-button.danger {
+  border-color: var(--danger-border);
+  background: var(--danger);
+  color: var(--surface);
+}
+
+.conflict-chapter-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 132px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.conflict-chapter-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.conflict-chapter-option:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.conflict-chapter-option input {
+  accent-color: var(--accent);
+}
+
+.relationship-direction {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.relationship-direction h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.relationship-node-list button.location,
+.relationship-node-list button.faction,
+.relationship-node-list button.conflict,
+.relationship-node-list button.chapter {
+  border-left: 3px solid var(--border);
+}
+
+.relationship-node-list button.location {
+  border-left-color: #4f9d8b;
+}
+
+.relationship-node-list button.faction {
+  border-left-color: #b08948;
+}
+
+.relationship-node-list button.conflict {
+  border-left-color: #b4514f;
+}
+
+.relationship-node-list button.chapter {
+  border-left-color: #6a89b0;
+}

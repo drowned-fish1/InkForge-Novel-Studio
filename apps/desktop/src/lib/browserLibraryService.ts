@@ -1,6 +1,9 @@
 import {
   CharacterSchema,
   ClueSchema,
+  ConflictSchema,
+  detachStoryReferences,
+  findStoryReferences,
   inkforgeSchemaVersion,
   OutlineSchema,
   PlanningPackageSchema,
@@ -9,6 +12,10 @@ import {
   WorldEntrySchema,
   type Character,
   type Clue,
+  type Conflict,
+  type StoryEntityRef,
+  type StoryReferenceData,
+  type StoryReferenceHit,
   type Term,
   type TimelineEvent,
   type WorldEntry
@@ -110,6 +117,76 @@ export const browserLibraryService = {
         : [...record.terms.map(normalizeTerm), term];
     saveProjectRecord(record);
     return structuredClone(record.terms);
+  },
+  async listConflicts(projectPath: string): Promise<Conflict[]> {
+    return structuredClone((getProjectRecord(projectPath).conflicts ?? []).map(normalizeConflict));
+  },
+  async saveConflict(input: { projectPath: string; conflict: Conflict }): Promise<Conflict[]> {
+    const record = getProjectRecord(input.projectPath);
+    const conflict = normalizeConflict(input.conflict);
+    const existing = (record.conflicts ?? []).findIndex((item) => item.id === conflict.id);
+    record.conflicts =
+      existing >= 0
+        ? (record.conflicts ?? []).map((item) => (item.id === conflict.id ? conflict : normalizeConflict(item)))
+        : [...(record.conflicts ?? []).map(normalizeConflict), conflict];
+    saveProjectRecord(record);
+    return structuredClone(record.conflicts);
+  },
+  async findEntityReferences(projectPath: string, target: StoryEntityRef): Promise<StoryReferenceHit[]> {
+    return findStoryReferences(browserReferenceData(projectPath), target);
+  },
+  async deleteStoryEntity(
+    projectPath: string,
+    target: StoryEntityRef,
+    mode: "force" | "unlink" | "replace",
+    replacement = ""
+  ): Promise<void> {
+    if (mode === "replace" && !replacement.trim()) {
+      throw new Error("替换实体时必须提供新的名称。");
+    }
+    const record = getProjectRecord(projectPath);
+    if (mode !== "force") {
+      const result = detachStoryReferences(browserReferenceData(projectPath), target, mode, replacement.trim());
+      record.characters = result.characters;
+      record.worldEntries = result.worldEntries;
+      record.timeline = result.timeline;
+      record.clues = result.clues;
+      record.conflicts = result.conflicts;
+      if (result.chaptersChanged) {
+        const chapterById = new Map(result.chapters.map((chapter) => [chapter.id, chapter]));
+        record.summary = {
+          ...record.summary,
+          outline: {
+            ...record.summary.outline,
+            volumes: record.summary.outline.volumes.map((volume) => ({
+              ...volume,
+              chapters: volume.chapters.map((chapter) => chapterById.get(chapter.id) ?? chapter)
+            }))
+          }
+        };
+      }
+    }
+    switch (target.kind) {
+      case "character":
+        record.characters = record.characters.filter((item) => item.id !== target.id);
+        break;
+      case "world":
+        record.worldEntries = record.worldEntries.filter((item) => item.id !== target.id);
+        break;
+      case "timeline":
+        record.timeline = record.timeline.filter((item) => item.id !== target.id);
+        break;
+      case "clue":
+        record.clues = record.clues.filter((item) => item.id !== target.id);
+        break;
+      case "term":
+        record.terms = record.terms.filter((item) => item.id !== target.id);
+        break;
+      case "conflict":
+        record.conflicts = (record.conflicts ?? []).filter((item) => item.id !== target.id);
+        break;
+    }
+    saveProjectRecord(record);
   },
   async inspectStory(projectPath: string): Promise<ConsistencyIssue[]> {
     const record = getProjectRecord(projectPath);
@@ -1115,4 +1192,19 @@ const normalizeTerm = (value: unknown): Term => {
     definition: appendExtra(firstText(item.definition, item.description, item.summary, item.content), extras),
     locked: item.locked === true
   });
+};
+
+const normalizeConflict = (value: unknown): Conflict => ConflictSchema.parse(value);
+
+const browserReferenceData = (projectPath: string): StoryReferenceData => {
+  const record = getProjectRecord(projectPath);
+  return {
+    characters: record.characters.map(normalizeCharacter),
+    worldEntries: record.worldEntries.map(normalizeWorldEntry),
+    timeline: record.timeline.map(normalizeTimelineEvent),
+    clues: record.clues.map(normalizeClue),
+    terms: record.terms.map(normalizeTerm),
+    conflicts: (record.conflicts ?? []).map(normalizeConflict),
+    chapters: record.summary.outline.volumes.flatMap((volume) => volume.chapters)
+  };
 };

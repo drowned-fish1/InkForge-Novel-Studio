@@ -25,6 +25,7 @@ import {
   type Outline,
   CharacterSchema,
   ClueSchema,
+  ConflictSchema,
   OutlineSchema,
   ScenePlanSchema,
   TermSchema,
@@ -204,6 +205,26 @@ const agentTools: ChatCompletionTool[] = [
             items: { type: "string", enum: ["characters", "world", "timeline", "clues", "terms"] }
           }
         },
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_story_entities",
+      description: "按类别读取地点、势力、冲突或事件清单，可选关键词过滤。地点与势力来自世界观条目，事件来自时间线。",
+      parameters: {
+        type: "object",
+        properties: {
+          entity_type: {
+            type: "string",
+            enum: ["location", "faction", "conflict", "event"],
+            description: "要读取的实体类别。"
+          },
+          query: { type: "string", description: "可选关键词，按名称/摘要过滤。" }
+        },
+        required: ["entity_type"],
         additionalProperties: false
       }
     }
@@ -475,7 +496,8 @@ const agentTools: ChatCompletionTool[] = [
     ["propose_world_update", "世界观设定", ["id", "title"]],
     ["propose_clue_update", "伏笔", ["id", "title"]],
     ["propose_term_update", "术语", ["id", "name"]],
-    ["propose_timeline_event", "时间线事件", ["id", "title"]]
+    ["propose_timeline_event", "时间线事件", ["id", "title"]],
+    ["propose_conflict_update", "冲突", ["id", "title"]]
   ].map(
     ([name, label, required]) =>
       ({
@@ -2412,6 +2434,11 @@ export class ChatAgentService {
       const existing = (await this.story.listTerms(input.projectPath)).find((item) => item.id === raw.id);
       await this.story.saveTerm(input.projectPath, TermSchema.parse({ ...existing, ...raw }));
       proposal.status = "applied";
+    } else if (proposal.entityType === "conflict") {
+      const raw = asRecord(proposal.payload.entity);
+      const existing = (await this.story.listConflicts(input.projectPath)).find((item) => item.id === raw.id);
+      await this.story.saveConflict(input.projectPath, ConflictSchema.parse({ ...existing, ...raw }));
+      proposal.status = "applied";
     } else if (proposal.entityType === "beat") {
       const rawBeats = Array.isArray(proposal.payload.beats)
         ? proposal.payload.beats.map((item) => asRecord(item))
@@ -2670,6 +2697,64 @@ export class ChatAgentService {
             snippet: item.definition.slice(0, 160)
           }))
         ]
+      };
+    }
+
+    if (call.function.name === "get_story_entities") {
+      const entityType = String(args.entity_type ?? "");
+      const query = String(args.query ?? "")
+        .trim()
+        .toLocaleLowerCase("zh-CN");
+      const matches = (text: string): boolean => !query || text.toLocaleLowerCase("zh-CN").includes(query);
+      if (entityType === "location" || entityType === "faction") {
+        const wanted: Array<string> = entityType === "location" ? ["location"] : ["faction", "organization"];
+        const entries = (await this.library.listWorldEntries(projectPath))
+          .filter((item) => wanted.includes(item.type) && notExcluded("world", item.id))
+          .filter((item) => matches(`${item.title} ${item.summary} ${item.tags.join(" ")}`));
+        return {
+          modelContent: jsonForModel({ entityType, entries: entries.slice(0, 40) }),
+          uiContent: `已读取${entityType === "location" ? "地点" : "势力"}资料 ${entries.length} 条`,
+          sources: entries.slice(0, 8).map((item) => ({
+            kind: "world" as const,
+            id: item.id,
+            title: item.title,
+            snippet: (item.summary || item.content).slice(0, 160)
+          }))
+        };
+      }
+      if (entityType === "conflict") {
+        const conflicts = (await this.story.listConflicts(projectPath))
+          .filter((item) => notExcluded("conflict", item.id))
+          .filter((item) => matches(`${item.title} ${item.summary} ${item.parties.join(" ")}`));
+        return {
+          modelContent: jsonForModel({ entityType, conflicts: conflicts.slice(0, 40) }),
+          uiContent: `已读取冲突 ${conflicts.length} 条`,
+          sources: conflicts.slice(0, 8).map((item) => ({
+            kind: "conflict" as const,
+            id: item.id,
+            title: item.title,
+            snippet: (item.summary || item.stakes).slice(0, 160)
+          }))
+        };
+      }
+      if (entityType === "event") {
+        const events = (await this.story.listTimeline(projectPath))
+          .filter((item) => notExcluded("timeline", item.id))
+          .filter((item) => matches(`${item.title} ${item.summary} ${item.participants.join(" ")} ${item.location}`));
+        return {
+          modelContent: jsonForModel({ entityType, events: events.slice(0, 60) }),
+          uiContent: `已读取事件 ${events.length} 条`,
+          sources: events.slice(0, 8).map((item) => ({
+            kind: "timeline" as const,
+            id: item.id,
+            title: item.title,
+            snippet: item.summary.slice(0, 160)
+          }))
+        };
+      }
+      return {
+        modelContent: jsonForModel({ error: `Unknown entity_type: ${entityType}` }),
+        uiContent: "实体类别参数无效"
       };
     }
 
@@ -3011,7 +3096,8 @@ export class ChatAgentService {
       propose_world_update: "world",
       propose_clue_update: "clue",
       propose_term_update: "term",
-      propose_timeline_event: "timeline"
+      propose_timeline_event: "timeline",
+      propose_conflict_update: "conflict"
     };
     const entityType = isAgentToolName(call.function.name) ? entityTypeByTool[call.function.name] : undefined;
     if (entityType) {
@@ -3032,7 +3118,9 @@ export class ChatAgentService {
               ? ClueSchema.parse(raw)
               : entityType === "term"
                 ? TermSchema.parse(raw)
-                : TimelineEventSchema.parse({ order: 0, chapterId, ...raw });
+                : entityType === "conflict"
+                  ? ConflictSchema.parse(raw)
+                  : TimelineEventSchema.parse({ order: 0, chapterId, ...raw });
       const validatedRecord = asRecord(validated);
       const title = String(validatedRecord.name ?? validatedRecord.title ?? validatedRecord.id);
       const storedEntity = entityType === "character" ? validated : raw;
@@ -3507,6 +3595,7 @@ const dataProposalLabel = (entityType: AgentDataProposal["entityType"]): string 
     clue: "伏笔",
     term: "术语",
     timeline: "时间线",
+    conflict: "冲突",
     beat: "叙事节拍"
   })[entityType];
 
@@ -3523,6 +3612,7 @@ const agentToolNames = new Set<AgentToolName>([
   "get_outline_context",
   "prepare_narrative_deviation",
   "get_story_bible",
+  "get_story_entities",
   "get_narrative_board",
   "get_simulation_runs",
   "inspect_continuity",
@@ -3537,6 +3627,7 @@ const agentToolNames = new Set<AgentToolName>([
   "propose_clue_update",
   "propose_term_update",
   "propose_timeline_event",
+  "propose_conflict_update",
   "propose_beat_update"
 ]);
 
@@ -3550,6 +3641,7 @@ const proposalToolNames = new Set<AgentToolName>([
   "propose_clue_update",
   "propose_term_update",
   "propose_timeline_event",
+  "propose_conflict_update",
   "propose_beat_update"
 ]);
 
@@ -3773,6 +3865,7 @@ const toolLabel = (toolName: AgentToolName): string =>
     get_outline_context: "读取作品大纲",
     prepare_narrative_deviation: "准备叙事偏离卡",
     get_story_bible: "读取故事圣经",
+    get_story_entities: "读取地点/势力/冲突/事件",
     get_narrative_board: "读取叙事板",
     get_simulation_runs: "读取推演走向",
     inspect_continuity: "检查故事一致性",
@@ -3787,6 +3880,7 @@ const toolLabel = (toolName: AgentToolName): string =>
     propose_clue_update: "生成伏笔提案",
     propose_term_update: "生成术语提案",
     propose_timeline_event: "生成时间线提案",
+    propose_conflict_update: "生成冲突提案",
     propose_beat_update: "生成叙事节拍提案"
   })[toolName];
 

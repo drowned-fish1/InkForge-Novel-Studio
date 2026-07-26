@@ -16,7 +16,10 @@ import type {
   ChapterPlan,
   Character,
   Clue,
+  Conflict,
   Outline,
+  StoryEntityRef,
+  StoryReferenceHit,
   PlanningImportResult,
   PlanningImportSelection,
   PlanningPackage,
@@ -278,6 +281,13 @@ export interface SaveTermInput {
   term: Term;
 }
 
+export interface SaveConflictInput {
+  projectPath: string;
+  conflict: Conflict;
+}
+
+export type { StoryDetachMode, StoryEntityKind, StoryEntityRef, StoryReferenceHit } from "@inkforge/schemas";
+
 export interface ConsistencyIssue {
   id: string;
   severity: "info" | "warning" | "error";
@@ -527,6 +537,15 @@ export interface InkforgeApi {
   saveTimelineEvent: (input: SaveTimelineEventInput) => Promise<TimelineEvent[]>;
   listClues: (projectPath: string) => Promise<Clue[]>;
   saveClue: (input: SaveClueInput) => Promise<Clue[]>;
+  listConflicts: (projectPath: string) => Promise<Conflict[]>;
+  saveConflict: (input: SaveConflictInput) => Promise<Conflict[]>;
+  findEntityReferences: (projectPath: string, target: StoryEntityRef) => Promise<StoryReferenceHit[]>;
+  deleteStoryEntity: (
+    projectPath: string,
+    target: StoryEntityRef,
+    mode: "force" | "unlink" | "replace",
+    replacement?: string
+  ) => Promise<void>;
   listTerms: (projectPath: string) => Promise<Term[]>;
   saveTerm: (input: SaveTermInput) => Promise<Term[]>;
   inspectStory: (projectPath: string) => Promise<ConsistencyIssue[]>;

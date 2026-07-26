@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { CharacterSchema, WorldEntrySchema, type Character, type WorldEntry } from "@inkforge/schemas";
 import { FileRepository } from "./FileRepository.js";
@@ -66,6 +66,21 @@ export class LibraryService {
       this.files.assertInsideProject(projectPath, path.posix.join("world", fileName)),
       parsed
     );
+    return this.listWorldEntries(projectPath);
+  }
+
+  async deleteCharacter(projectPath: string, characterId: string): Promise<Character[]> {
+    const fileName = `${safeFileId(characterId)}.json`;
+    await rm(this.files.assertInsideProject(projectPath, path.posix.join("characters", fileName)), { force: true });
+    return this.listCharacters(projectPath);
+  }
+
+  async deleteWorldEntry(projectPath: string, entryId: string): Promise<WorldEntry[]> {
+    const jsonName = `${safeFileId(entryId)}.world.json`;
+    await rm(this.files.assertInsideProject(projectPath, path.posix.join("world", jsonName)), { force: true });
+    // Legacy loose markdown entries surface with their file name as the id.
+    const markdownName = `${safeFileId(entryId)}.md`;
+    await rm(this.files.assertInsideProject(projectPath, path.posix.join("world", markdownName)), { force: true });
     return this.listWorldEntries(projectPath);
   }
 }

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Plus, Save, UserRound } from "lucide-react";
+import { Plus, Save, Trash2, UserRound } from "lucide-react";
 import type { Character } from "@inkforge/schemas";
+import { EntityDeleteDialog } from "@/features/library/EntityDeleteDialog";
 import { useLibraryStore } from "@/stores/useLibraryStore";
 
 type CharacterTier = "primary" | "secondary" | "minor";
@@ -52,6 +53,7 @@ export const CharacterLibrary = () => {
     [characters, selectedId]
   );
   const [draft, setDraft] = useState<Character | undefined>(selected);
+  const [deleting, setDeleting] = useState<Character | undefined>();
   const filteredCharacters = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return characters.filter((character) => {
@@ -258,16 +260,36 @@ export const CharacterLibrary = () => {
                   onChange={(event) => setDraft({ ...draft, voiceNotes: event.target.value })}
                 />
               </label>
-              <button className="primary-button" type="submit">
-                <Save size={17} />
-                保存人物卡
-              </button>
+              <div className="library-editor-actions">
+                <button className="primary-button" type="submit">
+                  <Save size={17} />
+                  保存人物卡
+                </button>
+                {characters.some((item) => item.id === draft.id) ? (
+                  <button className="secondary-button danger" type="button" onClick={() => setDeleting(draft)}>
+                    <Trash2 size={15} />
+                    删除
+                  </button>
+                ) : null}
+              </div>
             </>
           ) : (
             <div className="library-empty">还没有人物卡。</div>
           )}
         </form>
       </div>
+
+      {deleting ? (
+        <EntityDeleteDialog
+          target={{ kind: "character", id: deleting.id }}
+          title={deleting.name}
+          onClose={() => setDeleting(undefined)}
+          onDeleted={() => {
+            setDraft(undefined);
+            setSelectedId("");
+          }}
+        />
+      ) : null}
     </section>
   );
 };

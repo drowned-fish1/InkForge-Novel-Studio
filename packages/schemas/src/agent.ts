@@ -205,6 +205,7 @@ export const AgentToolNameSchema = z.enum([
   "get_outline_context",
   "prepare_narrative_deviation",
   "get_story_bible",
+  "get_story_entities",
   "get_narrative_board",
   "get_simulation_runs",
   "inspect_continuity",
@@ -219,11 +220,12 @@ export const AgentToolNameSchema = z.enum([
   "propose_clue_update",
   "propose_term_update",
   "propose_timeline_event",
+  "propose_conflict_update",
   "propose_beat_update"
 ]);
 
 export const AgentSourceReferenceSchema = z.object({
-  kind: z.enum(["chapter", "outline", "character", "world", "timeline", "clue", "term", "memory"]),
+  kind: z.enum(["chapter", "outline", "character", "world", "timeline", "clue", "term", "conflict", "memory"]),
   id: z.string().min(1),
   title: z.string().min(1),
   snippet: z.string().default("")
@@ -293,7 +295,7 @@ export const AgentChangeProposalSchema = z.object({
 
 export const AgentDataProposalSchema = z.object({
   id: z.string().min(1),
-  entityType: z.enum(["scene", "outline", "character", "world", "clue", "term", "timeline", "beat"]),
+  entityType: z.enum(["scene", "outline", "character", "world", "clue", "term", "timeline", "conflict", "beat"]),
   action: z.literal("upsert").default("upsert"),
   title: z.string().min(1),
   payload: z.record(z.string(), z.unknown()),

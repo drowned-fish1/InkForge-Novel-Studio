@@ -167,6 +167,11 @@ const api: InkforgeApi = {
   saveClue: (input: SaveClueInput) => ipcRenderer.invoke("story:clues:save", input),
   listTerms: (projectPath: string) => ipcRenderer.invoke("story:terms:list", projectPath),
   saveTerm: (input: SaveTermInput) => ipcRenderer.invoke("story:terms:save", input),
+  listConflicts: (projectPath) => ipcRenderer.invoke("story:conflicts:list", projectPath),
+  saveConflict: (input) => ipcRenderer.invoke("story:conflicts:save", input),
+  findEntityReferences: (projectPath, target) => ipcRenderer.invoke("story:entity:references", projectPath, target),
+  deleteStoryEntity: (projectPath, target, mode, replacement) =>
+    ipcRenderer.invoke("story:entity:delete", projectPath, target, mode, replacement),
   inspectStory: (projectPath: string) => ipcRenderer.invoke("story:inspect", projectPath),
   listPlanningSessions: (projectPath: string): Promise<PlanningSession[]> =>
     ipcRenderer.invoke("planning:list", projectPath),

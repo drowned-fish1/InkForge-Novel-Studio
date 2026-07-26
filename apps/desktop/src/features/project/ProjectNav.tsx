@@ -66,7 +66,7 @@ const moduleGroups = [
     ]
   }
 ] as const;
-const plannedModuleIds = new Set(["locations", "factions", "conflicts", "events"]);
+const plannedModuleIds = new Set<string>();
 
 const statusLabels: Record<string, string> = {
   unplanned: "未规划",

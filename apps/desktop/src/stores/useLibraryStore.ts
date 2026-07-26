@@ -1,5 +1,14 @@
 import { create } from "zustand";
-import type { Character, Clue, Term, TimelineEvent, WorldEntry } from "@inkforge/schemas";
+import type {
+  Character,
+  Clue,
+  Conflict,
+  StoryEntityRef,
+  StoryReferenceHit,
+  Term,
+  TimelineEvent,
+  WorldEntry
+} from "@inkforge/schemas";
 import { bridge } from "@/lib/browserBridge";
 import { usePlanningStore } from "@/stores/usePlanningStore";
 import { useProjectStore } from "@/stores/useProjectStore";
@@ -11,6 +20,7 @@ interface LibraryState {
   timeline: TimelineEvent[];
   clues: Clue[];
   terms: Term[];
+  conflicts: Conflict[];
   consistencyIssues: ConsistencyIssue[];
   resetLibraries: () => void;
   loadLibraries: () => Promise<void>;
@@ -19,6 +29,13 @@ interface LibraryState {
   saveTimelineEvent: (event: TimelineEvent) => Promise<void>;
   saveClue: (clue: Clue) => Promise<void>;
   saveTerm: (term: Term) => Promise<void>;
+  saveConflict: (conflict: Conflict) => Promise<void>;
+  findEntityReferences: (target: StoryEntityRef) => Promise<StoryReferenceHit[]>;
+  deleteStoryEntity: (
+    target: StoryEntityRef,
+    mode: "force" | "unlink" | "replace",
+    replacement?: string
+  ) => Promise<void>;
   inspectStory: () => Promise<void>;
 }
 
@@ -28,6 +45,7 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   timeline: [],
   clues: [],
   terms: [],
+  conflicts: [],
   consistencyIssues: [],
   resetLibraries: () =>
     set({
@@ -36,6 +54,7 @@ export const useLibraryStore = create<LibraryState>((set) => ({
       timeline: [],
       clues: [],
       terms: [],
+      conflicts: [],
       consistencyIssues: []
     }),
   loadLibraries: async () => {
@@ -43,15 +62,16 @@ export const useLibraryStore = create<LibraryState>((set) => ({
     if (!project) {
       return;
     }
-    const [characters, worldEntries, timeline, clues, terms, consistencyIssues] = await Promise.all([
+    const [characters, worldEntries, timeline, clues, terms, conflicts, consistencyIssues] = await Promise.all([
       bridge.listCharacters(project.projectPath),
       bridge.listWorldEntries(project.projectPath),
       bridge.listTimeline(project.projectPath),
       bridge.listClues(project.projectPath),
       bridge.listTerms(project.projectPath),
+      bridge.listConflicts(project.projectPath),
       bridge.inspectStory(project.projectPath)
     ]);
-    set({ characters, worldEntries, timeline, clues, terms, consistencyIssues });
+    set({ characters, worldEntries, timeline, clues, terms, conflicts, consistencyIssues });
     await usePlanningStore.getState().loadPlanningSessions();
   },
   saveCharacter: async (character) => {
@@ -91,6 +111,31 @@ export const useLibraryStore = create<LibraryState>((set) => ({
     }
     set({ terms: await bridge.saveTerm({ projectPath: project.projectPath, term }) });
     await useLibraryStore.getState().inspectStory();
+  },
+  saveConflict: async (conflict) => {
+    const project = useProjectStore.getState().project;
+    if (!project) {
+      return;
+    }
+    set({ conflicts: await bridge.saveConflict({ projectPath: project.projectPath, conflict }) });
+  },
+  findEntityReferences: async (target) => {
+    const project = useProjectStore.getState().project;
+    if (!project) {
+      return [];
+    }
+    return bridge.findEntityReferences(project.projectPath, target);
+  },
+  deleteStoryEntity: async (target, mode, replacement) => {
+    const project = useProjectStore.getState().project;
+    if (!project) {
+      return;
+    }
+    await bridge.deleteStoryEntity(project.projectPath, target, mode, replacement);
+    await useLibraryStore.getState().loadLibraries();
+    if (target.kind === "world" || target.kind === "character") {
+      await useProjectStore.getState().refreshProject();
+    }
   },
   inspectStory: async () => {
     const project = useProjectStore.getState().project;

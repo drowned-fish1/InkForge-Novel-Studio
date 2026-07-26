@@ -2,6 +2,7 @@ import {
   defaultProviderConfig,
   type Character,
   type Clue,
+  type Conflict,
   type PromptTemplate,
   type Term,
   type TimelineEvent,
@@ -18,6 +19,7 @@ export interface BrowserProjectRecord {
   timeline: TimelineEvent[];
   clues: Clue[];
   terms: Term[];
+  conflicts?: Conflict[];
   prompts: Record<string, PromptTemplate>;
   summaries: Record<string, unknown>;
   planningSessions: PlanningSession[];
@@ -85,6 +87,7 @@ export const getProjectRecord = (projectPath: string): BrowserProjectRecord => {
   }
   return structuredClone({
     ...record,
+    conflicts: record.conflicts ?? [],
     prompts: record.prompts ?? {},
     summaries: record.summaries ?? {},
     planningSessions: record.planningSessions ?? [],

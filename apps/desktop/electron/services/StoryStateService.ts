@@ -1,8 +1,10 @@
 import {
   ClueSchema,
+  ConflictSchema,
   TermSchema,
   TimelineEventSchema,
   type Clue,
+  type Conflict,
   type Term,
   type TimelineEvent
 } from "@inkforge/schemas";
@@ -15,6 +17,43 @@ export class StoryStateService {
     private readonly files = new FileRepository(),
     private readonly projects = new ProjectService(files)
   ) {}
+
+  async listConflicts(projectPath: string): Promise<Conflict[]> {
+    const items = await this.readArray(projectPath, "conflicts.json", ConflictSchema);
+    return items.sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
+  }
+
+  async saveConflict(projectPath: string, conflict: Conflict): Promise<Conflict[]> {
+    const parsed = ConflictSchema.parse(conflict);
+    const items = await this.listConflicts(projectPath);
+    const next = upsertById(items, parsed);
+    await this.files.writeJsonAtomic(this.files.assertInsideProject(projectPath, "conflicts.json"), next);
+    return next;
+  }
+
+  async deleteConflict(projectPath: string, conflictId: string): Promise<Conflict[]> {
+    const next = (await this.listConflicts(projectPath)).filter((item) => item.id !== conflictId);
+    await this.files.writeJsonAtomic(this.files.assertInsideProject(projectPath, "conflicts.json"), next);
+    return next;
+  }
+
+  async deleteTimelineEvent(projectPath: string, eventId: string): Promise<TimelineEvent[]> {
+    const next = (await this.listTimeline(projectPath)).filter((item) => item.id !== eventId);
+    await this.files.writeJsonAtomic(this.files.assertInsideProject(projectPath, "timeline.json"), next);
+    return next;
+  }
+
+  async deleteClue(projectPath: string, clueId: string): Promise<Clue[]> {
+    const next = (await this.listClues(projectPath)).filter((item) => item.id !== clueId);
+    await this.files.writeJsonAtomic(this.files.assertInsideProject(projectPath, "clues.json"), next);
+    return next;
+  }
+
+  async deleteTerm(projectPath: string, termId: string): Promise<Term[]> {
+    const next = (await this.listTerms(projectPath)).filter((item) => item.id !== termId);
+    await this.files.writeJsonAtomic(this.files.assertInsideProject(projectPath, "terms.json"), next);
+    return next;
+  }
 
   async listTimeline(projectPath: string): Promise<TimelineEvent[]> {
     const items = await this.readArray(projectPath, "timeline.json", TimelineEventSchema);
