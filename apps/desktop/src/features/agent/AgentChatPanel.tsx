@@ -178,6 +178,21 @@ export const AgentChatPanel = () => {
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsOpenRef = useRef(false);
+  settingsOpenRef.current = settingsOpen;
+
+  useEffect(() => {
+    // Esc (AppShell keybinding) closes the provider settings before exiting
+    // focus mode; preventDefault signals that something was closed.
+    const closeSettings = (event: Event) => {
+      if (settingsOpenRef.current) {
+        event.preventDefault();
+        setSettingsOpen(false);
+      }
+    };
+    window.addEventListener("inkforge:close-settings", closeSettings);
+    return () => window.removeEventListener("inkforge:close-settings", closeSettings);
+  }, []);
   const [workflowOpen, setWorkflowOpen] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);

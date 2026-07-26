@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
@@ -169,6 +169,10 @@ const createWindow = async (): Promise<void> => {
 };
 
 app.whenReady().then(async () => {
+  // The renderer never needs runtime permissions (camera, geolocation, …).
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
   registerIpc();
   nativeTheme.on("updated", () => {
     if (hasManualWindowTheme) {
@@ -193,8 +197,11 @@ app.on("window-all-closed", () => {
 });
 
 const registerIpc = (): void => {
-  ipcMain.on("theme:set", (_event, theme: "light" | "dark", manual = false) => {
-    hasManualWindowTheme = manual;
+  ipcMain.on("theme:set", (_event, theme: unknown, manual: unknown = false) => {
+    if (theme !== "light" && theme !== "dark") {
+      return;
+    }
+    hasManualWindowTheme = manual === true;
     setWindowBackground(theme);
   });
 
@@ -240,7 +247,15 @@ const registerIpc = (): void => {
   });
 
   ipcMain.handle("project:reveal", async (_event, projectPath: string) => {
-    await shell.openPath(projectPath);
+    // Only reveal folders the app actually knows as projects; a compromised
+    // renderer must not be able to launch arbitrary paths via shell.openPath.
+    const known = await recentProjects.list();
+    const resolved = path.resolve(String(projectPath ?? ""));
+    const allowed = known.some((item) => path.resolve(item.projectPath) === resolved);
+    if (!allowed) {
+      throw new Error("只允许打开最近项目列表中的项目文件夹。");
+    }
+    await shell.openPath(resolved);
   });
 
   ipcMain.handle("chapter:read", async (_event, projectPath: string, file: string) => {

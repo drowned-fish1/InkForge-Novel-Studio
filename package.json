@@ -1,6 +1,6 @@
 {
   "name": "inkforge-local-novel-studio",
-  "version": "0.2.1",
+  "version": "1.0.0-rc.1",
   "private": true,
   "description": "Local-first AI novel writing cockpit for solo authors.",
   "license": "MIT",

@@ -33,7 +33,14 @@ export const nativeTheme = {
 };
 
 export const shell = {
-  openPath: async () => ""
+  openPath: async () => "",
+  openExternal: async () => undefined
+};
+
+export const session = {
+  defaultSession: {
+    setPermissionRequestHandler: () => undefined
+  }
 };
 
 export const ipcMain = {

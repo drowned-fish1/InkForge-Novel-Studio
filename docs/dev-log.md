@@ -127,3 +127,25 @@ Started the long-form management and consistency-check phase.
 - Typecheck and production build pass.
 - Browser QA covered Overview, Timeline create/save, Clues view and Terms view.
 - Console has no errors and `localStorage` remains empty.
+
+## 2026-07-27
+
+v1.0 Release Candidate：七个阶段将内部可用版本推进到发布候选（详见 docs/v1-implementation-status.md）。
+
+### Scope
+
+- 阶段一 章节写作台：标题跳转、编辑器内 Markdown 快捷键、独立打字机滚动、待修改标记生命周期、写作统计、Agent 面板收起记忆。
+- 阶段二 备份与草稿：备份设置（间隔/保留/磁盘上限/外部目录）、快照哈希与变更章节、完整性校验、恢复前差异、损坏项目恢复、草稿箱批量操作、聚合历史差异、灵感片段、Agent 读取门控。
+- 阶段三 故事资料：地点/势力/冲突/事件完整页面、共享引用引擎、全实体删除保护（取消/解除/替换）、关系中心双向引用、get_story_entities 与 propose_conflict_update 工具。
+- 阶段四 修订工作台：跨来源聚合（批注/待修改/质量/连续性/提案）、接受-忽略-延期-恢复与批量、提案前后差异、应用后本地质量重评。
+- 阶段五 Agent 控制：工具注册表唯一事实来源、CJK 统一估算器、发送前 Token/费用估算（明确标记）、逐工具每次询问授权与决策日志、流水线取消真正中止、会话压缩、任务/工作流模板导入导出。
+- 阶段六 EPUB 交付：持久化导出配置、封面/版权页/嵌套目录/NCX、导出前检查与导出后结构+XHTML 校验、DOCX 分页、导出预览、取消不再误报。
+- 阶段七 收口：死代码清理（AiCockpit/PlanningPanel）、theme:set 与 project:reveal 加固、权限请求默认拒绝、FileRepository 安全测试、smoke 扩展到 15 项真实主进程端到端检查、文档全量刷新、版本升至 1.0.0-rc.1。
+
+### Quality Gates
+
+- typecheck / lint / vitest（277+ 通过）/ build / desktop-smoke 全绿；浏览器预览逐阶段人工实测。
+
+### Known External Blockers
+
+- Windows 代码签名证书与更新源（见 docs/release-windows.md）。

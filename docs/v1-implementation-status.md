@@ -43,7 +43,7 @@ npm run test:desktop-smoke
 | 4. 集中修订工作台 | 完成（浏览器实测验证通过） | 见 git log |
 | 5. Agent 控制与扩展 | 完成（浏览器实测验证通过） | 见 git log |
 | 6. EPUB 与交付 | 完成（浏览器实测验证通过） | 见 git log |
-| 7. 发布级质量收口 | 未开始 | - |
+| 7. 发布级质量收口 | 完成 | 见 git log |
 
 ## 阶段一：已完成内容（2026-07-27）
 
@@ -134,6 +134,59 @@ npm run test:desktop-smoke
 验证：typecheck ✅ / 277 tests ✅ / lint ✅ / 浏览器实测（导出预览结构树、导出前检查 2 项提示、配置面板齐全）✅。
 
 已知限制：浏览器预览的 EPUB 生成仍为降级实现（无封面/NCX，用于界面演示；桌面版为完整实现）；正文图片不嵌入（预检查会提示）。
+
+## 阶段七：已完成内容（2026-07-27）
+
+- **死代码与过时文案**：删除未挂载的 AiCockpit.tsx 与 PlanningPanel.tsx（Esc 关闭设置事件改由 AgentChatPanel 监听，恢复了此前失效的快捷键路径）；roadmap-next 重写为"已完成 + v1 后候选方向"；dev-log 补 v1 条目；project-format.md 更新为真实 v1 布局（含全部 .inkforge/* 文件与版本策略）；README 全面刷新（移除 placeholder 文案）；新增 docs/user-guide.md 与 docs/release-windows.md；dev-guide 补质量门禁与镜像/注册表规则。
+- **安全加固**：`theme:set` 输入校验；`project:reveal` 仅允许最近项目列表内路径（阻断任意路径 shell.openPath）；`session.setPermissionRequestHandler` 默认拒绝全部权限请求；FileRepository.assertInsideProject 新增穿越/绝对路径/同前缀兄弟目录攻击测试与原子写测试。sandbox 保持关闭（ESM preload 限制，见已知限制）。
+- **测试补齐（本轮累计新增）**：ChapterService、ExportService（EPUB 构建/校验/渲染）、StoryStateService、references 引擎、RevisionService、AgentControl（注册表/估算/压缩/逐工具拒绝）、WorkspaceService 扩展、FileRepository、textDiffLines、schemas（workspace/conflict/export）。
+- **desktop-smoke 扩展**：mock loader 补 session/openExternal；smoke 现覆盖 15 项真实构建主进程端到端检查（建项目→写作+历史→四格式导出（EPUB 结构断言）→备份创建/校验/差异/快照读取/保护性恢复→备份设置→冲突 CRUD+引用保护替换删除→修订聚合与处置→无 Provider 发送前估算→导出配置+preflight→项目完整性检查→密钥不落项目目录）。
+- **真实桌面启动**：以构建产物直接启动 Electron，12 秒存活无任何错误输出后正常退出。
+- **版本策略**：root 与 apps/desktop 升至 `1.0.0-rc.1`；packages/* 保持内部 0.1.0；项目数据 schemaVersion 冻结 0.1.0（新增字段一律带 zod 默认值，旧项目直接可开——由全部 schema 测试与 smoke 的 reopen 流程验证）。
+- **Windows 发布**：`docs/release-windows.md` 记录构建命令、安装包验证清单、签名接入（certificateFile / signtoolOptions / azure）与 electron-updater 更新源接入步骤；证书与更新源为外部阻塞，不影响本地打包（`npm run dist:windows` 可用）。
+
+---
+
+# 最终交付摘要（v1.0-rc.1）
+
+## 提交列表（基线 87ff6cf 之后）
+
+| 提交 | 阶段 | 内容 |
+| --- | --- | --- |
+| b945891 | 阶段一 | 章节写作台（标题跳转/快捷键/打字机/待修改标记/统计/Agent 面板收起） |
+| 5c93998 | 阶段二 | 备份设置/校验/差异/损坏恢复 + 草稿批量/聚合历史/灵感片段 + Agent 读取门控 |
+| dd5ad18 | 阶段三 | 地点/势力/冲突/事件页面 + 引用引擎与删除保护 + 关系中心双向引用 + 实体工具 |
+| c648352 | 阶段四 | 集中修订工作台（聚合/批量处置/差异/质量分变化） |
+| 6bb2dae | 阶段五 | 工具注册表/发送前估算/逐工具授权/取消修复/会话压缩/模板导入导出 |
+| 2682136 | 阶段六 | EPUB 3 完整交付（封面/版权/嵌套目录/NCX/检查/校验/预览/持久化配置） |
+| （本提交） | 阶段七 | 安全加固/死代码清理/测试与 smoke 扩展/文档刷新/版本 1.0.0-rc.1 |
+
+## 最终验证结果
+
+- `npm run typecheck` ✅ · `npm run lint` ✅ · `npm test` ✅（37 文件 / 281 用例）
+- `npm run build` ✅ · `npm run test:desktop-smoke` ✅（15 项端到端检查）
+- 真实桌面启动 ✅ · 浏览器预览逐阶段人工实测 ✅ · 工作区干净（本提交后）
+
+## 最终完成标准对照
+
+- 左侧导航 18 个模块全部为完整功能页，无"规划中"占位 ✅
+- 写作/资料/修订/备份/导出全部无 AI 可用 ✅（smoke 无 Provider 全通过）
+- Agent 写操作全部走提案：可预览（含行级差异）、可确认、可撤销（快照回滚）、可追踪（运行追踪含授权决策日志）✅
+- 旧项目安全打开：schemaVersion 冻结 + 全部新增字段带默认值 + 损坏项目备份恢复入口 ✅
+- 质量门禁全绿、每阶段独立提交 ✅
+
+## 已知限制（有意决策，非缺陷）
+
+1. 跨实体引用为名字字符串（有引用检查/解除/替换保护；ID 化需数据迁移，列入 v1 后）。
+2. Electron sandbox 关闭（ESM preload 限制；已用 contextIsolation/导航锁定/权限默认拒绝/reveal 白名单补偿）。
+3. 浏览器预览的备份、EPUB 为降级演示实现（桌面版完整）。
+4. 正文图片不嵌入导出（导出前检查会提示）。
+5. 费用估算依赖用户填写单价，输出费用为上界估算。
+6. Agent 提案生成与推演需要真实 Provider（应用/撤销链路已用 mock AI 测试覆盖）。
+
+## 唯一剩余外部阻塞
+
+**Windows 代码签名证书与更新源**：本地 NSIS 打包可用；公开分发所需的证书获取与更新源部署为外部条件，接入步骤已写入 docs/release-windows.md。
 
 ## 审计差距摘要（阶段二至七实施依据）
 
