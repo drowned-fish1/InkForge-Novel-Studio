@@ -297,6 +297,16 @@ export interface SaveConflictInput {
   conflict: Conflict;
 }
 
+export interface ProjectSearchResult {
+  kind: "chapter" | "character" | "world" | "location" | "faction" | "conflict" | "clue" | "term" | "event";
+  id: string;
+  title: string;
+  volumeTitle?: string;
+  offset: number;
+  matchLength: number;
+  snippet: string;
+}
+
 export interface RevisionProposalSummary {
   id: string;
   chapterId: string;
@@ -598,6 +608,7 @@ export interface InkforgeApi {
   listConflicts: (projectPath: string) => Promise<Conflict[]>;
   saveConflict: (input: SaveConflictInput) => Promise<Conflict[]>;
   findEntityReferences: (projectPath: string, target: StoryEntityRef) => Promise<StoryReferenceHit[]>;
+  searchProject: (projectPath: string, query: string) => Promise<ProjectSearchResult[]>;
   revisionOverview: (projectPath: string) => Promise<RevisionOverview>;
   setRevisionDisposition: (
     projectPath: string,

@@ -39,6 +39,7 @@ import type {
   AiTaskResult,
   ChapterHistoryEntry,
   ExportInput,
+  ProjectSearchResult,
   RevisionProposalSummary,
   PlayableExportInput,
   SimulationRunEvent,
@@ -364,6 +365,65 @@ export const browserBridge: InkforgeApi = {
     return structuredClone(
       browserWritingWorkspaces.get(projectPath) ?? { annotations: [], bookmarks: [], sessions: [], fragments: [] }
     );
+  },
+  async searchProject(projectPath, query) {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return [];
+    }
+    const lower = trimmed.toLocaleLowerCase("zh-CN");
+    const record = getProjectRecord(projectPath);
+    const results: ProjectSearchResult[] = [];
+    for (const volume of record.summary.outline.volumes) {
+      for (const chapter of volume.chapters) {
+        if (chapter.archived || results.length >= 60) continue;
+        const content = record.chapterBodies[chapter.file] ?? "";
+        const index = content.toLocaleLowerCase("zh-CN").indexOf(lower);
+        if (index >= 0) {
+          results.push({
+            kind: "chapter",
+            id: chapter.id,
+            title: chapter.title,
+            volumeTitle: volume.title,
+            offset: index,
+            matchLength: trimmed.length,
+            snippet: content.slice(Math.max(0, index - 30), index + trimmed.length + 30).replace(/\s+/g, " ")
+          });
+        } else if (chapter.title.toLocaleLowerCase("zh-CN").includes(lower)) {
+          results.push({
+            kind: "chapter",
+            id: chapter.id,
+            title: chapter.title,
+            volumeTitle: volume.title,
+            offset: 0,
+            matchLength: 0,
+            snippet: "章节标题匹配"
+          });
+        }
+      }
+    }
+    for (const item of record.characters) {
+      if (`${item.name}`.toLocaleLowerCase("zh-CN").includes(lower)) {
+        results.push({ kind: "character", id: item.id, title: item.name, offset: 0, matchLength: 0, snippet: "" });
+      }
+    }
+    for (const item of record.worldEntries) {
+      if (`${item.title}`.toLocaleLowerCase("zh-CN").includes(lower)) {
+        const kind =
+          item.type === "location"
+            ? "location"
+            : item.type === "faction" || item.type === "organization"
+              ? "faction"
+              : "world";
+        results.push({ kind, id: item.id, title: item.title, offset: 0, matchLength: 0, snippet: item.summary ?? "" });
+      }
+    }
+    for (const item of record.conflicts ?? []) {
+      if (`${item.title}`.toLocaleLowerCase("zh-CN").includes(lower)) {
+        results.push({ kind: "conflict", id: item.id, title: item.title, offset: 0, matchLength: 0, snippet: "" });
+      }
+    }
+    return results;
   },
   async revisionOverview(projectPath) {
     const record = getProjectRecord(projectPath);

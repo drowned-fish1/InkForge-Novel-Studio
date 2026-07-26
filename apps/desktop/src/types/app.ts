@@ -413,4 +413,9 @@ export type {
   WritingWorkspace
 };
 
-export type { AgentRunEstimate, RevisionOverview, RevisionProposalSummary } from "../../electron/types";
+export type {
+  AgentRunEstimate,
+  ProjectSearchResult,
+  RevisionOverview,
+  RevisionProposalSummary
+} from "../../electron/types";

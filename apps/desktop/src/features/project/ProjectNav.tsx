@@ -25,7 +25,33 @@ import {
   Waypoints
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import type { ProjectSearchResult } from "@/types/app";
+import { bridge } from "@/lib/browserBridge";
 import { useProjectStore } from "@/stores/useProjectStore";
+
+const searchModuleByKind: Record<ProjectSearchResult["kind"], string> = {
+  chapter: "chapters",
+  character: "characters",
+  world: "world",
+  location: "locations",
+  faction: "factions",
+  conflict: "conflicts",
+  clue: "clues",
+  term: "terms",
+  event: "events"
+};
+
+const searchKindLabels: Record<ProjectSearchResult["kind"], string> = {
+  chapter: "章节",
+  character: "人物",
+  world: "世界观",
+  location: "地点",
+  faction: "势力",
+  conflict: "冲突",
+  clue: "伏笔",
+  term: "术语",
+  event: "事件"
+};
 
 const moduleGroups = [
   {
@@ -96,7 +122,9 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
   const moveChapter = useProjectStore((state) => state.moveChapter);
   const archiveChapter = useProjectStore((state) => state.archiveChapter);
   const deleteChapterPlan = useProjectStore((state) => state.deleteChapterPlan);
+  const jumpToChapterOffset = useProjectStore((state) => state.jumpToChapterOffset);
   const [chapterQuery, setChapterQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<ProjectSearchResult[] | undefined>();
   const [collapsedVolumes, setCollapsedVolumes] = useState<Record<string, boolean>>({});
   const [collapsedModuleGroups, setCollapsedModuleGroups] = useState<Record<string, boolean>>({
     资料: true,
@@ -145,6 +173,40 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
     }
   }, [collapsedStorageKey, collapsedVolumes]);
 
+  useEffect(() => {
+    const query = chapterQuery.trim();
+    if (!project || query.length < 2) {
+      setSearchResults(undefined);
+      return;
+    }
+    const projectPath = project.projectPath;
+    const timer = window.setTimeout(() => {
+      void bridge
+        .searchProject(projectPath, query)
+        .then((results) => {
+          if (useProjectStore.getState().project?.projectPath === projectPath) {
+            setSearchResults(results);
+          }
+        })
+        .catch(() => setSearchResults(undefined));
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [chapterQuery, project?.projectPath]);
+
+  const openSearchResult = (result: ProjectSearchResult) => {
+    if (result.kind === "chapter") {
+      const chapter = project?.outline.volumes
+        .flatMap((volume) => volume.chapters)
+        .find((item) => item.id === result.id);
+      if (chapter) {
+        void jumpToChapterOffset(chapter, result.offset, result.offset + result.matchLength).then(() => onNavigate?.());
+      }
+      return;
+    }
+    setSelectedModule(searchModuleByKind[result.kind]);
+    onNavigate?.();
+  };
+
   const toggleVolume = (volumeId: string) => {
     setCollapsedVolumes((state) => ({ ...state, [volumeId]: !state[volumeId] }));
   };
@@ -171,11 +233,33 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
       <div className="project-nav-search">
         <input
           aria-label="搜索章节与设定"
-          placeholder="搜索章节与设定"
+          placeholder="全文搜索章节与设定"
           value={chapterQuery}
           onChange={(event) => setChapterQuery(event.target.value)}
         />
       </div>
+      {searchResults ? (
+        <section className="nav-global-search" aria-label="全文搜索结果">
+          <div className="section-heading">
+            <span>全文搜索 · {searchResults.length} 条</span>
+          </div>
+          {searchResults.slice(0, 30).map((result, index) => (
+            <button
+              key={`${result.kind}-${result.id}-${result.offset}-${index}`}
+              type="button"
+              className="nav-search-result"
+              onClick={() => openSearchResult(result)}
+            >
+              <em>{searchKindLabels[result.kind]}</em>
+              <span>
+                <strong>{result.title}</strong>
+                {result.snippet ? <small>{result.snippet}</small> : null}
+              </span>
+            </button>
+          ))}
+          {!searchResults.length ? <div className="empty-list-hint">没有匹配内容。</div> : null}
+        </section>
+      ) : null}
       <nav className="module-list">
         {moduleGroups.map((group) => {
           const collapsed = Boolean(collapsedModuleGroups[group.title]);

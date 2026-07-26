@@ -164,6 +164,15 @@ npm run test:desktop-smoke
 - 验证：typecheck ✅ / 290 tests ✅ / lint ✅ / smoke（重建后）✅ / 探针复跑（revision:overview 34ms 保持）✅ / 浏览器实测（"顾沉"改名"晏北"后冲突页立即显示"晏北 vs 缉私队"；批注建在偏移 20，前插 24 字符自动保存后跳转精确命中新偏移 44）✅。
 - 顺带修复：改名后渲染层各资料列表未重载的陈旧数据问题。
 
+## 拓展三：CodeMirror 6 编辑器升级与全局搜索（2026-07-27）
+
+- **编辑器升级**：正文写作区由 textarea + 装饰层重写为 CodeMirror 6（`MarkdownCodeEditor.tsx`，新增依赖 @codemirror/{state,view,commands,language,lang-markdown}）。保留并迁移全部既有能力：批注/待修改内联标记（StateField 装饰，编辑时随文档映射偏移）、查找高亮与活动匹配、打字机居中滚动、专注模式段落聚焦（当前段落外整行变暗）、Ctrl+B/I 加粗斜体、标题跳转、占位符、行号；新增能力：真正的 Markdown 语法高亮、章节隔离的撤销历史（每章独立 EditorState，切章不串档）、软换行、大文档虚拟滚动。旧的行号 gutter/backdrop 装饰层/手动滚动同步代码全部移除。
+- **全局搜索**：主进程新增 `ProjectSearchService`（`project:search` IPC）——扫描全部未归档章节正文（每章至多 3 处命中，含 ±36 字符摘要与精确偏移；无正文命中时回退标题匹配）以及人物/世界观（地点、势力细分）/冲突/伏笔/术语/时间线实体，上限 60 条；浏览器镜像同逻辑。导航栏搜索框输入 ≥2 字符自动防抖（350ms）触发：章节结果点击后经 `jumpToChapterOffset` → `pendingEditorSelection` 在编辑器内精确选中命中文字并居中，实体结果直接切换到对应模块页。
+- **过程中修复的两个真实缺陷**：① 编辑器内 Ctrl+B/I/F 会同时触发全局快捷键（专注模式切换）——CM keymap 处理按键后短路后续 handler，改为在容器 DOM（content→window 冒泡路径）上拦截 stopPropagation，行为与 CM 内部调度解耦；② 查找跳转/搜索跳转/替换后重选原用 requestAnimationFrame 调度——窗口隐藏/最小化时 rAF 永不执行导致跳转静默丢失，统一改为 setTimeout(0)。
+- 新增测试：ProjectSearchService（正文偏移+摘要、实体命中、空查询、标题回退）——291 total。
+- 验证：typecheck ✅ / 291 tests ✅ / lint ✅ / smoke（重建后）✅ / 浏览器实测矩阵 ✅（输入→store 字数同步、保存管道、内联批注标记渲染、查找高亮+下一个精确选中、替换经外部 value 同步、标题跳转、专注段落聚焦 8/9 行变暗、打字机居中（光标行距视口中线 <1 行高）、Ctrl+B 只加粗不再触发专注、切章撤销隔离、全局搜索章节跳转精确选中"追踪"、实体结果跳人物卡）。
+- 已知说明：浏览器镜像的写作工作区（批注/书签）存于内存 Map，刷新即失——镜像固有限制（Electron 端为磁盘持久化并有测试覆盖），与本拓展无关。
+
 # 最终交付摘要（v1.0-rc.1）
 
 ## 提交列表（基线 87ff6cf 之后）

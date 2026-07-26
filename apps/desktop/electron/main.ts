@@ -57,6 +57,7 @@ import { ProjectService } from "./services/ProjectService.js";
 import { RecentProjectService } from "./services/RecentProjectService.js";
 import { QualityService } from "./services/QualityService.js";
 import { ReleaseService } from "./services/ReleaseService.js";
+import { ProjectSearchService } from "./services/ProjectSearchService.js";
 import { RevisionService } from "./services/RevisionService.js";
 import { ScenePlanService } from "./services/ScenePlanService.js";
 import { SimulationService } from "./services/SimulationService.js";
@@ -104,6 +105,7 @@ const release = new ReleaseService(projects, aiProvider, quality, branches, batc
 const workspace = new WorkspaceService(files);
 const storyReferences = new StoryReferenceService(files, projects, library, storyState);
 const revisions = new RevisionService(files, projects, workspace, quality, storyState, chatAgent);
+const projectSearch = new ProjectSearchService(files, projects, library, storyState);
 const narrativeBoards = new NarrativeBoardService(files);
 const playableExports = new PlayableExportService(projects, files, narrativeBoards);
 const simulations = new SimulationService(files, library, aiProvider);
@@ -447,6 +449,10 @@ const registerIpc = (): void => {
   ipcMain.handle("story:entity:references", async (_event, projectPath: string, target: StoryEntityRef) => {
     return storyReferences.findReferences(projectPath, target);
   });
+
+  ipcMain.handle("project:search", async (_event, projectPath: string, query: string) =>
+    projectSearch.search(projectPath, String(query ?? ""))
+  );
 
   ipcMain.handle("revision:overview", async (_event, projectPath: string) => revisions.overview(projectPath));
 

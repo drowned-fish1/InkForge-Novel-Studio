@@ -158,6 +158,9 @@ interface ProjectState {
   renameVolume: (volumeId: string, title: string) => Promise<void>;
   deleteVolume: (volumeId: string) => Promise<void>;
   updateChapterPlan: (chapterId: string, patch: Partial<ChapterPlan>) => Promise<void>;
+  pendingEditorSelection?: { chapterId: string; start: number; end: number };
+  jumpToChapterOffset: (chapter: ChapterPlan, start: number, end: number) => Promise<void>;
+  clearPendingEditorSelection: () => void;
   batchUpdateChapterPlans: (updates: Array<{ chapterId: string; patch: Partial<ChapterPlan> }>) => Promise<void>;
   moveChapter: (chapterId: string, targetVolumeId: string, targetIndex?: number) => Promise<void>;
   batchMoveChapters: (chapterIds: string[], targetVolumeId: string) => Promise<void>;
@@ -606,6 +609,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
     }
   },
+  jumpToChapterOffset: async (chapter, start, end) => {
+    await get().selectChapter(chapter);
+    set({ pendingEditorSelection: { chapterId: chapter.id, start, end } });
+  },
+  clearPendingEditorSelection: () => set({ pendingEditorSelection: undefined }),
   batchUpdateChapterPlans: async (updates) => {
     const { project } = get();
     if (!project || !updates.length) {

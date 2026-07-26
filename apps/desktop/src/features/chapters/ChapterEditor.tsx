@@ -28,6 +28,7 @@ import type { Character, Term, WritingWorkspace } from "@inkforge/schemas";
 import type { MouseEvent } from "react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ScenePlanner } from "@/features/agent/ScenePlanner";
+import { MarkdownCodeEditor, type MarkdownCodeEditorHandle } from "@/features/chapters/MarkdownCodeEditor";
 import { rebaseChapterAnnotations } from "@inkforge/schemas";
 import { bridge } from "@/lib/browserBridge";
 import { listMarkdownHeadings } from "@/lib/chapterContent";
@@ -47,7 +48,6 @@ const chapterStatusLabels = {
 type EditorTab = "write" | "preview";
 type SupportTab = "scenes" | "details" | "notes" | "history" | "stats";
 
-const MAX_RENDERED_LINE_NUMBERS = 3000;
 const typewriterStorageKey = "inkforge.typewriterScroll";
 
 const dayKeyOf = (value: string | number | Date): string => new Date(value).toLocaleDateString("zh-CN");
@@ -194,45 +194,12 @@ const enhancePreviewHtml = (markdown: string, references: ReferenceEntry[]) => {
   return template.innerHTML;
 };
 
-const countLines = (content: string): number => {
-  if (!content) {
-    return 1;
-  }
-  let lines = 1;
-  for (let index = 0; index < content.length; index += 1) {
-    if (content.charCodeAt(index) === 10) {
-      lines += 1;
-    }
-  }
-  return lines;
-};
-
 const formatHistoryTime = (value: string): string => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN");
 };
 
 const formatBytes = (size: number): string => (size > 1024 ? `${(size / 1024).toFixed(1)} KB` : `${size} B`);
-
-const buildParagraphSegments = (content: string, selectionStart: number) => {
-  if (!content) {
-    return [{ id: "empty", text: "\u00a0", active: true, breakOnly: false }];
-  }
-  const parts = content.split(/(\n+)/);
-  let offset = 0;
-  return parts.map((text, index) => {
-    const start = offset;
-    const end = start + text.length;
-    offset = end;
-    const active = selectionStart >= start && selectionStart <= end;
-    return {
-      id: `${index}-${start}`,
-      text: text || "\u00a0",
-      active,
-      breakOnly: /^\n+$/.test(text)
-    };
-  });
-};
 
 export const ChapterEditor = () => {
   const project = useProjectStore((state) => state.project);
@@ -251,10 +218,7 @@ export const ChapterEditor = () => {
   const restoreChapterHistory = useProjectStore((state) => state.restoreChapterHistory);
   const characters = useLibraryStore((state) => state.characters);
   const terms = useLibraryStore((state) => state.terms);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
-  const gutterRef = useRef<HTMLDivElement>(null);
-  const backdropRef = useRef<HTMLDivElement>(null);
-  const caretMarkerRef = useRef<HTMLSpanElement>(null);
+  const cmRef = useRef<MarkdownCodeEditorHandle>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const [editorTab, setEditorTab] = useState<EditorTab>("write");
   const [supportTab, setSupportTab] = useState<SupportTab>("scenes");
@@ -311,6 +275,23 @@ export const ChapterEditor = () => {
   useEffect(() => {
     window.localStorage.setItem(typewriterStorageKey, String(typewriterScroll));
   }, [typewriterScroll]);
+
+  const pendingEditorSelection = useProjectStore((state) => state.pendingEditorSelection);
+  const clearPendingEditorSelection = useProjectStore((state) => state.clearPendingEditorSelection);
+  useEffect(() => {
+    // Global-search jumps land here once the target chapter is loaded.
+    if (!pendingEditorSelection || pendingEditorSelection.chapterId !== current?.plan.id) {
+      return;
+    }
+    const { start, end } = pendingEditorSelection;
+    const timer = window.setTimeout(() => {
+      cmRef.current?.setSelection(start, end, true);
+      setSelectionStart(start);
+      setSelectionEnd(end);
+      clearPendingEditorSelection();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [pendingEditorSelection, current?.plan.id, clearPendingEditorSelection]);
 
   useEffect(() => {
     // After each successful save, re-anchor this chapter's annotations by
@@ -376,15 +357,6 @@ export const ChapterEditor = () => {
     () => (editorTab === "preview" ? enhancePreviewHtml(deferredPreviewSource, references) : ""),
     [deferredPreviewSource, editorTab, references]
   );
-  const lineCount = useMemo(() => countLines(current?.content ?? ""), [current?.content]);
-  const shouldRenderLineNumbers = lineCount <= MAX_RENDERED_LINE_NUMBERS;
-  const paragraphSegments = useMemo(
-    () => (focusMode && editorTab === "write" ? buildParagraphSegments(current?.content ?? "", selectionStart) : []),
-    [current?.content, editorTab, focusMode, selectionStart]
-  );
-  const caretTrackingActive = focusMode || typewriterScroll;
-  const caretBefore = caretTrackingActive ? (current?.content.slice(0, selectionStart) ?? "") : "";
-  const caretAfter = caretTrackingActive ? current?.content.slice(selectionStart) || "\u200b" : "";
   const headings = useMemo(
     () => (editorTab === "write" ? listMarkdownHeadings(current?.content ?? "") : []),
     [current?.content, editorTab]
@@ -429,33 +401,8 @@ export const ChapterEditor = () => {
     return { days, totalSeconds, totalWords };
   }, [writingWorkspace.sessions]);
 
-  const syncEditorScroll = () => {
-    const editor = editorRef.current;
-    if (!editor) {
-      return;
-    }
-    if (gutterRef.current) {
-      gutterRef.current.scrollTop = editor.scrollTop;
-    }
-    if (backdropRef.current) {
-      backdropRef.current.scrollTop = editor.scrollTop;
-    }
-  };
-
-  const updateSelectionFromEditor = () => {
-    const editor = editorRef.current;
-    if (!editor) {
-      return;
-    }
-    setSelectionStart(editor.selectionStart);
-    setSelectionEnd(editor.selectionEnd);
-  };
-
-  const selectOffset = (start: number, end = start) => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    editor.focus();
-    editor.setSelectionRange(start, end);
+  const selectOffset = (start: number, end = start, center = false) => {
+    cmRef.current?.setSelection(start, end, center);
     setSelectionStart(start);
     setSelectionEnd(end);
   };
@@ -464,8 +411,11 @@ export const ChapterEditor = () => {
     if (!findMatches.length) return;
     const normalized = (index + findMatches.length) % findMatches.length;
     setMatchIndex(normalized);
-    window.requestAnimationFrame(() =>
-      selectOffset(findMatches[normalized], findMatches[normalized] + findText.trim().length)
+    // setTimeout, not requestAnimationFrame: rAF callbacks never fire while
+    // the window is hidden/minimized, which would silently drop the jump.
+    window.setTimeout(
+      () => selectOffset(findMatches[normalized], findMatches[normalized] + findText.trim().length, true),
+      0
     );
   };
 
@@ -474,7 +424,7 @@ export const ChapterEditor = () => {
     const start = findMatches[Math.min(matchIndex, findMatches.length - 1)];
     const next = `${current.content.slice(0, start)}${replaceText}${current.content.slice(start + findText.trim().length)}`;
     updateContent(next);
-    window.requestAnimationFrame(() => selectOffset(start, start + replaceText.length));
+    window.setTimeout(() => selectOffset(start, start + replaceText.length), 0);
   };
 
   const replaceAllMatches = () => {
@@ -485,47 +435,26 @@ export const ChapterEditor = () => {
   };
 
   const readLiveSelection = () => {
-    const editor = editorRef.current;
-    return editor
-      ? {
-          start: Math.min(editor.selectionStart, editor.selectionEnd),
-          end: Math.max(editor.selectionStart, editor.selectionEnd)
-        }
+    const live = cmRef.current?.getSelection();
+    return live
+      ? { start: live.from, end: live.to }
       : { start: Math.min(selectionStart, selectionEnd), end: Math.max(selectionStart, selectionEnd) };
   };
 
   const applyMarkdown = (before: string, after = before) => {
-    if (!current) return;
-    const { start, end } = readLiveSelection();
-    const selected = current.content.slice(start, end);
-    updateContent(`${current.content.slice(0, start)}${before}${selected}${after}${current.content.slice(end)}`);
-    window.requestAnimationFrame(() => selectOffset(start + before.length, end + before.length));
+    cmRef.current?.wrapSelection(before, after);
   };
 
   const applyLinePrefix = (prefix: string) => {
-    if (!current) return;
-    const content = current.content;
-    const { start, end } = readLiveSelection();
-    const lineStart = content.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
-    const rangeEnd = Math.max(end, start);
-    const segment = content.slice(lineStart, rangeEnd);
-    const updated = segment ? segment.replace(/^/gmu, prefix) : prefix;
-    updateContent(`${content.slice(0, lineStart)}${updated}${content.slice(rangeEnd)}`);
-    window.requestAnimationFrame(() => selectOffset(lineStart, rangeEnd + (updated.length - segment.length)));
+    cmRef.current?.prefixLines(prefix);
   };
 
   const scrollEditorToOffset = (offset: number) => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const lineHeight = Number.parseFloat(window.getComputedStyle(editor).lineHeight) || 32;
-    const line = (current?.content.slice(0, offset) ?? "").split("\n").length;
-    editor.scrollTo({ top: Math.max(0, (line - 1) * lineHeight - editor.clientHeight / 3) });
-    window.requestAnimationFrame(syncEditorScroll);
+    cmRef.current?.setSelection(offset, offset, true);
   };
 
   const jumpToHeading = (offset: number) => {
-    selectOffset(offset);
-    scrollEditorToOffset(offset);
+    selectOffset(offset, offset, true);
   };
 
   const saveWritingWorkspace = async (update: (workspace: WritingWorkspace) => WritingWorkspace) => {
@@ -590,39 +519,6 @@ export const ChapterEditor = () => {
       ]
     }));
   };
-
-  const centerCaretInFocusMode = () => {
-    const editor = editorRef.current;
-    const marker = caretMarkerRef.current;
-    if (!caretTrackingActive || !editor || !marker || document.activeElement !== editor) {
-      return;
-    }
-    const lineHeight = Number.parseFloat(window.getComputedStyle(editor).lineHeight) || 32;
-    const targetTop = marker.offsetTop - editor.clientHeight / 2 + lineHeight;
-    editor.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
-    window.requestAnimationFrame(syncEditorScroll);
-  };
-
-  useEffect(() => {
-    if (!caretTrackingActive) {
-      return;
-    }
-    const handleSelectionChange = () => {
-      if (document.activeElement === editorRef.current) {
-        updateSelectionFromEditor();
-      }
-    };
-    document.addEventListener("selectionchange", handleSelectionChange);
-    return () => document.removeEventListener("selectionchange", handleSelectionChange);
-  }, [caretTrackingActive]);
-
-  useEffect(() => {
-    if (!caretTrackingActive || editorTab !== "write") {
-      return;
-    }
-    const frame = window.requestAnimationFrame(centerCaretInFocusMode);
-    return () => window.cancelAnimationFrame(frame);
-  }, [caretTrackingActive, editorTab, selectionStart, current?.content]);
 
   if (!current) {
     return (
@@ -1232,71 +1128,35 @@ export const ChapterEditor = () => {
 
         {editorTab === "write" ? (
           <div className="markdown-editor-shell" id="chapter-write-panel" role="tabpanel">
-            <div className="editor-line-gutter" ref={gutterRef} aria-hidden="true">
-              {shouldRenderLineNumbers ? (
-                Array.from({ length: lineCount }, (_, index) => <span className="line-number-row" key={index} />)
-              ) : (
-                <span className="line-gutter-large-file">{lineCount.toLocaleString("zh-CN")} 行</span>
-              )}
-            </div>
-            <div className="editor-text-wrap">
-              {focusMode ? (
-                <div className="paragraph-backdrop" ref={backdropRef} aria-hidden="true">
-                  {paragraphSegments.map((segment) => (
-                    <span
-                      className={`paragraph-segment ${segment.active ? "active" : ""} ${segment.breakOnly ? "break-only" : ""}`}
-                      key={segment.id}
-                    >
-                      {segment.text}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              <textarea
-                className="markdown-editor"
-                ref={editorRef}
-                value={current.content}
-                placeholder="从这里开始写正文……"
-                spellCheck={true}
-                onChange={(event) => {
-                  updateContent(event.target.value);
-                  setSelectionStart(event.target.selectionStart);
-                }}
-                onClick={updateSelectionFromEditor}
-                onKeyUp={updateSelectionFromEditor}
-                onSelect={updateSelectionFromEditor}
-                onScroll={syncEditorScroll}
-                onKeyDown={(event) => {
-                  if (!(event.ctrlKey || event.metaKey) || event.altKey) {
-                    return;
-                  }
-                  const key = event.key.toLocaleLowerCase("en-US");
-                  if (key === "f") {
-                    event.preventDefault();
-                    setFindOpen(true);
-                    return;
-                  }
-                  if (key === "b" && !event.shiftKey) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    applyMarkdown("**");
-                    return;
-                  }
-                  if (key === "i" && !event.shiftKey) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    applyMarkdown("*");
-                  }
-                }}
-              />
-              {caretTrackingActive ? (
-                <div className="caret-mirror" aria-hidden="true">
-                  {caretBefore}
-                  <span ref={caretMarkerRef} />
-                  {caretAfter}
-                </div>
-              ) : null}
-            </div>
+            <MarkdownCodeEditor
+              ref={cmRef}
+              chapterKey={current.plan.id}
+              value={current.content}
+              placeholder="从这里开始写正文……"
+              marks={chapterAnnotations.map((annotation) => ({
+                id: annotation.id,
+                start: annotation.start,
+                end: annotation.end,
+                kind: annotation.kind === "revision" ? "revision" : "comment",
+                resolved: annotation.status === "resolved"
+              }))}
+              find={
+                findOpen && findText.trim()
+                  ? {
+                      ranges: findMatches.map((start) => ({ from: start, to: start + findText.trim().length })),
+                      activeIndex: matchIndex
+                    }
+                  : undefined
+              }
+              typewriter={typewriterScroll || focusMode}
+              paragraphFocus={focusMode}
+              onChange={updateContent}
+              onSelectionChange={(from, to) => {
+                setSelectionStart(from);
+                setSelectionEnd(to);
+              }}
+              onOpenFind={() => setFindOpen(true)}
+            />
           </div>
         ) : (
           <div

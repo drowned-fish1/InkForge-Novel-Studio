@@ -174,6 +174,7 @@ const api: InkforgeApi = {
   listConflicts: (projectPath) => ipcRenderer.invoke("story:conflicts:list", projectPath),
   saveConflict: (input) => ipcRenderer.invoke("story:conflicts:save", input),
   findEntityReferences: (projectPath, target) => ipcRenderer.invoke("story:entity:references", projectPath, target),
+  searchProject: (projectPath, query) => ipcRenderer.invoke("project:search", projectPath, query),
   revisionOverview: (projectPath) => ipcRenderer.invoke("revision:overview", projectPath),
   setRevisionDisposition: (projectPath, key, status, note) =>
     ipcRenderer.invoke("revision:disposition:set", projectPath, key, status, note),
