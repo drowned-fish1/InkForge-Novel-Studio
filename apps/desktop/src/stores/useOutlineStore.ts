@@ -29,6 +29,6 @@ export const useOutlineStore = create<OutlineUIState>((set) => ({
     set({
       selectedVolumeId: null,
       selectedChapterId: null,
-      expandedChapterId: null,
-    }),
+      expandedChapterId: null
+    })
 }));

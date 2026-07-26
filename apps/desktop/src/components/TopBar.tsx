@@ -1,4 +1,4 @@
-import { Download, FilePlus2, FolderOpen, Save } from "lucide-react";
+import { Bot, Check, ChevronDown, Download, FilePlus2, Focus, FolderOpen, Menu, Moon, Save, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAppTheme } from "@/lib/theme";
 import { useProjectStore } from "@/stores/useProjectStore";
@@ -29,7 +29,21 @@ const readStoredEditorFontSize = () => {
   return Math.min(MAX_EDITOR_FONT_SIZE, Math.max(MIN_EDITOR_FONT_SIZE, stored));
 };
 
-export const TopBar = () => {
+interface TopBarProps {
+  compactLayout?: boolean;
+  navigationOpen?: boolean;
+  agentOpen?: boolean;
+  onToggleNavigation?: () => void;
+  onToggleAgent?: () => void;
+}
+
+export const TopBar = ({
+  compactLayout = false,
+  navigationOpen = false,
+  agentOpen = false,
+  onToggleNavigation,
+  onToggleAgent
+}: TopBarProps) => {
   const { theme, toggleTheme } = useAppTheme();
   const project = useProjectStore((state) => state.project);
   const current = useProjectStore((state) => state.current);
@@ -40,6 +54,7 @@ export const TopBar = () => {
   const closeProject = useProjectStore((state) => state.closeProject);
   const saveCurrentChapter = useProjectStore((state) => state.saveCurrentChapter);
   const exportManuscript = useProjectStore((state) => state.exportManuscript);
+  const setFocusMode = useProjectStore((state) => state.setFocusMode);
   const [editorFontSize, setEditorFontSize] = useState(readStoredEditorFontSize);
 
   useEffect(() => {
@@ -62,23 +77,58 @@ export const TopBar = () => {
   return (
     <header className="top-bar">
       <div className="brand-block">
+        {compactLayout ? (
+          <button
+            className="icon-button compact-pane-toggle"
+            type="button"
+            aria-label={navigationOpen ? "关闭项目导航" : "打开项目导航"}
+            aria-pressed={navigationOpen}
+            onClick={onToggleNavigation}
+          >
+            <Menu size={18} />
+          </button>
+        ) : null}
         <div className="brand-mark">IF</div>
         <div>
-          <div className="brand-title">{project?.meta.title ?? "InkForge"}</div>
+          <div className="brand-title">{project?.meta.title ?? "InkForge 小说工坊"}</div>
           <div className="brand-subtitle">{current?.plan.title ?? "未选择章节"}</div>
         </div>
       </div>
 
       <div className="top-actions">
+        {compactLayout ? (
+          <button
+            className="icon-button compact-pane-toggle"
+            type="button"
+            aria-label={agentOpen ? "关闭创作 Agent" : "打开创作 Agent"}
+            aria-pressed={agentOpen}
+            onClick={onToggleAgent}
+          >
+            <Bot size={18} />
+          </button>
+        ) : null}
+        <span className={`top-save-state ${saveState}`} aria-live="polite">
+          <Check size={14} />
+          {saveLabel[saveState]}
+        </span>
+        <button
+          className="icon-button focus-mode-button"
+          type="button"
+          aria-label="进入专注写作"
+          title="进入专注写作"
+          onClick={() => setFocusMode(true)}
+        >
+          <Focus size={17} />
+        </button>
         <button
           className="icon-button theme-toggle"
           type="button"
+          aria-label={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"}
           onClick={toggleTheme}
           title={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"}
         >
-          {theme === "dark" ? "☀" : "🌙"}
+          {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
         </button>
-        <span className={`save-pill ${saveState}`}>{saveLabel[saveState]}</span>
         <span className="model-pill">{providerStatus?.configured ? providerStatus.model : "模型未配置"}</span>
         <div className="font-size-control" aria-label="编辑器字号">
           <button
@@ -99,25 +149,51 @@ export const TopBar = () => {
             A⁺
           </button>
         </div>
-        <button className="icon-button" type="button" onClick={() => void closeProject()} title="新建项目">
-          <FilePlus2 size={17} />
-        </button>
-        <button className="icon-button" type="button" onClick={() => void openProject()} title="打开项目">
-          <FolderOpen size={17} />
-        </button>
-        <button className="icon-button" type="button" onClick={() => void saveCurrentChapter()} title="保存章节">
-          <Save size={17} />
-        </button>
-        <button className="primary-button" type="button" onClick={() => void exportManuscript("markdown")}>
-          <Download size={17} />
-          导出 MD
-        </button>
-        <button className="secondary-button compact" type="button" onClick={() => void exportManuscript("txt")}>
-          TXT
-        </button>
-        <button className="secondary-button compact" type="button" onClick={() => void exportManuscript("docx")}>
-          DOCX
-        </button>
+        <details className="top-menu">
+          <summary className="secondary-button" role="button" aria-label="文件菜单">
+            <FolderOpen size={16} />
+            文件
+            <ChevronDown size={14} />
+          </summary>
+          <div
+            className="top-menu-popover"
+            onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")}
+          >
+            <button type="button" onClick={() => void closeProject()}>
+              <FilePlus2 size={16} />
+              新建项目
+            </button>
+            <button type="button" onClick={() => void openProject()}>
+              <FolderOpen size={16} />
+              打开项目
+            </button>
+            <button type="button" onClick={() => void saveCurrentChapter()}>
+              <Save size={16} />
+              保存章节
+            </button>
+          </div>
+        </details>
+        <details className="top-menu top-export-menu">
+          <summary className="primary-button" role="button" aria-label="导出菜单">
+            <Download size={16} />
+            导出
+            <ChevronDown size={14} />
+          </summary>
+          <div
+            className="top-menu-popover align-right"
+            onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")}
+          >
+            <button type="button" onClick={() => void exportManuscript("markdown")}>
+              Markdown
+            </button>
+            <button type="button" onClick={() => void exportManuscript("txt")}>
+              TXT
+            </button>
+            <button type="button" onClick={() => void exportManuscript("docx")}>
+              DOCX
+            </button>
+          </div>
+        </details>
       </div>
     </header>
   );

@@ -9,6 +9,7 @@ interface StoredProviderConfig {
   displayName: string;
   baseUrl: string;
   model: string;
+  editorModel?: string;
   authMode: ProviderAuthMode;
   encryptedApiKey?: string;
   temperature: number;
@@ -37,9 +38,14 @@ const maskSecret = (value?: string): string | undefined => {
 
 export class SecureConfigService {
   private readonly filePath: string;
+  private readonly legacyFilePaths: string[];
 
   constructor(private readonly files = new FileRepository()) {
     this.filePath = path.join(app.getPath("userData"), "provider-config.secure.json");
+    this.legacyFilePaths = [
+      path.join(app.getPath("appData"), "@inkforge", "desktop", "provider-config.secure.json"),
+      path.join(app.getPath("appData"), "InkForge", "provider-config.secure.json")
+    ].filter((candidate) => path.resolve(candidate) !== path.resolve(this.filePath));
   }
 
   async getStatus(): Promise<ProviderStatus> {
@@ -51,6 +57,7 @@ export class SecureConfigService {
       displayName: stored.displayName,
       baseUrl: stored.baseUrl,
       model: stored.model,
+      editorModel: stored.editorModel,
       authMode: stored.authMode,
       maskedKey: maskSecret(apiKey),
       updatedAt: stored.updatedAt || undefined
@@ -81,6 +88,7 @@ export class SecureConfigService {
       displayName: input.displayName.trim() || defaultProviderConfig.displayName,
       baseUrl: input.baseUrl.trim().replace(/\/+$/, ""),
       model: input.model.trim(),
+      editorModel: input.editorModel?.trim() || undefined,
       authMode: input.authMode,
       encryptedApiKey,
       temperature: input.temperature,
@@ -96,6 +104,18 @@ export class SecureConfigService {
     try {
       return { ...defaultProvider, ...(await this.files.readJson<StoredProviderConfig>(this.filePath)) };
     } catch {
+      for (const legacyFilePath of this.legacyFilePaths) {
+        try {
+          const stored = {
+            ...defaultProvider,
+            ...(await this.files.readJson<StoredProviderConfig>(legacyFilePath))
+          };
+          await this.files.writeJsonAtomic(this.filePath, stored);
+          return stored;
+        } catch {
+          // Try the next known pre-rename configuration location.
+        }
+      }
       return defaultProvider;
     }
   }

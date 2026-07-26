@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ZodError, type ZodType } from "zod";
 import {
+  AgentChatSessionSchema,
+  AgentExtensionConfigSchema,
+  AgentDataProposalSchema,
+  AgentRunTraceSchema,
+  AgentToolNameSchema,
+  ChapterMemorySchema,
   ChapterEndStateSchema,
   ChapterPlanSchema,
   ChapterStatusSchema,
@@ -26,6 +32,7 @@ import {
   WritingSessionSchema,
   WritingPreferencesSchema,
   createProjectId,
+  defaultAgentMembers,
   inkforgeSchemaVersion
 } from "../src/index";
 
@@ -49,6 +56,58 @@ const expectZodError = (schema: ZodType, value: unknown) => {
 };
 
 describe("schemas", () => {
+  it("provides extensible built-in Agent room members", () => {
+    const extensions = AgentExtensionConfigSchema.parse({});
+    expect(extensions.members).toEqual(defaultAgentMembers);
+    expect(extensions.members.map((member) => member.handle)).toEqual(["导演", "作家", "编辑", "资料员"]);
+  });
+
+  it("supports world-building proposals from the Agent", () => {
+    expect(AgentToolNameSchema.parse("propose_world_update")).toBe("propose_world_update");
+    expect(
+      AgentDataProposalSchema.parse({
+        id: "proposal-world-1",
+        entityType: "world",
+        title: "边城宵禁",
+        payload: { entity: { id: "world-curfew", title: "边城宵禁" } },
+        createdAt: now
+      }).entityType
+    ).toBe("world");
+  });
+
+  it("supports outline memory and outline update proposals", () => {
+    expect(AgentToolNameSchema.parse("get_outline_context")).toBe("get_outline_context");
+    expect(AgentToolNameSchema.parse("propose_outline_update")).toBe("propose_outline_update");
+    expect(
+      AgentDataProposalSchema.parse({
+        id: "proposal-outline-1",
+        entityType: "outline",
+        title: "全书大纲",
+        payload: { outline },
+        createdAt: now
+      }).entityType
+    ).toBe("outline");
+  });
+
+  it("supports the read-only narrative deviation preparation tool", () => {
+    expect(AgentToolNameSchema.parse("prepare_narrative_deviation")).toBe("prepare_narrative_deviation");
+  });
+
+  it("supports narrative board and simulation agent tools", () => {
+    expect(AgentToolNameSchema.parse("get_narrative_board")).toBe("get_narrative_board");
+    expect(AgentToolNameSchema.parse("get_simulation_runs")).toBe("get_simulation_runs");
+    expect(AgentToolNameSchema.parse("propose_beat_update")).toBe("propose_beat_update");
+    expect(
+      AgentDataProposalSchema.parse({
+        id: "proposal-beat-1",
+        entityType: "beat",
+        title: "2 张节拍卡",
+        payload: { actId: "", actTitle: "第二幕", beats: [{ id: "beat-1", title: "对峙", tension: 70 }] },
+        createdAt: now
+      }).entityType
+    ).toBe("beat");
+  });
+
   it.each([
     ["WritingPreferencesSchema", WritingPreferencesSchema, {}],
     [
@@ -102,6 +161,38 @@ describe("schemas", () => {
     ],
     ["PlanningImportSelectionSchema", PlanningImportSelectionSchema, {}],
     ["PlanningImportResultSchema", PlanningImportResultSchema, { snapshotId: "snapshot-1" }],
+    [
+      "AgentChatSessionSchema",
+      AgentChatSessionSchema,
+      {
+        id: "agent-chapter-1",
+        projectId: "project-1",
+        chapterId: "chapter-1",
+        title: "Opening chat",
+        messages: [{ id: "message-1", role: "assistant", content: "Ready.", createdAt: now }],
+        proposals: [
+          {
+            id: "proposal-1",
+            chapterId: "chapter-1",
+            mode: "append",
+            content: "New prose.",
+            createdAt: now
+          }
+        ],
+        updatedAt: now
+      }
+    ],
+    [
+      "ChapterMemorySchema",
+      ChapterMemorySchema,
+      {
+        chapterId: "chapter-1",
+        summary: "The gate opens.",
+        unresolvedThreads: ["Who rang the bell?"],
+        keywords: ["gate", "bell"],
+        updatedAt: now
+      }
+    ],
     [
       "PipelineSchema",
       PipelineSchema,
@@ -200,6 +291,26 @@ describe("schemas", () => {
       { id: "session-1", projectId: "project-1", title: "Planning", messages: {}, createdAt: now, updatedAt: now }
     ],
     [
+      "AgentChatSessionSchema rejects unsafe proposal mode",
+      AgentChatSessionSchema,
+      {
+        id: "agent-chapter-1",
+        projectId: "project-1",
+        chapterId: "chapter-1",
+        title: "Opening chat",
+        proposals: [
+          {
+            id: "proposal-1",
+            chapterId: "chapter-1",
+            mode: "overwrite-project",
+            content: "Unsafe.",
+            createdAt: now
+          }
+        ],
+        updatedAt: now
+      }
+    ],
+    [
       "PipelineSchema requires at least one step",
       PipelineSchema,
       { id: "draft-pipeline", name: "Draft pipeline", steps: [] }
@@ -266,5 +377,35 @@ describe("PlanningImportSelectionSchema", () => {
         outlineVolumeIds: []
       }
     });
+  });
+});
+
+describe("AgentRunTraceSchema", () => {
+  it("parses persisted trace metrics and stream events", () => {
+    const trace = AgentRunTraceSchema.parse({
+      id: "trace-1",
+      requestId: "request-1",
+      chapterId: "chapter-1",
+      userMessage: "继续写",
+      status: "completed",
+      model: "test-model",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      durationMs: 18,
+      usage: { promptTokens: 10, completionTokens: 4, totalTokens: 14 },
+      context: { tokenBudget: 2600, estimatedTokens: 1200, semanticHits: 3 },
+      events: [
+        {
+          id: "event-1",
+          type: "tool_completed",
+          timestamp: "2026-01-01T00:00:00.010Z",
+          toolName: "semantic_search",
+          label: "语义检索",
+          detail: "命中 3 条"
+        }
+      ]
+    });
+
+    expect(trace.context?.semanticHits).toBe(3);
+    expect(trace.events[0].toolName).toBe("semantic_search");
   });
 });

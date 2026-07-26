@@ -15,6 +15,7 @@
 **Covers:** [S4]
 
 **Files:**
+
 - Create: `apps/desktop/src/stores/useOutlineStore.ts`
 - Test: `apps/desktop/src/stores/__tests__/useOutlineStore.test.ts`
 
@@ -53,8 +54,8 @@ export const useOutlineStore = create<OutlineUIState>((set) => ({
     set({
       selectedVolumeId: null,
       selectedChapterId: null,
-      expandedChapterId: null,
-    }),
+      expandedChapterId: null
+    })
 }));
 ```
 
@@ -77,6 +78,7 @@ git commit -m "feat(outline): add outline UI state store"
 **Covers:** [S2, S4]
 
 **Files:**
+
 - Create: `apps/desktop/src/features/outline/OutlineOverview.tsx`
 
 - [ ] **Step 1: Create component with premise/mainConflict/endingDirection editing**
@@ -120,9 +122,7 @@ export const OutlineOverview = () => {
             }}
           />
         ) : (
-          <p onClick={() => setEditing("premise")}>
-            {outline.premise || "点击编辑前提..."}
-          </p>
+          <p onClick={() => setEditing("premise")}>{outline.premise || "点击编辑前提..."}</p>
         )}
       </div>
 
@@ -141,9 +141,7 @@ export const OutlineOverview = () => {
             }}
           />
         ) : (
-          <p onClick={() => setEditing("mainConflict")}>
-            {outline.mainConflict || "点击编辑主线冲突..."}
-          </p>
+          <p onClick={() => setEditing("mainConflict")}>{outline.mainConflict || "点击编辑主线冲突..."}</p>
         )}
       </div>
 
@@ -162,9 +160,7 @@ export const OutlineOverview = () => {
             }}
           />
         ) : (
-          <p onClick={() => setEditing("endingDirection")}>
-            {outline.endingDirection || "点击编辑结局方向..."}
-          </p>
+          <p onClick={() => setEditing("endingDirection")}>{outline.endingDirection || "点击编辑结局方向..."}</p>
         )}
       </div>
     </section>
@@ -191,6 +187,7 @@ git commit -m "feat(outline): add outline overview component"
 **Covers:** [S3]
 
 **Files:**
+
 - Create: `apps/desktop/src/features/outline/ChapterCard.tsx`
 
 - [ ] **Step 1: Create chapter card with status, word count, and drag support**
@@ -207,7 +204,7 @@ const statusColors: Record<ChapterPlan["status"], string> = {
   planned: "#3b82f6",
   drafting: "#f59e0b",
   revising: "#f97316",
-  done: "#22c55e",
+  done: "#22c55e"
 };
 
 const statusLabels: Record<ChapterPlan["status"], string> = {
@@ -215,7 +212,7 @@ const statusLabels: Record<ChapterPlan["status"], string> = {
   planned: "已规划",
   drafting: "草稿中",
   revising: "修改中",
-  done: "完成",
+  done: "完成"
 };
 
 interface ChapterCardProps {
@@ -266,7 +263,9 @@ export const ChapterCard = ({ chapter, volumeId }: ChapterCardProps) => {
 
       <div className="card-body">
         <div className="word-count">
-          <span>{chapter.actualWords.toLocaleString()} / {chapter.targetWords.toLocaleString()} 字</span>
+          <span>
+            {chapter.actualWords.toLocaleString()} / {chapter.targetWords.toLocaleString()} 字
+          </span>
           <div className="progress-bar">
             <div className="progress-fill" style={{ width: `${completion}%` }} />
           </div>
@@ -327,6 +326,7 @@ git commit -m "feat(outline): add chapter card component with drag support"
 **Covers:** [S2, S4]
 
 **Files:**
+
 - Create: `apps/desktop/src/features/outline/VolumeColumn.tsx`
 
 - [ ] **Step 1: Create volume column with drag-drop zone and add chapter button**
@@ -390,11 +390,7 @@ export const VolumeColumn = ({ volume }: VolumeColumnProps) => {
   };
 
   return (
-    <div
-      className="volume-column"
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
-    >
+    <div className="volume-column" onDragOver={handleDragOver} onDrop={handleDrop}>
       <div className="volume-header">
         <h3 onClick={handleRename}>{volume.title}</h3>
         <span className="chapter-count">{volume.chapters.length} 章</span>
@@ -437,6 +433,7 @@ git commit -m "feat(outline): add volume column with drag-drop support"
 **Covers:** [S2]
 
 **Files:**
+
 - Create: `apps/desktop/src/features/outline/OutlineEditor.tsx`
 
 - [ ] **Step 1: Create main editor combining all components**
@@ -509,6 +506,7 @@ git commit -m "feat(outline): add main outline editor component"
 **Covers:** [S2]
 
 **Files:**
+
 - Modify: `apps/desktop/src/components/AppShell.tsx:18-19,85-95`
 
 - [ ] **Step 1: Import OutlineEditor and add to implementedModules**
@@ -518,21 +516,51 @@ git commit -m "feat(outline): add main outline editor component"
 import { OutlineEditor } from "@/features/outline/OutlineEditor";
 
 // Update line 18
-const implementedModules = ["chapters", "characters", "world", "overview", "planning", "timeline", "clues", "terms", "outline"];
+const implementedModules = [
+  "chapters",
+  "characters",
+  "world",
+  "overview",
+  "planning",
+  "timeline",
+  "clues",
+  "terms",
+  "outline"
+];
 
 // Update line 85-95 to add outline case
-{selectedModule === "chapters" ? <ChapterEditor /> : null}
-{selectedModule === "characters" ? <CharacterLibrary /> : null}
-{selectedModule === "world" ? <WorldLibrary /> : null}
-{selectedModule === "overview" ? <OverviewPanel /> : null}
-{selectedModule === "planning" ? <PlanningPanel /> : null}
-{selectedModule === "timeline" ? <TimelinePanel /> : null}
-{selectedModule === "clues" ? <CluePanel /> : null}
-{selectedModule === "terms" ? <TermPanel /> : null}
-{selectedModule === "outline" ? <OutlineEditor /> : null}
-{placeholderModules.includes(selectedModule) || !implementedModules.includes(selectedModule) ? (
-  <ModulePlaceholder />
-) : null}
+{
+  selectedModule === "chapters" ? <ChapterEditor /> : null;
+}
+{
+  selectedModule === "characters" ? <CharacterLibrary /> : null;
+}
+{
+  selectedModule === "world" ? <WorldLibrary /> : null;
+}
+{
+  selectedModule === "overview" ? <OverviewPanel /> : null;
+}
+{
+  selectedModule === "planning" ? <PlanningPanel /> : null;
+}
+{
+  selectedModule === "timeline" ? <TimelinePanel /> : null;
+}
+{
+  selectedModule === "clues" ? <CluePanel /> : null;
+}
+{
+  selectedModule === "terms" ? <TermPanel /> : null;
+}
+{
+  selectedModule === "outline" ? <OutlineEditor /> : null;
+}
+{
+  placeholderModules.includes(selectedModule) || !implementedModules.includes(selectedModule) ? (
+    <ModulePlaceholder />
+  ) : null;
+}
 ```
 
 - [ ] **Step 2: Run typecheck**
@@ -554,6 +582,7 @@ git commit -m "feat(outline): register outline editor in app shell"
 **Covers:** [S3]
 
 **Files:**
+
 - Modify: `apps/desktop/src/styles.css`
 
 - [ ] **Step 1: Add CSS styles for outline editor components**
@@ -902,6 +931,7 @@ Expected: PASS
 
 Run: `npm run dev`
 Expected: Dev server starts, navigate to outline module and verify:
+
 - Overview section displays and is editable
 - Volume columns render
 - Chapter cards render with correct data

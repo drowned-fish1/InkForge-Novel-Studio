@@ -35,9 +35,7 @@ export const OutlineOverview = () => {
             }}
           />
         ) : (
-          <p onClick={() => setEditing("premise")}>
-            {outline.premise || "点击编辑前提..."}
-          </p>
+          <p onClick={() => setEditing("premise")}>{outline.premise || "点击编辑前提..."}</p>
         )}
       </div>
 
@@ -56,9 +54,7 @@ export const OutlineOverview = () => {
             }}
           />
         ) : (
-          <p onClick={() => setEditing("mainConflict")}>
-            {outline.mainConflict || "点击编辑主线冲突..."}
-          </p>
+          <p onClick={() => setEditing("mainConflict")}>{outline.mainConflict || "点击编辑主线冲突..."}</p>
         )}
       </div>
 
@@ -77,9 +73,7 @@ export const OutlineOverview = () => {
             }}
           />
         ) : (
-          <p onClick={() => setEditing("endingDirection")}>
-            {outline.endingDirection || "点击编辑结局方向..."}
-          </p>
+          <p onClick={() => setEditing("endingDirection")}>{outline.endingDirection || "点击编辑结局方向..."}</p>
         )}
       </div>
     </section>

@@ -15,6 +15,8 @@ interface PipelineState {
   confirmPipelineStep: () => Promise<void>;
   pausePipeline: () => Promise<void>;
   cancelPipeline: () => Promise<void>;
+  skipPipelineStep: () => Promise<void>;
+  retryPipelineStep: () => Promise<void>;
   resetPipeline: () => void;
 }
 
@@ -83,6 +85,23 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       set({ run, running: false, error: undefined });
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "Pipeline cancel failed." });
+    }
+  },
+  skipPipelineStep: async () => {
+    try {
+      const run = await bridge.skipPipelineStep();
+      set({ run, running: false, error: undefined });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : "Pipeline step could not be skipped." });
+    }
+  },
+  retryPipelineStep: async () => {
+    set({ running: true, error: undefined });
+    try {
+      const run = await bridge.retryPipelineStep();
+      set({ run, running: run.status === "running", error: undefined });
+    } catch (error) {
+      set({ running: false, error: error instanceof Error ? error.message : "Pipeline retry failed." });
     }
   },
   resetPipeline: () => set({ run: undefined, running: false, error: undefined })

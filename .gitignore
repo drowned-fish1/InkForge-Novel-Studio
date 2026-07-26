@@ -1,6 +1,10 @@
 node_modules/
 dist/
 dist-electron/
+apps/desktop/release/
+apps/desktop/release-installer/
+apps/desktop/release-final/
+apps/desktop/release-electron-cache/
 *.tsbuildinfo
 *.log
 .DS_Store
@@ -8,3 +12,5 @@ Thumbs.db
 output/
 .playwright-cli/
 test-results/
+.reasonix/
+.claude/

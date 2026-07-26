@@ -3,10 +3,9 @@ export const sidebarShortcutModules = [
   { key: "2", module: "characters", label: "人物" },
   { key: "3", module: "world", label: "世界" },
   { key: "4", module: "overview", label: "总览" },
-  { key: "5", module: "planning", label: "规划" },
-  { key: "6", module: "timeline", label: "时间线" },
-  { key: "7", module: "clues", label: "伏笔" },
-  { key: "8", module: "terms", label: "术语" }
+  { key: "5", module: "timeline", label: "时间线" },
+  { key: "6", module: "clues", label: "伏笔" },
+  { key: "7", module: "terms", label: "术语" }
 ] as const;
 
 export const keybindingHints = [
@@ -15,7 +14,7 @@ export const keybindingHints = [
   "Ctrl+Shift+N 新卷",
   "Ctrl+E 导出 MD",
   "Ctrl+B 专注",
-  "Ctrl+1~8 模块",
+  "Ctrl+1~7 模块",
   "Esc 关闭/退出"
 ];
 

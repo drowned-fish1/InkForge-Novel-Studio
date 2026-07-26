@@ -1,4 +1,5 @@
 import type { ExportInput } from "@/types/app";
+import { strToU8, zipSync, type Zippable } from "fflate";
 import { getProjectRecord } from "@/lib/browserStorage";
 
 type DocxModule = typeof import("docx");
@@ -224,6 +225,50 @@ const downloadBlob = (blob: Blob, fileName: string): void => {
   URL.revokeObjectURL(url);
 };
 
+const escapeXml = (value: string): string =>
+  value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/"/gu, "&quot;");
+
+const buildBrowserEpub = (input: ExportInput, title: string, blocks: ExportBlock[]): Uint8Array => {
+  const metadata = input.epub ?? {
+    title,
+    author: "",
+    language: "zh-CN",
+    description: "",
+    cssTheme: "classic" as const
+  };
+  const sections = blocks.map((block, index) => ({
+    ...block,
+    id: `section-${index + 1}`,
+    file: `section-${index + 1}.xhtml`,
+    label: block.title || `章节 ${index + 1}`
+  }));
+  const archive: Zippable = {
+    mimetype: [strToU8("application/epub+zip"), { level: 0 }],
+    "META-INF/container.xml": strToU8(
+      '<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
+    ),
+    "OEBPS/book.css": strToU8(
+      "body{font-family:serif;line-height:1.9;margin:7%}h1,h2{text-align:center}p{text-indent:2em}"
+    ),
+    "OEBPS/nav.xhtml": strToU8(
+      `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>目录</title></head><body><nav epub:type="toc"><ol>${sections.map((item) => `<li><a href="text/${item.file}">${escapeXml(item.label)}</a></li>`).join("")}</ol></nav></body></html>`
+    ),
+    "OEBPS/content.opf": strToU8(
+      `<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">inkforge-browser-export</dc:identifier><dc:title>${escapeXml(metadata.title)}</dc:title><dc:creator>${escapeXml(metadata.author)}</dc:creator><dc:language>${escapeXml(metadata.language)}</dc:language><dc:description>${escapeXml(metadata.description)}</dc:description><meta property="dcterms:modified">${new Date().toISOString().replace(/\.\d{3}Z$/u, "Z")}</meta></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="css" href="book.css" media-type="text/css"/>${sections.map((item) => `<item id="${item.id}" href="text/${item.file}" media-type="application/xhtml+xml"/>`).join("")}</manifest><spine>${sections.map((item) => `<itemref idref="${item.id}"/>`).join("")}</spine></package>`
+    )
+  };
+  sections.forEach((section) => {
+    const paragraphs = (section.body ?? "")
+      .split(/\n{2,}/u)
+      .map((paragraph) => `<p>${escapeXml(paragraph.replace(/^#+\s*/u, ""))}</p>`)
+      .join("");
+    archive[`OEBPS/text/${section.file}`] = strToU8(
+      `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${escapeXml(section.label)}</title><link rel="stylesheet" href="../book.css"/></head><body><h2>${escapeXml(section.label)}</h2>${paragraphs}</body></html>`
+    );
+  });
+  return zipSync(archive, { level: 6 });
+};
+
 export const exportManuscriptInBrowser = async (input: ExportInput): Promise<string> => {
   const { title, blocks } = collectExportBlocks(input);
   const extension = input.format === "markdown" ? "md" : input.format;
@@ -233,6 +278,14 @@ export const exportManuscriptInBrowser = async (input: ExportInput): Promise<str
     const docx = await import("docx");
     const blob = await docx.Packer.toBlob(buildDocx(docx, title, blocks));
     downloadBlob(blob, fileName);
+    return fileName;
+  }
+
+  if (input.format === "epub") {
+    const bytes = buildBrowserEpub(input, title, blocks);
+    const arrayBuffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(arrayBuffer).set(bytes);
+    downloadBlob(new Blob([arrayBuffer], { type: "application/epub+zip" }), fileName);
     return fileName;
   }
 

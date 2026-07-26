@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { strFromU8, unzipSync } from "fflate";
 import { __electronMock } from "electron";
 
 const secret = "sk-smoke-secret-do-not-write-to-project";
@@ -25,7 +26,8 @@ try {
   });
   assert.ok(project?.projectPath, "project:create IPC should return a project");
   const firstChapter = project.outline.volumes[0].chapters[0];
-  const chapterText = "# Smoke Chapter\n\nThe editor saves durable chapter text.\n";
+  const chapterText =
+    '# Smoke Chapter\n\nThe editor saves durable chapter text.\n\n---\n\n<script src="https://example.invalid/evil.js"></script>\n';
   await __electronMock.invoke("chapter:save", {
     projectPath: project.projectPath,
     file: firstChapter.file,
@@ -41,17 +43,86 @@ try {
   const reopened = await __electronMock.invoke("project:open", project.projectPath);
   assert.equal(reopened.meta.title, "SmokeNovel");
   assert.equal(await __electronMock.invoke("chapter:read", project.projectPath, firstChapter.file), chapterText);
+  assert.equal((await __electronMock.invoke("project:list"))[0]?.projectPath, project.projectPath);
 
-  for (const format of ["markdown", "txt", "docx"]) {
+  for (const format of ["markdown", "txt", "docx", "epub"]) {
     const exportPath = await __electronMock.invoke("export:manuscript", {
       projectPath: project.projectPath,
       format,
       includeChapterTitles: true,
-      includeVolumeTitles: true
+      includeVolumeTitles: true,
+      epub:
+        format === "epub"
+          ? {
+              title: "Smoke Novel",
+              author: "Smoke Tester",
+              language: "en",
+              description: "EPUB smoke test",
+              cssTheme: "modern"
+            }
+          : undefined
     });
     assert.ok(exportPath, `${format} export should return a path`);
     assert.ok((await stat(exportPath)).size > 0, `${format} export should write a non-empty file`);
+    if (format === "epub") {
+      const epub = await readFile(exportPath);
+      assert.equal(epub.subarray(30, 38).toString("utf8"), "mimetype");
+      assert.equal(epub.readUInt16LE(8), 0, "EPUB mimetype entry must be stored without compression");
+      const archive = unzipSync(epub);
+      const sections = Object.entries(archive)
+        .filter(([name]) => name.startsWith("OEBPS/text/"))
+        .map(([, content]) => strFromU8(content))
+        .join("\n");
+      assert.match(sections, /<hr \/>/u);
+      assert.doesNotMatch(sections, /<script\b/iu);
+    }
   }
+
+  const manualBackup = await __electronMock.invoke("backup:create", project.projectPath, "Smoke restore point");
+  await __electronMock.invoke("chapter:save", {
+    projectPath: project.projectPath,
+    file: firstChapter.file,
+    content: "# Changed after backup\n"
+  });
+  await __electronMock.invoke("backup:restore", project.projectPath, manualBackup.id);
+  assert.equal(await __electronMock.invoke("chapter:read", project.projectPath, firstChapter.file), chapterText);
+  assert.ok(
+    (await __electronMock.invoke("backup:list", project.projectPath)).some((item) => item.reason === "before-restore")
+  );
+
+  await __electronMock.invoke("writing-workspace:save", project.projectPath, {
+    annotations: [],
+    bookmarks: [],
+    sessions: [
+      {
+        id: "smoke-session",
+        chapterId: firstChapter.id,
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+        wordsAdded: 12,
+        durationSeconds: 60
+      }
+    ]
+  });
+  assert.equal((await __electronMock.invoke("writing-workspace:load", project.projectPath)).sessions[0].wordsAdded, 12);
+
+  await __electronMock.invoke("agent-extensions:save", project.projectPath, {
+    promptPresets: [],
+    toolProfiles: [],
+    customTools: [
+      {
+        id: "smoke-tool",
+        name: "Smoke Tool",
+        description: "",
+        instruction: "Inspect the chapter.",
+        allowedTools: ["get_chapter_context"]
+      }
+    ]
+  });
+  assert.equal(
+    (await __electronMock.invoke("agent-extensions:load", project.projectPath)).customTools[0].name,
+    "Smoke Tool"
+  );
 
   const status = await __electronMock.invoke("provider:save", {
     providerId: "smoke-provider",
@@ -86,7 +157,10 @@ try {
           "create project",
           "write and reopen chapter",
           "chapter save history",
-          "export markdown/txt/docx",
+          "export markdown/txt/docx/epub",
+          "backup create and protected restore",
+          "writing annotations/session storage",
+          "Agent extension storage",
           "provider secret outside project directory"
         ]
       },

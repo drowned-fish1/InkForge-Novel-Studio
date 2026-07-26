@@ -225,7 +225,7 @@ export const PlanningPanel = () => {
             <strong>1. 发起规划</strong>
             <textarea
               value={seed}
-              placeholder="例如：我想写一本玄幻升级流，主角从边城开始，核心卖点是血脉、黑匣、宗门追杀。"
+              placeholder="粘贴你的已有大纲或描述想写的题材、主角、冲突与世界规则。"
               onChange={(event) => setSeed(event.target.value)}
             />
             <button className="primary-button full" type="submit" disabled={planningRunning}>

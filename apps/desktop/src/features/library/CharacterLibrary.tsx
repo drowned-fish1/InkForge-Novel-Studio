@@ -3,7 +3,21 @@ import { Plus, Save, UserRound } from "lucide-react";
 import type { Character } from "@inkforge/schemas";
 import { useLibraryStore } from "@/stores/useLibraryStore";
 
-type RoleFilter = "all" | "protagonist" | "supporting" | "antagonist";
+type CharacterTier = "primary" | "secondary" | "minor";
+type RoleFilter = "all" | CharacterTier;
+
+const tierOrder: CharacterTier[] = ["primary", "secondary", "minor"];
+const tierLabels: Record<CharacterTier, string> = {
+  primary: "主要人物",
+  secondary: "次要人物",
+  minor: "临时人物"
+};
+const roleOptions = [
+  { value: "protagonist", label: "主角（主要人物）" },
+  { value: "antagonist", label: "重要反派（主要人物）" },
+  { value: "supporting", label: "配角（次要人物）" },
+  { value: "minor", label: "临时 / 龙套人物" }
+] as const;
 
 const newCharacter = (seed: number): Character => ({
   id: `char_${Date.now()}_${seed}`,
@@ -41,7 +55,7 @@ export const CharacterLibrary = () => {
   const filteredCharacters = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return characters.filter((character) => {
-      const matchesRole = characterMatchesRole(character.role, roleFilter);
+      const matchesRole = roleFilter === "all" || characterTier(character.role) === roleFilter;
       const searchable = [
         character.name,
         character.role,
@@ -59,6 +73,14 @@ export const CharacterLibrary = () => {
       return matchesRole && (!keyword || searchable.includes(keyword));
     });
   }, [characters, query, roleFilter]);
+  const groupedCharacters = useMemo(
+    () =>
+      tierOrder.map((tier) => ({
+        tier,
+        characters: filteredCharacters.filter((character) => characterTier(character.role) === tier)
+      })),
+    [filteredCharacters]
+  );
 
   useEffect(() => {
     if (!draft && selected) {
@@ -108,28 +130,38 @@ export const CharacterLibrary = () => {
               onChange={(event) => setQuery(event.target.value)}
             />
             <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}>
-              <option value="all">全部角色</option>
-              <option value="protagonist">主角</option>
-              <option value="supporting">配角</option>
-              <option value="antagonist">反派</option>
+              <option value="all">全部人物</option>
+              <option value="primary">主要人物</option>
+              <option value="secondary">次要人物</option>
+              <option value="minor">临时人物</option>
             </select>
           </div>
-          {filteredCharacters.map((character) => (
-            <button
-              className={draft?.id === character.id ? "selected" : ""}
-              key={character.id}
-              type="button"
-              onClick={() => choose(character)}
-            >
-              <UserRound size={17} />
-              <span>
-                <strong>{character.name}</strong>
-                <small>
-                  {character.role} / {character.currentState.location || "位置未定"}
-                </small>
-              </span>
-            </button>
-          ))}
+          {groupedCharacters.map((group) =>
+            group.characters.length ? (
+              <section className="character-list-group" key={group.tier}>
+                <div className="character-list-group-title">
+                  <span>{tierLabels[group.tier]}</span>
+                  <b>{group.characters.length}</b>
+                </div>
+                {group.characters.map((character) => (
+                  <button
+                    className={draft?.id === character.id ? "selected" : ""}
+                    key={character.id}
+                    type="button"
+                    onClick={() => choose(character)}
+                  >
+                    <UserRound size={17} />
+                    <span>
+                      <strong>{character.name}</strong>
+                      <small>
+                        {roleLabel(character.role)} / {character.currentState.location || "位置未定"}
+                      </small>
+                    </span>
+                  </button>
+                ))}
+              </section>
+            ) : null
+          )}
           {!filteredCharacters.length ? <div className="empty-list-hint">没有匹配的人物。</div> : null}
         </aside>
 
@@ -139,6 +171,19 @@ export const CharacterLibrary = () => {
               <label>
                 姓名
                 <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+              </label>
+              <label>
+                人物层级
+                <select value={draft.role} onChange={(event) => setDraft({ ...draft, role: event.target.value })}>
+                  {!roleOptions.some((option) => option.value === draft.role) ? (
+                    <option value={draft.role}>{draft.role || "未分类"}</option>
+                  ) : null}
+                  {roleOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label>
                 标签
@@ -227,15 +272,22 @@ export const CharacterLibrary = () => {
   );
 };
 
-const characterMatchesRole = (role: string, filter: RoleFilter): boolean => {
-  if (filter === "all") {
-    return true;
-  }
+const characterTier = (role: string): CharacterTier => {
   const normalized = role.toLowerCase();
-  const roleAliases: Record<Exclude<RoleFilter, "all">, string[]> = {
-    protagonist: ["protagonist", "main", "主角"],
-    supporting: ["supporting", "ally", "side", "配角", "盟友"],
-    antagonist: ["antagonist", "villain", "enemy", "反派", "敌人"]
-  };
-  return roleAliases[filter].some((alias) => normalized.includes(alias));
+  if (
+    ["protagonist", "main", "lead", "antagonist", "villain", "主角", "主要", "反派"].some((alias) =>
+      normalized.includes(alias)
+    )
+  ) {
+    return "primary";
+  }
+  if (
+    ["minor", "cameo", "background", "temporary", "龙套", "临时", "路人"].some((alias) => normalized.includes(alias))
+  ) {
+    return "minor";
+  }
+  return "secondary";
 };
+
+const roleLabel = (role: string): string =>
+  roleOptions.find((option) => option.value === role)?.label.split("（")[0] ?? role;

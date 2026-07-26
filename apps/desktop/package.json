@@ -1,23 +1,28 @@
 {
   "name": "@inkforge/desktop",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
+  "description": "InkForge local-first AI novel writing studio.",
+  "author": "InkForge Contributors",
+  "license": "MIT",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5273 --strictPort",
     "build": "tsc -p tsconfig.electron.json && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
-    "desktop": "concurrently -k \"npm:dev\" \"wait-on http://127.0.0.1:5273 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5273 electron .\""
+    "desktop": "concurrently -k \"npm:dev\" \"wait-on http://127.0.0.1:5273 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5273 electron .\"",
+    "pack": "npm run build && node scripts/package-windows.mjs --dir",
+    "dist": "npm run build && node scripts/package-windows.mjs"
   },
   "dependencies": {
-    "@inkforge/ai-provider": "0.1.0",
     "@inkforge/agent-engine": "0.1.0",
+    "@inkforge/ai-provider": "0.1.0",
     "@inkforge/prompt-engine": "0.1.0",
     "@inkforge/schemas": "0.1.0",
     "@vitejs/plugin-react": "^5.1.1",
     "docx": "^9.6.1",
-    "electron": "^39.2.7",
+    "fflate": "^0.8.3",
     "fs-extra": "^11.3.5",
     "lucide-react": "^0.555.0",
     "marked": "^18.0.3",
@@ -32,7 +37,44 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "electron": "39.8.10",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.9.3",
     "vite": "^7.2.4"
+  },
+  "build": {
+    "appId": "studio.inkforge.novel",
+    "productName": "InkForge 小说工坊",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "!dist-electron/**/*.test.js",
+      "!dist-electron/**/*.test.js.map",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "executableName": "InkForge",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "InkForge-Novel-Studio-${version}-${arch}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

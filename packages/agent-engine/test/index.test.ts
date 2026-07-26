@@ -126,6 +126,26 @@ describe("PipelineRunner", () => {
     expect(state.data.second).toBe("alpha-beta");
   });
 
+  it("preserves initial run metadata for dependency-scoped steps", async () => {
+    const runner = new PipelineRunner([
+      { id: "context", run: () => ({ id: "context", output: "ready" }) },
+      {
+        id: "draft",
+        inputFrom: "context",
+        run: ({ data }) => ({
+          id: "draft",
+          output: `${data.projectPath}:${data.chapterId}:${data.context}`
+        })
+      }
+    ]);
+
+    const state = await runner.run({
+      initialData: { projectPath: "novel", chapterId: "chapter-1" }
+    });
+
+    expect(state.data.draft).toBe("novel:chapter-1:ready");
+  });
+
   it("pauses between steps when autoCommit is disabled", async () => {
     const runner = new PipelineRunner([
       { id: "first", run: () => ({ id: "first", output: "alpha" }) },
@@ -139,6 +159,48 @@ describe("PipelineRunner", () => {
     const completed = await runner.continue(paused);
     expect(completed.status).toBe("completed");
     expect(completed.data.second).toBe("beta");
+  });
+
+  it("supports one-stage checkpoints and skipping a pending stage", async () => {
+    const runner = new PipelineRunner([
+      { id: "context", run: () => ({ id: "context", output: "ready" }) },
+      { id: "draft", run: () => ({ id: "draft", output: "text" }) },
+      { id: "review", run: () => ({ id: "review", output: "passed" }) }
+    ]);
+
+    const firstCheckpoint = await runner.run({ autoCommit: false });
+    expect(firstCheckpoint.pendingStep?.id).toBe("draft");
+
+    const skipped = runner.skipPending(firstCheckpoint);
+    expect(skipped.results.at(-1)).toMatchObject({ id: "draft", status: "skipped" });
+    expect(skipped.pendingStep?.id).toBe("review");
+
+    const completed = await runner.continue(skipped, { autoCommit: false, maxSteps: 1 });
+    expect(completed.status).toBe("completed");
+    expect(completed.data.review).toBe("passed");
+  });
+
+  it("retries a failed stage without repeating completed stages", async () => {
+    let attempts = 0;
+    const runner = new PipelineRunner([
+      { id: "context", run: () => ({ id: "context", output: "ready" }) },
+      {
+        id: "draft",
+        run: () => {
+          attempts += 1;
+          if (attempts === 1) throw new Error("temporary");
+          return { id: "draft", output: "text" };
+        }
+      }
+    ]);
+
+    const failed = await runner.run();
+    expect(failed.status).toBe("failed");
+
+    const retried = await runner.retryFailed(failed);
+    expect(retried.status).toBe("completed");
+    expect(retried.results.filter((result) => result.id === "context")).toHaveLength(1);
+    expect(retried.data.draft).toBe("text");
   });
 });
 
@@ -214,10 +276,16 @@ describe("DecisionAnalyzer", () => {
 });
 
 describe("pipeline presets", () => {
-  it("exports the five requested presets", () => {
+  it("exports the requested presets including literary polish", () => {
     expect(Object.keys(pipelinePresets).sort()).toEqual(
-      ["chapter-revise", "consistency-check", "full-chapter", "pre-publish", "quick-continue"].sort()
+      ["chapter-revise", "consistency-check", "full-chapter", "literary-polish", "pre-publish", "quick-continue"].sort()
     );
     expect(getPipelinePreset("full-chapter").steps.map((step) => step.id)).toContain("draft-scenes");
+    expect(getPipelinePreset("literary-polish").steps.map((step) => step.id)).toEqual([
+      "context",
+      "rough-draft",
+      "sensory-pass",
+      "editor-pass"
+    ]);
   });
 });

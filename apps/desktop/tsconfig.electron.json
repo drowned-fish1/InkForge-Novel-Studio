@@ -13,5 +13,6 @@
     "composite": true,
     "paths": {}
   },
-  "include": ["electron"]
+  "include": ["electron"],
+  "exclude": ["electron/**/*.test.ts"]
 }

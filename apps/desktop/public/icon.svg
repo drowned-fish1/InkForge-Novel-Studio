@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="InkForge">
-  <rect width="64" height="64" rx="14" fill="#163d3a"/>
-  <path d="M18 17h6v30h-6V17Zm14 0h18v6H38v7h10v6H38v11h-6V17Z" fill="#e8f2e7"/>
-  <path d="M17 51h30" stroke="#d6a540" stroke-width="4" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="InkForge 小说工坊">
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="#123f3a"/>
+  <rect x="27" y="27" width="458" height="458" rx="101" fill="none" stroke="#2e6158" stroke-width="10"/>
+  <path d="M137 130h54v252h-54V130Zm127 0h143v51h-89v54h78v50h-78v97h-54V130Z" fill="#f3eee3"/>
+  <path d="M130 416h252" stroke="#d7a841" stroke-width="28" stroke-linecap="round"/>
 </svg>

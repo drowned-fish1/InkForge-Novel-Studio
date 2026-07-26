@@ -32,8 +32,10 @@ export const runBrowserAiTask = async (
   signal?: AbortSignal
 ): Promise<AiTaskResult> => {
   const prompt = buildPrompt(template, input);
+  const selectedModel =
+    input.useEditorModel && provider.editorModel?.trim() ? provider.editorModel.trim() : provider.model;
   const chatRequest: ChatCompletionRequest = {
-    model: provider.model,
+    model: selectedModel,
     temperature: provider.temperature,
     max_tokens: provider.maxTokens,
     stream: false,
@@ -85,7 +87,7 @@ export const runBrowserAiTask = async (
     task: input.task,
     text,
     providerId: provider.providerId,
-    model: provider.model,
+    model: selectedModel,
     contextSummary: `${prompt.name}; ${prompt.contextSummary}`,
     generatedAt: prompt.generatedAt,
     usage

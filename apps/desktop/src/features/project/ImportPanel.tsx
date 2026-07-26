@@ -220,13 +220,14 @@ export const ImportPanel = () => {
     >
       <div className="import-panel-header">
         <FileText size={18} />
-        <strong>导入文稿</strong>
+        <strong>用已有文稿创建小说</strong>
         {chapters.length ? (
           <span>
             {chapters.length} 章 / {totalWords.toLocaleString("zh-CN")} 字符
           </span>
         ) : null}
       </div>
+      {!chapters.length ? <p className="import-helper">支持 .md 和 .txt，可自动按章节标题拆分。</p> : null}
 
       <input
         ref={inputRef}
@@ -240,10 +241,10 @@ export const ImportPanel = () => {
       <div className="import-actions">
         <button className="secondary-button" type="button" onClick={() => inputRef.current?.click()}>
           <Upload size={16} />
-          选择文稿
+          选择 .md / .txt
         </button>
         <span>
-          <FolderInput size={15} /> 拖入文件夹
+          <FolderInput size={15} /> 或拖入文件/文件夹
         </span>
       </div>
 

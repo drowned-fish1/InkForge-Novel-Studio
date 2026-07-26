@@ -15,7 +15,7 @@ interface WritingSessionStateStore {
   session?: WritingSessionState;
   running: boolean;
   error?: string;
-  hydrateScenePlans: () => void;
+  hydrateScenePlans: () => Promise<void>;
   addScenePlan: () => void;
   updateScenePlan: (sceneId: string, patch: Partial<ScenePlan>) => void;
   deleteScenePlan: (sceneId: string) => void;
@@ -30,9 +30,6 @@ interface WritingSessionStateStore {
   metrics: () => WritingSessionMetrics;
   resetWritingSession: () => void;
 }
-
-const storageKey = (projectPath: string, chapterId: string): string =>
-  `inkforge.scenePlans.${projectPath}.${chapterId}`;
 
 const normalizeOrder = (scenes: ScenePlan[]): ScenePlan[] => scenes.map((scene, index) => ({ ...scene, order: index }));
 
@@ -98,7 +95,7 @@ const persistScenes = (scenes: ScenePlan[]): void => {
   if (!project || !current) {
     return;
   }
-  localStorage.setItem(storageKey(project.projectPath, current.plan.id), JSON.stringify(scenes));
+  void bridge.saveScenePlans(project.projectPath, current.plan.id, scenes);
 };
 
 const toWritingScenes = (scenes: ScenePlan[]): WritingScene[] =>
@@ -120,15 +117,14 @@ const estimateTokens = (text: string): number => {
 export const useWritingSessionStore = create<WritingSessionStateStore>((set, get) => ({
   scenePlans: [],
   running: false,
-  hydrateScenePlans: () => {
+  hydrateScenePlans: async () => {
     const { project, current } = useProjectStore.getState();
     if (!project || !current) {
       set({ scenePlans: [] });
       return;
     }
-    const key = storageKey(project.projectPath, current.plan.id);
     try {
-      const stored = JSON.parse(localStorage.getItem(key) ?? "[]") as ScenePlan[];
+      const stored = await bridge.listScenePlans(project.projectPath, current.plan.id);
       set({
         scenePlans: stored.length
           ? normalizeOrder(stored)
@@ -200,7 +196,7 @@ export const useWritingSessionStore = create<WritingSessionStateStore>((set, get
   startSession: async () => {
     const scenes = get().scenePlans;
     if (!scenes.length) {
-      get().hydrateScenePlans();
+      await get().hydrateScenePlans();
     }
     set({ running: true, error: undefined });
     try {

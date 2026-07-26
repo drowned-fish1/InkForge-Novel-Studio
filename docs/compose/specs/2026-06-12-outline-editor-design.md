@@ -12,6 +12,7 @@
 ## 目标
 
 实现一个看板式大纲编辑器，让用户能够：
+
 1. 直观地查看和编辑小说整体结构
 2. 可视化管理分卷和章节
 3. 通过拖拽快速调整结构
@@ -72,11 +73,11 @@ apps/desktop/src/features/outline/
 
 ```typescript
 const statusColors = {
-  unplanned: "#94a3b8",  // 灰色
-  planned: "#3b82f6",    // 蓝色
-  drafting: "#f59e0b",   // 黄色
-  revising: "#f97316",   // 橙色
-  done: "#22c55e"        // 绿色
+  unplanned: "#94a3b8", // 灰色
+  planned: "#3b82f6", // 蓝色
+  drafting: "#f59e0b", // 黄色
+  revising: "#f97316", // 橙色
+  done: "#22c55e" // 绿色
 };
 ```
 

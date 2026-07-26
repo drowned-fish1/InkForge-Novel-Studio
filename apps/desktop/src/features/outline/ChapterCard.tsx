@@ -8,7 +8,7 @@ const statusColors: Record<ChapterPlan["status"], string> = {
   planned: "#3b82f6",
   drafting: "#f59e0b",
   revising: "#f97316",
-  done: "#22c55e",
+  done: "#22c55e"
 };
 
 const statusLabels: Record<ChapterPlan["status"], string> = {
@@ -16,7 +16,7 @@ const statusLabels: Record<ChapterPlan["status"], string> = {
   planned: "已规划",
   drafting: "草稿中",
   revising: "修改中",
-  done: "完成",
+  done: "完成"
 };
 
 interface ChapterCardProps {
@@ -67,12 +67,14 @@ export const ChapterCard = ({ chapter, volumeId }: ChapterCardProps) => {
 
       <div className="card-body">
         <div className="word-count">
-          <span>{chapter.actualWords.toLocaleString()} / {chapter.targetWords.toLocaleString()} 字</span>
+          <span>
+            {chapter.actualWords.toLocaleString()} / {chapter.targetWords.toLocaleString()} 字
+          </span>
           <div className="progress-bar">
             <div className="progress-fill" style={{ width: `${completion}%` }} />
           </div>
         </div>
-        {chapter.goal && <p className="chapter-goal">{chapter.goal}</p>}
+        {chapter.goal && <p className="outline-chapter-goal">{chapter.goal}</p>}
       </div>
 
       {isExpanded && (

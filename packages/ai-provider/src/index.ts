@@ -3,11 +3,32 @@ import type { PromptTemplate } from "@inkforge/schemas";
 
 export type ProviderAuthMode = "bearer" | "x-api-key" | "raw-authorization" | "none";
 
-export type ChatCompletionRole = "system" | "user" | "assistant";
+export type ChatCompletionRole = "system" | "user" | "assistant" | "tool";
+
+export interface ChatCompletionToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
 
 export interface ChatCompletionMessage {
   role: ChatCompletionRole;
-  content: string;
+  content: string | null;
+  reasoning_content?: string | null;
+  tool_call_id?: string;
+  tool_calls?: ChatCompletionToolCall[];
+}
+
+export interface ChatCompletionTool {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
 }
 
 export interface ChatCompletionRequest {
@@ -15,7 +36,12 @@ export interface ChatCompletionRequest {
   temperature?: number;
   max_tokens?: number;
   stream?: boolean;
+  stream_options?: {
+    include_usage?: boolean;
+  };
   messages: ChatCompletionMessage[];
+  tools?: ChatCompletionTool[];
+  tool_choice?: "auto" | "none";
 }
 
 export interface ChatCompletionUsage {
@@ -27,11 +53,24 @@ export interface ChatCompletionUsage {
 export interface ChatCompletionResponse {
   choices?: Array<{
     message?: {
-      content?: string;
+      content?: string | null;
+      reasoning_content?: string | null;
+      tool_calls?: ChatCompletionToolCall[];
     };
     delta?: {
       content?: string;
+      reasoning_content?: string;
+      tool_calls?: Array<{
+        index?: number;
+        id?: string;
+        type?: "function";
+        function?: {
+          name?: string;
+          arguments?: string;
+        };
+      }>;
     };
+    finish_reason?: string | null;
   }>;
   usage?: ChatCompletionUsage;
   error?: {

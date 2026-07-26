@@ -1,6 +1,6 @@
 {
   "name": "inkforge-local-novel-studio",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Local-first AI novel writing cockpit for solo authors.",
   "license": "MIT",
@@ -16,8 +16,10 @@
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
-    "test": "vitest run",
-    "test:desktop-smoke": "npm run build && node --loader ./scripts/mock-electron-loader.mjs ./scripts/desktop-smoke.mjs"
+    "test": "vitest run --exclude apps/desktop/dist-electron/** --exclude apps/desktop/dist/**",
+    "test:desktop-smoke": "npm run build && node --loader ./scripts/mock-electron-loader.mjs ./scripts/desktop-smoke.mjs",
+    "pack:desktop": "npm --workspace @inkforge/desktop run pack",
+    "dist:windows": "npm --workspace @inkforge/desktop run dist"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

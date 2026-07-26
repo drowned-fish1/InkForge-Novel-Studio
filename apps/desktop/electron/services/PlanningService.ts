@@ -606,10 +606,7 @@ export class PlanningService {
         for (const chapter of chapters.filter(
           (entry) => !conflict.chapters.some((existing) => existing.file === entry.file)
         )) {
-          await this.files.writeTextAtomic(
-            this.files.assertInsideProject(projectPath, chapter.file),
-            `# ${chapter.title}\n\n`
-          );
+          await this.files.writeTextAtomic(this.files.assertInsideProject(projectPath, chapter.file), "");
         }
         volumes[volumeIndex] = { ...volume, id: conflict.id, chapters: [...chapters, ...retainedChapters] };
         changed = true;
@@ -628,10 +625,7 @@ export class PlanningService {
         };
       });
       for (const chapter of chapters) {
-        await this.files.writeTextAtomic(
-          this.files.assertInsideProject(projectPath, chapter.file),
-          `# ${chapter.title}\n\n`
-        );
+        await this.files.writeTextAtomic(this.files.assertInsideProject(projectPath, chapter.file), "");
       }
       volumes.push({ ...volume, id: `vol-${String(volumeNumber).padStart(3, "0")}`, chapters });
       changed = true;

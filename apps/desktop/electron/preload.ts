@@ -1,7 +1,14 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type {
+  AgentChangeResolutionInput,
+  AgentDataResolutionInput,
+  AgentChatInput,
+  AgentSessionCommandInput,
+  AgentRunEvent,
+  CreateBatchRunInput,
   CreateChapterInput,
   CreateProjectInput,
+  CreateStoryBranchInput,
   ExportInput,
   AiTaskInput,
   AiTaskResult,
@@ -18,11 +25,14 @@ import type {
   ProviderStatus,
   SaveChapterInput,
   SaveChapterSummaryInput,
+  SaveStoryBranchInput,
   SaveCharacterInput,
   SaveClueInput,
   SaveTermInput,
   SaveTimelineEventInput,
   SaveWorldEntryInput,
+  SimulationRunEvent,
+  SimulationRunInput,
   UpdateOutlineInput,
   WritingSessionCommandInput,
   WritingSessionState
@@ -36,7 +46,7 @@ const createAbortError = (): Error => {
   return error;
 };
 
-const invokeWithAbort = async <T, Input extends { requestId?: string }>(
+const invokeWithAbort = async <T, Input extends { requestId?: string }, Delta = string>(
   channel: string,
   cancelChannel: string,
   input: Input,
@@ -44,11 +54,15 @@ const invokeWithAbort = async <T, Input extends { requestId?: string }>(
   requestPrefix: string,
   delta?: {
     channel: string;
-    onDelta: (chunk: string) => void;
+    onDelta: (payload: Delta) => void;
   }
 ): Promise<T> => {
   const requestId = input.requestId ?? createRequestId(requestPrefix);
-  if (signal?.aborted) {
+  const usableSignal =
+    signal && typeof signal.addEventListener === "function" && typeof signal.removeEventListener === "function"
+      ? signal
+      : undefined;
+  if (usableSignal?.aborted) {
     throw createAbortError();
   }
 
@@ -58,10 +72,10 @@ const invokeWithAbort = async <T, Input extends { requestId?: string }>(
       void ipcRenderer.invoke(cancelChannel, requestId);
     }
   };
-  signal?.addEventListener("abort", cancel, { once: true });
-  const handleDelta = (_event: IpcRendererEvent, deltaRequestId: string, chunk: string) => {
+  usableSignal?.addEventListener("abort", cancel, { once: true });
+  const handleDelta = (_event: IpcRendererEvent, deltaRequestId: string, payload: Delta) => {
     if (deltaRequestId === requestId) {
-      delta?.onDelta(chunk);
+      delta?.onDelta(payload);
     }
   };
   if (delta) {
@@ -71,13 +85,13 @@ const invokeWithAbort = async <T, Input extends { requestId?: string }>(
   try {
     return await ipcRenderer.invoke(channel, { ...input, requestId });
   } catch (error) {
-    if (signal?.aborted) {
+    if (usableSignal?.aborted) {
       throw createAbortError();
     }
     throw error;
   } finally {
     settled = true;
-    signal?.removeEventListener("abort", cancel);
+    usableSignal?.removeEventListener("abort", cancel);
     if (delta) {
       ipcRenderer.removeListener(delta.channel, handleDelta);
     }
@@ -88,7 +102,7 @@ const api: InkforgeApi = {
   setTheme: async (theme: "light" | "dark", manual = false): Promise<void> => {
     ipcRenderer.send("theme:set", theme, manual);
   },
-  listProjects: async () => [],
+  listProjects: () => ipcRenderer.invoke("project:list"),
   createProject: (input: CreateProjectInput): Promise<ProjectSummary | undefined> =>
     ipcRenderer.invoke("project:create", input),
   openProject: (projectPath?: string): Promise<ProjectSummary | undefined> =>
@@ -108,6 +122,14 @@ const api: InkforgeApi = {
   createChapter: (input: CreateChapterInput): Promise<ProjectSummary> => ipcRenderer.invoke("chapter:create", input),
   updateOutline: (input: UpdateOutlineInput): Promise<ProjectSummary> => ipcRenderer.invoke("outline:update", input),
   exportManuscript: (input: ExportInput): Promise<string | undefined> => ipcRenderer.invoke("export:manuscript", input),
+  listBackups: (projectPath) => ipcRenderer.invoke("backup:list", projectPath),
+  createBackup: (projectPath, label) => ipcRenderer.invoke("backup:create", projectPath, label),
+  restoreBackup: (projectPath, snapshotId) => ipcRenderer.invoke("backup:restore", projectPath, snapshotId),
+  deleteBackup: (projectPath, snapshotId) => ipcRenderer.invoke("backup:delete", projectPath, snapshotId),
+  loadWritingWorkspace: (projectPath) => ipcRenderer.invoke("writing-workspace:load", projectPath),
+  saveWritingWorkspace: (projectPath, state) => ipcRenderer.invoke("writing-workspace:save", projectPath, state),
+  loadAgentExtensions: (projectPath) => ipcRenderer.invoke("agent-extensions:load", projectPath),
+  saveAgentExtensions: (projectPath, config) => ipcRenderer.invoke("agent-extensions:save", projectPath, config),
   listCharacters: (projectPath: string) => ipcRenderer.invoke("library:characters:list", projectPath),
   saveCharacter: (input: SaveCharacterInput) => ipcRenderer.invoke("library:characters:save", input),
   listWorldEntries: (projectPath: string) => ipcRenderer.invoke("library:world:list", projectPath),
@@ -154,8 +176,63 @@ const api: InkforgeApi = {
   confirmPipelineStep: (): Promise<PipelineRunView> => ipcRenderer.invoke("agent:pipeline:confirm"),
   pausePipeline: (): Promise<PipelineRunView> => ipcRenderer.invoke("agent:pipeline:pause"),
   cancelPipeline: (): Promise<PipelineRunView> => ipcRenderer.invoke("agent:pipeline:cancel"),
+  skipPipelineStep: (): Promise<PipelineRunView> => ipcRenderer.invoke("agent:pipeline:skip"),
+  retryPipelineStep: (): Promise<PipelineRunView> => ipcRenderer.invoke("agent:pipeline:retry"),
   runWritingSessionCommand: (input: WritingSessionCommandInput): Promise<WritingSessionState> =>
-    ipcRenderer.invoke("agent:writing:command", input)
+    ipcRenderer.invoke("agent:writing:command", input),
+  loadAgentChat: (projectPath: string, chapterId: string) =>
+    ipcRenderer.invoke("agent:chat:load", projectPath, chapterId),
+  runAgentChat: (input: AgentChatInput, signal?: AbortSignal, onEvent?: (event: AgentRunEvent) => void) =>
+    invokeWithAbort(
+      "agent:chat:run",
+      "agent:chat:cancel",
+      input,
+      signal,
+      "agent-chat",
+      onEvent ? { channel: "agent:chat:event", onDelta: onEvent } : undefined
+    ),
+  cancelAgentChat: (requestId: string): Promise<void> => ipcRenderer.invoke("agent:chat:cancel", requestId),
+  listAgentTraces: (projectPath: string, chapterId: string) =>
+    ipcRenderer.invoke("agent:chat:traces", projectPath, chapterId),
+  resolveAgentChange: (input: AgentChangeResolutionInput) => ipcRenderer.invoke("agent:chat:resolve-change", input),
+  resolveAgentDataChange: (input: AgentDataResolutionInput) => ipcRenderer.invoke("agent:chat:resolve-data", input),
+  manageAgentSession: (input: AgentSessionCommandInput) => ipcRenderer.invoke("agent:chat:session", input),
+  listScenePlans: (projectPath: string, chapterId: string) =>
+    ipcRenderer.invoke("agent:scenes:list", projectPath, chapterId),
+  saveScenePlans: (projectPath, chapterId, scenes) =>
+    ipcRenderer.invoke("agent:scenes:save", projectPath, chapterId, scenes),
+  evaluateChapterQuality: (projectPath, chapterId) => ipcRenderer.invoke("quality:evaluate", projectPath, chapterId),
+  listChapterQualityReports: (projectPath, chapterId) => ipcRenderer.invoke("quality:list", projectPath, chapterId),
+  setChapterQualityBaseline: (projectPath, chapterId, reportId) =>
+    ipcRenderer.invoke("quality:baseline", projectPath, chapterId, reportId),
+  listStoryBranches: (projectPath, chapterId) => ipcRenderer.invoke("branch:list", projectPath, chapterId),
+  createStoryBranch: (input: CreateStoryBranchInput) => ipcRenderer.invoke("branch:create", input),
+  saveStoryBranch: (input: SaveStoryBranchInput) => ipcRenderer.invoke("branch:save", input),
+  compareStoryBranch: (projectPath, branchId) => ipcRenderer.invoke("branch:compare", projectPath, branchId),
+  applyStoryBranch: (projectPath, branchId) => ipcRenderer.invoke("branch:apply", projectPath, branchId),
+  archiveStoryBranch: (projectPath, branchId) => ipcRenderer.invoke("branch:archive", projectPath, branchId),
+  listBatchRuns: (projectPath) => ipcRenderer.invoke("batch:list", projectPath),
+  createBatchRun: (input: CreateBatchRunInput) => ipcRenderer.invoke("batch:create", input),
+  resumeBatchRun: (projectPath, runId) => ipcRenderer.invoke("batch:resume", projectPath, runId),
+  cancelBatchRun: (projectPath, runId) => ipcRenderer.invoke("batch:cancel", projectPath, runId),
+  listProviderPresets: () => ipcRenderer.invoke("provider:presets"),
+  probeProvider: () => ipcRenderer.invoke("provider:probe"),
+  getReleaseReadiness: (projectPath) => ipcRenderer.invoke("release:readiness", projectPath),
+  loadBeatBoard: (projectPath) => ipcRenderer.invoke("narrative:board:load", projectPath),
+  saveBeatBoard: (projectPath, board) => ipcRenderer.invoke("narrative:board:save", projectPath, board),
+  exportPlayable: (input) => ipcRenderer.invoke("narrative:export", input),
+  listSimulations: (projectPath) => ipcRenderer.invoke("simulation:list", projectPath),
+  saveSimulationScenario: (projectPath, scenario) => ipcRenderer.invoke("simulation:save", projectPath, scenario),
+  runSimulation: (input: SimulationRunInput, signal?: AbortSignal, onEvent?: (event: SimulationRunEvent) => void) =>
+    invokeWithAbort(
+      "simulation:run",
+      "simulation:cancel",
+      input,
+      signal,
+      "simulation",
+      onEvent ? { channel: "simulation:event", onDelta: onEvent } : undefined
+    ),
+  cancelSimulation: (requestId) => ipcRenderer.invoke("simulation:cancel", requestId)
 };
 
 contextBridge.exposeInMainWorld("inkforge", api);

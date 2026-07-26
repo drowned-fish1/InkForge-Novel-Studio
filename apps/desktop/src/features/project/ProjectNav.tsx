@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
+  FlaskConical,
   FolderPen,
   FolderPlus,
   FileText,
@@ -19,7 +20,8 @@ import {
   Shield,
   Swords,
   Tags,
-  Trash2
+  Trash2,
+  Waypoints
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useProjectStore } from "@/stores/useProjectStore";
@@ -37,6 +39,7 @@ const moduleGroups = [
     title: "资料",
     items: [
       ["characters", "人物", BookMarked],
+      ["relationships", "关系", Network],
       ["world", "世界观", Boxes],
       ["terms", "术语", Tags],
       ["locations", "地点", MapPin],
@@ -46,7 +49,8 @@ const moduleGroups = [
   {
     title: "剧情",
     items: [
-      ["planning", "规划", Network],
+      ["narrative", "叙事板", Waypoints],
+      ["simulation", "推演", FlaskConical],
       ["timeline", "时间线", Clock3],
       ["clues", "伏笔", Milestone],
       ["conflicts", "冲突", Swords],
@@ -62,6 +66,7 @@ const moduleGroups = [
     ]
   }
 ] as const;
+const plannedModuleIds = new Set(["locations", "factions", "conflicts", "events"]);
 
 const statusLabels: Record<string, string> = {
   unplanned: "未规划",
@@ -71,7 +76,11 @@ const statusLabels: Record<string, string> = {
   done: "完成"
 };
 
-export const ProjectNav = () => {
+interface ProjectNavProps {
+  onNavigate?: () => void;
+}
+
+export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
   const project = useProjectStore((state) => state.project);
   const current = useProjectStore((state) => state.current);
   const selectedModule = useProjectStore((state) => state.selectedModule);
@@ -87,6 +96,10 @@ export const ProjectNav = () => {
   const deleteChapterPlan = useProjectStore((state) => state.deleteChapterPlan);
   const [chapterQuery, setChapterQuery] = useState("");
   const [collapsedVolumes, setCollapsedVolumes] = useState<Record<string, boolean>>({});
+  const [collapsedModuleGroups, setCollapsedModuleGroups] = useState<Record<string, boolean>>({
+    资料: true,
+    剧情: true
+  });
   const collapsedStorageKey = project ? `inkforge.nav.collapsedVolumes.${project.projectPath}` : "";
   const recentChapters = recentChapterIds
     .map((id) => project?.outline.volumes.flatMap((volume) => volume.chapters).find((chapter) => chapter.id === id))
@@ -152,24 +165,55 @@ export const ProjectNav = () => {
   };
 
   return (
-    <aside className="project-nav">
+    <aside className="project-nav" id="project-navigation-pane">
+      <div className="project-nav-search">
+        <input
+          aria-label="搜索章节与设定"
+          placeholder="搜索章节与设定"
+          value={chapterQuery}
+          onChange={(event) => setChapterQuery(event.target.value)}
+        />
+      </div>
       <nav className="module-list">
-        {moduleGroups.map((group) => (
-          <div className="module-group" key={group.title}>
-            <div className="module-group-title">{group.title}</div>
-            {group.items.map(([id, label, Icon]) => (
+        {moduleGroups.map((group) => {
+          const collapsed = Boolean(collapsedModuleGroups[group.title]);
+          return (
+            <div className="module-group" key={group.title}>
               <button
-                key={id}
+                className="module-group-title"
                 type="button"
-                className={selectedModule === id ? "active" : ""}
-                onClick={() => setSelectedModule(id)}
+                aria-expanded={!collapsed}
+                onClick={() => setCollapsedModuleGroups((state) => ({ ...state, [group.title]: !state[group.title] }))}
               >
-                <Icon size={16} />
-                {label}
+                <span>{group.title}</span>
+                {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
               </button>
-            ))}
-          </div>
-        ))}
+              {!collapsed ? (
+                <div className="module-group-items">
+                  {group.items.map(([id, label, Icon]) => {
+                    const planned = plannedModuleIds.has(id);
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        className={`${selectedModule === id ? "active" : ""} ${planned ? "planned" : ""}`}
+                        title={planned ? "功能建设中，点击查看当前替代入口" : undefined}
+                        onClick={() => {
+                          setSelectedModule(id);
+                          onNavigate?.();
+                        }}
+                      >
+                        <Icon size={16} />
+                        <span>{label}</span>
+                        {planned ? <small className="module-status-badge">规划中</small> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </nav>
 
       {recentChapters.length ? (
@@ -182,7 +226,7 @@ export const ProjectNav = () => {
               key={chapter.id}
               type="button"
               className={`chapter-row recent ${current?.plan.id === chapter.id ? "selected" : ""}`}
-              onClick={() => void selectChapter(chapter)}
+              onClick={() => void selectChapter(chapter).then(() => onNavigate?.())}
             >
               <FileText size={14} />
               <span>{chapter.title}</span>
@@ -290,7 +334,7 @@ export const ProjectNav = () => {
                         <button
                           type="button"
                           className={`chapter-row ${current?.plan.id === chapter.id ? "selected" : ""}`}
-                          onClick={() => void selectChapter(chapter)}
+                          onClick={() => void selectChapter(chapter).then(() => onNavigate?.())}
                         >
                           <GripVertical size={13} className="drag-handle" />
                           <FileText size={14} />

@@ -106,7 +106,7 @@ export class AgentService {
       outputs: {}
     };
     this.pipelineState = await this.pipelineRunner.run({
-      autoCommit: true,
+      autoCommit: input.autoCommit ?? false,
       stopOnError: preset.stopOnError,
       initialData: {
         projectPath: input.projectPath,
@@ -121,7 +121,21 @@ export class AgentService {
   async confirmPipelineStep(): Promise<PipelineRunView> {
     this.assertPipeline();
     this.pipelineView?.logs.push("Author confirmation accepted; continuing pipeline.");
-    this.pipelineState = await this.pipelineRunner!.continue(this.pipelineState!, { autoCommit: true });
+    this.pipelineState = await this.pipelineRunner!.continue(this.pipelineState!, { autoCommit: false, maxSteps: 1 });
+    return this.renderPipelineView();
+  }
+
+  skipPipelineStep(): PipelineRunView {
+    this.assertPipeline();
+    this.pipelineView?.logs.push("Author skipped the pending Agent stage.");
+    this.pipelineState = this.pipelineRunner!.skipPending(this.pipelineState!);
+    return this.renderPipelineView();
+  }
+
+  async retryPipelineStep(): Promise<PipelineRunView> {
+    this.assertPipeline();
+    this.pipelineView?.logs.push("Retrying the failed Agent stage.");
+    this.pipelineState = await this.pipelineRunner!.retryFailed(this.pipelineState!);
     return this.renderPipelineView();
   }
 
@@ -213,7 +227,13 @@ export class AgentService {
         title: "Apply to chapter",
         run: async ({ data }) => {
           logs.push("Waiting for author confirmation before writing files.");
-          const draft = textFromData(data.revise) || textFromData(data["draft-scenes"]) || textFromData(data.draft);
+          const draft =
+            String(data.editorDraft ?? "") ||
+            String(data.sensoryDraft ?? "") ||
+            String(data.roughDraft ?? "") ||
+            textFromData(data.revise) ||
+            textFromData(data["draft-scenes"]) ||
+            textFromData(data.draft);
           if (!draft.trim()) {
             logs.push("No draft output was produced; confirmation completed without chapter changes.");
             return {
@@ -253,19 +273,93 @@ export class AgentService {
     }
 
     const context = await this.ensureContext(data);
-    if (id === "scene-plan") {
+    if (id === "rough-draft") {
+      const roughDraft = (
+        await this.ai.runTask({
+          projectPath: context.projectPath,
+          task: "continue",
+          instruction:
+            "你是粗稿 Agent。只写一个信息量充足的粗糙 Markdown 草稿：铺齐全部情节节点、行动、因果、必要信息与情绪转折。语言可以直白笨拙，不润色，不使用华丽比喻，不省略关键节点。只返回草稿正文。",
+          chapterTitle: context.chapterTitle,
+          chapterGoal: context.chapterGoal,
+          recentText: context.recentText,
+          characters: context.characters,
+          worldFacts: context.worldFacts,
+          style: context.style
+        })
+      ).text;
       return {
         id,
-        output: {
-          title: context.chapterTitle,
-          goal: context.chapterGoal,
-          beats: [
-            "Continue from the current ending.",
-            "Escalate the chapter conflict.",
-            "Close with a hook that fits the outline."
-          ]
-        },
-        message: "Scene plan generated from chapter context."
+        output: roughDraft,
+        data: { roughDraft, pendingDraft: roughDraft },
+        message: summarizeText(roughDraft)
+      };
+    }
+    if (id === "sensory-pass") {
+      const roughDraft = String(data.roughDraft ?? textFromData(previousOutput));
+      const sensoryDraft = (
+        await this.ai.runTask({
+          projectPath: context.projectPath,
+          task: "rewrite",
+          instruction:
+            "你是感官精修 Agent。逐个场景节点改写下面的粗稿，完整保留情节、事实、顺序和因果。每个节点选择一种真正影响人物判断的非视觉感官（听觉、触觉、嗅觉、温度、重力或身体平衡），不要每段机械塞满感官。替换至少两处默认网文表达，但禁止仅换同义词、堆比喻或增加新剧情。只返回精修后的 Markdown 正文。",
+          chapterTitle: context.chapterTitle,
+          chapterGoal: context.chapterGoal,
+          recentText: roughDraft,
+          characters: context.characters,
+          worldFacts: context.worldFacts,
+          style: context.style
+        })
+      ).text;
+      return {
+        id,
+        output: sensoryDraft,
+        data: { sensoryDraft, pendingDraft: sensoryDraft },
+        message: summarizeText(sensoryDraft)
+      };
+    }
+    if (id === "editor-pass") {
+      const sensoryDraft = String(data.sensoryDraft ?? textFromData(previousOutput));
+      const editorDraft = (
+        await this.ai.runTask({
+          projectPath: context.projectPath,
+          task: "rewrite",
+          useEditorModel: true,
+          instruction:
+            "你是独立文学编辑。保留全部硬事实、情节节点、人物选择和视角边界。删除或合并零价值过渡句：去掉后不损失信息、情绪、节奏、时间空间定位或因果的句子。删掉重复感官、解释性复述和模板化比喻；必要的定位过渡必须保留。不要新增剧情，不要整篇换一种文风。只返回修剪后的 Markdown 正文。",
+          chapterTitle: context.chapterTitle,
+          chapterGoal: context.chapterGoal,
+          recentText: sensoryDraft,
+          characters: context.characters,
+          worldFacts: context.worldFacts,
+          style: context.style
+        })
+      ).text;
+      return {
+        id,
+        output: editorDraft,
+        data: { editorDraft, pendingDraft: editorDraft },
+        message: summarizeText(editorDraft)
+      };
+    }
+    if (id === "scene-plan") {
+      const plan = await this.ai.runTask({
+        projectPath: context.projectPath,
+        task: "next-goal",
+        instruction:
+          "Act as the planning Agent. Produce a concrete scene sequence with goal, conflict, turn and hook for each scene.",
+        chapterTitle: context.chapterTitle,
+        chapterGoal: context.chapterGoal,
+        recentText: context.recentText,
+        characters: context.characters,
+        worldFacts: context.worldFacts,
+        style: context.style
+      });
+      return {
+        id,
+        output: plan,
+        data: { scenePlan: plan.text },
+        message: summarizeText(plan.text)
       };
     }
     if (id === "draft" || id === "draft-scenes") {
@@ -300,13 +394,35 @@ export class AgentService {
       id === "export-check"
     ) {
       const issues = await this.story.inspect(context.projectPath);
+      const pendingDraft = textFromData(previousOutput) || String(data.pendingDraft ?? "");
+      const aiReview =
+        id === "review" || id === "final-check"
+          ? await this.ai.runTask({
+              projectPath: context.projectPath,
+              task: "ai-inspect",
+              instruction:
+                "Act as the review Agent. Check plot logic, character motivation, continuity, pacing and prose. Return prioritized revision instructions.",
+              chapterTitle: context.chapterTitle,
+              chapterGoal: context.chapterGoal,
+              recentText: pendingDraft || context.recentText,
+              characters: context.characters,
+              worldFacts: context.worldFacts,
+              style: context.style
+            })
+          : undefined;
       return {
         id,
         output: {
           issues,
-          draftSnippet: summarizeText(textFromData(previousOutput) || String(data.pendingDraft ?? ""))
+          review: aiReview?.text ?? "",
+          draftSnippet: summarizeText(pendingDraft)
         },
-        message: issues.length ? `${issues.length} local story checks reported.` : "Local story checks passed."
+        data: aiReview ? { reviewNotes: aiReview.text } : undefined,
+        message: aiReview
+          ? summarizeText(aiReview.text)
+          : issues.length
+            ? `${issues.length} local story checks reported.`
+            : "Local story checks passed."
       };
     }
     if (id === "revise" || id === "polish" || id === "typo") {
@@ -314,22 +430,22 @@ export class AgentService {
       if (!draft.trim()) {
         return { id, output: previousOutput, message: "No draft revision needed." };
       }
-      const revised =
-        id === "revise"
-          ? draft
-          : (
-              await this.ai.runTask({
-                projectPath: context.projectPath,
-                task: id === "polish" ? "polish" : "typo",
-                instruction: "Keep the same plot content. Return only the revised Markdown prose.",
-                chapterTitle: context.chapterTitle,
-                chapterGoal: context.chapterGoal,
-                recentText: draft,
-                characters: context.characters,
-                worldFacts: context.worldFacts,
-                style: context.style
-              })
-            ).text;
+      const revised = (
+        await this.ai.runTask({
+          projectPath: context.projectPath,
+          task: id === "revise" ? "rewrite" : id === "polish" ? "polish" : "typo",
+          instruction:
+            id === "revise"
+              ? `Act as the revision Agent. Apply these review notes while preserving established facts. Return only revised Markdown prose.\n${String(data.reviewNotes ?? "")}`
+              : "Keep the same plot content. Return only the revised Markdown prose.",
+          chapterTitle: context.chapterTitle,
+          chapterGoal: context.chapterGoal,
+          recentText: draft,
+          characters: context.characters,
+          worldFacts: context.worldFacts,
+          style: context.style
+        })
+      ).text;
       return {
         id,
         output: revised,
@@ -479,7 +595,7 @@ export class AgentService {
       if (result) {
         return {
           ...step,
-          status: result.status === "paused" ? "paused" : "completed",
+          status: result.status === "paused" ? "paused" : result.status === "skipped" ? "skipped" : "completed",
           outputSummary: result.message ?? summarizeOutput(result.output)
         };
       }

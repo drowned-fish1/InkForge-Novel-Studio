@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ChapterPlan, Outline, VolumePlan } from "@inkforge/schemas";
 import { bridge } from "@/lib/browserBridge";
+import { stripLegacyChapterHeading } from "@/lib/chapterContent";
 import { countCjkAwareWords } from "@/lib/textMetrics";
 import { useAiStore } from "@/stores/useAiStore";
 import { useLibraryStore } from "@/stores/useLibraryStore";
@@ -106,6 +107,7 @@ const clearRecoveryDraft = (projectPath: string, file: string): void => {
 };
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
+let chapterSaveInFlight: Promise<void> | undefined;
 
 const withSaveRetry = async <T>(operation: () => Promise<T>, attempts = 3): Promise<T> => {
   let lastError: unknown;
@@ -142,6 +144,7 @@ interface ProjectState {
   createImportedProject: (input: CreateProjectInput, chapters: ImportedChapterDraft[]) => Promise<void>;
   importProjectFolder: () => Promise<void>;
   openProject: (projectPath?: string) => Promise<void>;
+  refreshProject: () => Promise<void>;
   closeProject: () => Promise<void>;
   selectChapter: (chapter: ChapterPlan) => Promise<void>;
   updateContent: (content: string) => void;
@@ -158,11 +161,24 @@ interface ProjectState {
   moveChapter: (chapterId: string, targetVolumeId: string, targetIndex?: number) => Promise<void>;
   deleteChapterPlan: (chapterId: string) => Promise<void>;
   archiveChapter: (chapterId: string) => Promise<void>;
-  exportManuscript: (format: "markdown" | "txt" | "docx") => Promise<string | undefined>;
+  exportManuscript: (
+    format: "markdown" | "txt" | "docx" | "epub",
+    epub?: {
+      title: string;
+      author: string;
+      language: string;
+      description: string;
+      cssTheme: "classic" | "modern";
+    }
+  ) => Promise<string | undefined>;
 }
 
 const flushCurrentChapterIfNeeded = async (get: () => ProjectState): Promise<boolean> => {
   const state = get();
+  if (state.saveState === "saving") {
+    await state.saveCurrentChapter();
+    return get().saveState !== "error";
+  }
   if (state.saveState !== "dirty" && state.saveState !== "error") {
     return true;
   }
@@ -212,7 +228,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     const importedChapters: ChapterPlan[] = chapters.map((chapter, index) => {
       const number = index + 1;
-      const content = `# ${chapter.title}\n\n${chapter.body.trim()}\n`;
+      const content = `${chapter.body.trim()}\n`;
       return {
         id: `ch-${String(number).padStart(4, "0")}`,
         number,
@@ -249,7 +265,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         bridge.saveChapter({
           projectPath: next.projectPath,
           file: chapter.file,
-          content: `# ${chapter.title}\n\n${chapters[index].body.trim()}\n`
+          content: `${chapters[index].body.trim()}\n`
         })
       )
     );
@@ -294,6 +310,27 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
     await get().loadRecentProjects();
   },
+  refreshProject: async () => {
+    const state = get();
+    if (!state.project) {
+      return;
+    }
+    const project = await bridge.openProject(state.project.projectPath);
+    if (!project) {
+      return;
+    }
+    const refreshedCurrent = state.current
+      ? project.outline.volumes
+          .flatMap((volume) => volume.chapters)
+          .find((chapter) => chapter.id === state.current?.plan.id)
+      : undefined;
+    set({
+      project,
+      current: state.current && refreshedCurrent ? { ...state.current, plan: refreshedCurrent } : state.current,
+      error: undefined
+    });
+    await get().loadRecentProjects();
+  },
   closeProject: async () => {
     if (!(await flushCurrentChapterIfNeeded(get))) {
       return;
@@ -323,12 +360,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         return;
       }
     }
-    const content = await bridge.readChapter(project.projectPath, chapter.file);
+    const storedContent = await bridge.readChapter(project.projectPath, chapter.file);
     const recovery = readRecoveryDraft(project.projectPath, chapter.file);
-    const recoveredContent = recovery?.content && recovery.content !== content ? recovery.content : undefined;
+    const recoveredContent = recovery?.content && recovery.content !== storedContent ? recovery.content : undefined;
+    const sourceContent = recoveredContent ?? storedContent;
+    const content = stripLegacyChapterHeading(sourceContent, chapter.title);
+    const removedLegacyHeading = content !== sourceContent;
     set((state) => ({
-      current: { plan: chapter, content: recoveredContent ?? content },
-      saveState: recoveredContent ? "dirty" : "saved",
+      current: { plan: chapter, content },
+      saveState: recoveredContent || removedLegacyHeading ? "dirty" : "saved",
       selectedModule: "chapters",
       selectedHistoryId: undefined,
       historyPreview: undefined,
@@ -348,27 +388,56 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
   },
   saveCurrentChapter: async () => {
-    const { project, current } = get();
-    if (!project || !current) {
+    if (chapterSaveInFlight) {
+      await chapterSaveInFlight;
+      if (get().saveState === "dirty") {
+        await get().saveCurrentChapter();
+      }
       return;
     }
-    set({ saveState: "saving" });
+    const saveRun = (async () => {
+      const { project, current } = get();
+      if (!project || !current) {
+        return;
+      }
+      set({ saveState: "saving" });
+      try {
+        await withSaveRetry(() =>
+          bridge.saveChapter({
+            projectPath: project.projectPath,
+            file: current.plan.file,
+            content: current.content
+          })
+        );
+        await withSaveRetry(() =>
+          get().updateChapterPlan(current.plan.id, { actualWords: countCjkAwareWords(current.content) })
+        );
+        const latest = get();
+        const savedContentIsCurrent =
+          latest.project?.projectPath === project.projectPath &&
+          latest.current?.plan.id === current.plan.id &&
+          latest.current.content === current.content;
+        if (savedContentIsCurrent) {
+          clearRecoveryDraft(project.projectPath, current.plan.file);
+          set({ saveState: "saved", lastSavedAt: new Date().toLocaleTimeString(), error: undefined });
+          await get().loadChapterHistory();
+        } else {
+          set({ saveState: "dirty", error: undefined });
+        }
+      } catch (error) {
+        set({ saveState: "error", error: error instanceof Error ? error.message : "保存失败" });
+      }
+    })();
+    chapterSaveInFlight = saveRun;
     try {
-      await withSaveRetry(() =>
-        bridge.saveChapter({
-          projectPath: project.projectPath,
-          file: current.plan.file,
-          content: current.content
-        })
-      );
-      await withSaveRetry(() =>
-        get().updateChapterPlan(current.plan.id, { actualWords: countCjkAwareWords(current.content) })
-      );
-      clearRecoveryDraft(project.projectPath, current.plan.file);
-      set({ saveState: "saved", lastSavedAt: new Date().toLocaleTimeString(), error: undefined });
-      await get().loadChapterHistory();
-    } catch (error) {
-      set({ saveState: "error", error: error instanceof Error ? error.message : "保存失败" });
+      await saveRun;
+    } finally {
+      if (chapterSaveInFlight === saveRun) {
+        chapterSaveInFlight = undefined;
+      }
+    }
+    if (get().saveState === "dirty") {
+      await get().saveCurrentChapter();
     }
   },
   loadChapterHistory: async () => {
@@ -587,7 +656,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }
     }
   },
-  exportManuscript: async (format) => {
+  exportManuscript: async (format, epub) => {
     const { project } = get();
     if (!project) {
       return undefined;
@@ -596,7 +665,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projectPath: project.projectPath,
       format,
       includeChapterTitles: true,
-      includeVolumeTitles: true
+      includeVolumeTitles: true,
+      epub
     });
   }
 }));

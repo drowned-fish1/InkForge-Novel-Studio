@@ -1,4 +1,14 @@
 import type {
+  AgentChatSession,
+  AgentExtensionConfig,
+  AgentSourceReference,
+  AgentToolName,
+  AgentRunEvent,
+  AgentRunTrace,
+  BatchRun,
+  BackupSnapshot,
+  BeatBoard,
+  BranchDiffLine,
   ChapterPlan,
   Character,
   Clue,
@@ -8,10 +18,16 @@ import type {
   PlanningPackage,
   PlanningSession,
   ProjectMeta,
+  QualityReport,
+  ScenePlan,
+  SimulationDocument,
+  SimulationScenario,
+  StoryBranch,
   Term,
   TimelineEvent,
   VolumePlan,
-  WorldEntry
+  WorldEntry,
+  WritingWorkspace
 } from "@inkforge/schemas";
 import type { WritingScene, WritingSessionState } from "@inkforge/agent-engine";
 
@@ -119,9 +135,16 @@ export interface UpdateOutlineInput {
 
 export interface ExportInput {
   projectPath: string;
-  format: "markdown" | "txt" | "docx";
+  format: "markdown" | "txt" | "docx" | "epub";
   includeChapterTitles: boolean;
   includeVolumeTitles: boolean;
+  epub?: {
+    title: string;
+    author: string;
+    language: string;
+    description: string;
+    cssTheme: "classic" | "modern";
+  };
 }
 
 export interface ProviderStatus {
@@ -130,9 +153,36 @@ export interface ProviderStatus {
   displayName: string;
   baseUrl: string;
   model: string;
+  editorModel?: string;
   authMode: ProviderAuthMode;
   maskedKey?: string;
   updatedAt?: string;
+}
+
+export interface ProviderPreset {
+  id: string;
+  displayName: string;
+  category: "cloud" | "local" | "gateway";
+  description: string;
+  baseUrl: string;
+  model: string;
+  authMode: ProviderAuthMode;
+  expectedCapabilities: {
+    streaming: boolean;
+    tools: boolean;
+  };
+}
+
+export interface ProviderProbeResult {
+  ok: boolean;
+  checkedAt: string;
+  latencyMs: number;
+  modelReachable: boolean;
+  capabilities: {
+    streaming: boolean;
+    tools: boolean;
+  };
+  message: string;
 }
 
 export type ProviderAuthMode = "bearer" | "x-api-key" | "raw-authorization" | "none";
@@ -142,6 +192,7 @@ export interface ProviderConfigInput {
   displayName: string;
   baseUrl: string;
   model: string;
+  editorModel?: string;
   authMode: ProviderAuthMode;
   apiKey?: string;
   temperature: number;
@@ -150,6 +201,7 @@ export interface ProviderConfigInput {
 
 export interface AiTaskInput {
   requestId?: string;
+  useEditorModel?: boolean;
   projectPath: string;
   task:
     | "continue"
@@ -299,6 +351,121 @@ export interface WritingSessionCommandInput {
   decision?: string;
 }
 
+export interface AgentChatInput {
+  requestId?: string;
+  projectPath: string;
+  chapterId: string;
+  message: string;
+  replayOfTraceId?: string;
+  mode?: "direct" | "plan" | "execute-plan";
+  writingApproach?: "stable" | "inspiration" | "compare";
+  targetAgentIds?: string[];
+  branchId?: string;
+  planMessageId?: string;
+  context?: {
+    tokenBudget?: number;
+    includeMemories?: boolean;
+    includeSemantic?: boolean;
+    pinnedSources?: AgentSourceReference[];
+    excludedSourceKeys?: string[];
+  };
+  limits?: {
+    maxTurns?: number;
+    maxToolCalls?: number;
+    maxTotalTokens?: number;
+  };
+  allowedTools?: AgentToolName[];
+}
+
+export interface AgentSessionCommandInput {
+  projectPath: string;
+  chapterId: string;
+  action: "create-branch" | "select-branch" | "toggle-favorite";
+  branchId?: string;
+  title?: string;
+  messageId?: string;
+}
+
+export interface AgentChangeResolutionInput {
+  projectPath: string;
+  chapterId: string;
+  proposalId: string;
+  blockId?: string;
+  action: "accept-block" | "reject-block" | "apply" | "reject" | "rollback";
+}
+
+export interface AgentDataResolutionInput {
+  projectPath: string;
+  chapterId: string;
+  proposalId: string;
+  action: "apply" | "reject";
+}
+
+export interface CreateStoryBranchInput {
+  projectPath: string;
+  chapterId: string;
+  name: string;
+  description?: string;
+  content?: string;
+  source?: "manual" | "agent" | "batch";
+}
+
+export interface SaveStoryBranchInput {
+  projectPath: string;
+  branchId: string;
+  name?: string;
+  description?: string;
+  content?: string;
+}
+
+export interface CreateBatchRunInput {
+  projectPath: string;
+  chapterIds: string[];
+  tokenBudget: number;
+  checkpointEvery: number;
+  instruction?: string;
+}
+
+export interface PlayableExportInput {
+  projectPath: string;
+  format: "twee" | "ink";
+}
+
+export interface SimulationRunInput {
+  requestId?: string;
+  projectPath: string;
+  scenarioId: string;
+}
+
+export interface SimulationRunEvent {
+  id: string;
+  type:
+    | "run_started"
+    | "branch_started"
+    | "turn_completed"
+    | "branch_completed"
+    | "run_completed"
+    | "run_failed"
+    | "run_cancelled";
+  label: string;
+  detail: string;
+  timestamp: string;
+}
+
+export interface ReleaseReadinessItem {
+  id: string;
+  label: string;
+  status: "ready" | "warning" | "blocked";
+  detail: string;
+}
+
+export interface ReleaseReadiness {
+  checkedAt: string;
+  score: number;
+  ready: boolean;
+  items: ReleaseReadinessItem[];
+}
+
 export interface InkforgeApi {
   setTheme: (theme: "light" | "dark", manual?: boolean) => Promise<void>;
   listProjects: () => Promise<ProjectListItem[]>;
@@ -314,6 +481,14 @@ export interface InkforgeApi {
   createChapter: (input: CreateChapterInput) => Promise<ProjectSummary>;
   updateOutline: (input: UpdateOutlineInput) => Promise<ProjectSummary>;
   exportManuscript: (input: ExportInput) => Promise<string | undefined>;
+  listBackups: (projectPath: string) => Promise<BackupSnapshot[]>;
+  createBackup: (projectPath: string, label?: string) => Promise<BackupSnapshot>;
+  restoreBackup: (projectPath: string, snapshotId: string) => Promise<ProjectSummary>;
+  deleteBackup: (projectPath: string, snapshotId: string) => Promise<void>;
+  loadWritingWorkspace: (projectPath: string) => Promise<WritingWorkspace>;
+  saveWritingWorkspace: (projectPath: string, workspace: WritingWorkspace) => Promise<WritingWorkspace>;
+  loadAgentExtensions: (projectPath: string) => Promise<AgentExtensionConfig>;
+  saveAgentExtensions: (projectPath: string, config: AgentExtensionConfig) => Promise<AgentExtensionConfig>;
   listCharacters: (projectPath: string) => Promise<Character[]>;
   saveCharacter: (input: SaveCharacterInput) => Promise<Character[]>;
   listWorldEntries: (projectPath: string) => Promise<WorldEntry[]>;
@@ -356,7 +531,49 @@ export interface InkforgeApi {
   confirmPipelineStep: () => Promise<PipelineRunView>;
   pausePipeline: () => Promise<PipelineRunView>;
   cancelPipeline: () => Promise<PipelineRunView>;
+  skipPipelineStep: () => Promise<PipelineRunView>;
+  retryPipelineStep: () => Promise<PipelineRunView>;
   runWritingSessionCommand: (input: WritingSessionCommandInput) => Promise<WritingSessionState>;
+  loadAgentChat: (projectPath: string, chapterId: string) => Promise<AgentChatSession>;
+  runAgentChat: (
+    input: AgentChatInput,
+    signal?: AbortSignal,
+    onEvent?: (event: AgentRunEvent) => void
+  ) => Promise<AgentChatSession>;
+  cancelAgentChat: (requestId: string) => Promise<void>;
+  listAgentTraces: (projectPath: string, chapterId: string) => Promise<AgentRunTrace[]>;
+  resolveAgentChange: (input: AgentChangeResolutionInput) => Promise<AgentChatSession>;
+  resolveAgentDataChange: (input: AgentDataResolutionInput) => Promise<AgentChatSession>;
+  manageAgentSession: (input: AgentSessionCommandInput) => Promise<AgentChatSession>;
+  listScenePlans: (projectPath: string, chapterId: string) => Promise<ScenePlan[]>;
+  saveScenePlans: (projectPath: string, chapterId: string, scenes: ScenePlan[]) => Promise<ScenePlan[]>;
+  evaluateChapterQuality: (projectPath: string, chapterId: string) => Promise<QualityReport>;
+  listChapterQualityReports: (projectPath: string, chapterId: string) => Promise<QualityReport[]>;
+  setChapterQualityBaseline: (projectPath: string, chapterId: string, reportId: string) => Promise<QualityReport>;
+  listStoryBranches: (projectPath: string, chapterId?: string) => Promise<StoryBranch[]>;
+  createStoryBranch: (input: CreateStoryBranchInput) => Promise<StoryBranch>;
+  saveStoryBranch: (input: SaveStoryBranchInput) => Promise<StoryBranch>;
+  compareStoryBranch: (projectPath: string, branchId: string) => Promise<BranchDiffLine[]>;
+  applyStoryBranch: (projectPath: string, branchId: string) => Promise<StoryBranch>;
+  archiveStoryBranch: (projectPath: string, branchId: string) => Promise<StoryBranch>;
+  listBatchRuns: (projectPath: string) => Promise<BatchRun[]>;
+  createBatchRun: (input: CreateBatchRunInput) => Promise<BatchRun>;
+  resumeBatchRun: (projectPath: string, runId: string) => Promise<BatchRun>;
+  cancelBatchRun: (projectPath: string, runId: string) => Promise<BatchRun>;
+  listProviderPresets: () => Promise<ProviderPreset[]>;
+  probeProvider: () => Promise<ProviderProbeResult>;
+  getReleaseReadiness: (projectPath: string) => Promise<ReleaseReadiness>;
+  loadBeatBoard: (projectPath: string) => Promise<BeatBoard>;
+  saveBeatBoard: (projectPath: string, board: BeatBoard) => Promise<BeatBoard>;
+  exportPlayable: (input: PlayableExportInput) => Promise<string | undefined>;
+  listSimulations: (projectPath: string) => Promise<SimulationDocument[]>;
+  saveSimulationScenario: (projectPath: string, scenario: SimulationScenario) => Promise<SimulationDocument>;
+  runSimulation: (
+    input: SimulationRunInput,
+    signal?: AbortSignal,
+    onEvent?: (event: SimulationRunEvent) => void
+  ) => Promise<SimulationDocument>;
+  cancelSimulation: (requestId: string) => Promise<void>;
 }
 
 export type {
@@ -365,5 +582,8 @@ export type {
   PlanningImportResult,
   PlanningImportSelection,
   PlanningPackage,
-  PlanningSession
+  PlanningSession,
+  AgentChatSession,
+  AgentRunEvent,
+  AgentRunTrace
 };

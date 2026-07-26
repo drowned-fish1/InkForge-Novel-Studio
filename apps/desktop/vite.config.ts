@@ -6,6 +6,7 @@ import { authHeaders, completionsUrl, type ChatCompletionRequest, type ProviderA
 
 export default defineConfig({
   root: __dirname,
+  base: "./",
   plugins: [react(), inkforgeAiDevProxy()],
   resolve: {
     alias: {

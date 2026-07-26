@@ -418,7 +418,7 @@ export const browserLibraryService = {
         for (const chapter of chapters.filter(
           (entry) => !conflict.chapters.some((existing) => existing.file === entry.file)
         )) {
-          record.chapterBodies[chapter.file] = `# ${chapter.title}\n\n`;
+          record.chapterBodies[chapter.file] = "";
         }
         record.summary.outline.volumes[volumeIndex] = {
           ...volume,
@@ -450,7 +450,7 @@ export const browserLibraryService = {
         };
       });
       for (const chapter of chapters) {
-        record.chapterBodies[chapter.file] = `# ${chapter.title}\n\n`;
+        record.chapterBodies[chapter.file] = "";
       }
       record.summary.outline.volumes.push({ ...volume, id: `vol-${String(volumeNumber).padStart(3, "0")}`, chapters });
       record.summary.outline.premise = planningPackage.outline.premise || record.summary.outline.premise;
@@ -477,7 +477,7 @@ export const browserLibraryService = {
       Object.entries(record.chapterBodies).filter(([file]) => retainedFiles.has(file))
     );
     for (const chapter of outline.volumes.flatMap((volume) => volume.chapters)) {
-      record.chapterBodies[chapter.file] = record.chapterBodies[chapter.file] ?? `# ${chapter.title}\n\n`;
+      record.chapterBodies[chapter.file] = record.chapterBodies[chapter.file] ?? "";
     }
     record.characters = firstArray(snapshot.characters).map(normalizeCharacter);
     record.worldEntries = firstArray(snapshot.worldEntries).map(normalizeWorldEntry);
@@ -693,134 +693,16 @@ const parsePlanningJson = (text: string): unknown => {
 const createSamplePlanningPackage = (project: ProjectSummary, seed: string): PlanningPackage => ({
   meta: {
     title: `${project.meta.title} 规划包`,
-    logline: seed || project.outline.premise || "主角在危机中获得核心线索，逐步揭开世界真相。",
-    theme: "成长、选择与代价",
-    sellingPoints: ["强冲突开局", "清晰升级体系", "伏笔回收驱动长线爽点"]
+    logline: seed || project.outline.premise,
+    theme: "",
+    sellingPoints: []
   },
-  worldEntries: [
-    {
-      id: "planning_power_system",
-      title: "星火修炼体系",
-      type: "power-system",
-      locked: false,
-      tags: ["境界", "力量体系"],
-      summary: "以星火感应、淬体、点脉、凝星为核心的成长路径。",
-      content: "修炼者先淬体，再引星火入脉，最终凝成命星。每次突破都需要承担记忆或血脉代价。",
-      relatedCharacters: [],
-      relatedClues: []
-    }
-  ],
-  characters: [
-    {
-      id: "char_planning_protagonist",
-      name: "林烬",
-      aliases: [],
-      role: "protagonist",
-      tags: ["主角", "成长线"],
-      profile: {
-        age: "17",
-        identity: "边城少年",
-        motivation: "寻找父亲失踪真相，并掌控体内星火血脉。",
-        personality: "冷静、记仇、关键时刻愿意冒险。"
-      },
-      currentState: {
-        arc: "第一卷",
-        powerLevel: "炼体境",
-        location: "黑石城",
-        relationships: ["与苏青互相试探但逐渐信任"],
-        secrets: ["体内星火血脉尚未觉醒"]
-      },
-      voiceNotes: "对白短，少解释，习惯用反问压住情绪。"
-    }
-  ],
-  timeline: [
-    {
-      id: "event_planning_rain_night",
-      chapterId: "ch-0001",
-      order: 1,
-      title: "雨夜发现黑匣",
-      location: "黑石城旧墙",
-      participants: ["林烬"],
-      summary: "主角在追捕中发现父亲留下的黑匣与墙根暗纹产生共鸣。"
-    }
-  ],
-  terms: [
-    {
-      id: "term_body_tempering",
-      name: "炼体境",
-      category: "境界",
-      aliases: ["炼体"],
-      definition: "修炼第一境，打磨骨血并感应星火。",
-      locked: false
-    },
-    {
-      id: "term_starfire",
-      name: "星火",
-      category: "核心设定",
-      aliases: [],
-      definition: "来自天外战场的残余力量，可淬炼血脉也会侵蚀记忆。",
-      locked: false
-    }
-  ],
-  clues: [
-    {
-      id: "clue_black_box",
-      title: "黑匣中的第二道心跳",
-      plantedChapterId: "ch-0001",
-      relatedCharacters: ["林烬"],
-      expectedPayoff: "揭示黑匣与主角血脉、父亲失踪有关。",
-      status: "planned",
-      notes: "第一卷中段回收一半，卷末揭示真正来源。"
-    }
-  ],
-  outline: {
-    schemaVersion: inkforgeSchemaVersion,
-    premise: project.outline.premise || "边城少年获得父亲留下的黑匣，卷入宗门、王朝与古族争夺。",
-    mainConflict: "主角必须在追捕中破解黑匣与星火血脉的秘密。",
-    endingDirection: "主角打开被封锁的天外战场，重铸星火长夜。",
-    volumes: [
-      {
-        id: "vol_planning_001",
-        title: "第一卷 黑石城",
-        goal: "建立主角动机、力量体系和第一阶段追杀压力。",
-        targetWords: 90000,
-        chapters: [
-          {
-            id: "planning_ch_001",
-            number: 1,
-            title: "旧城夜雨",
-            file: "",
-            goal: "发现黑匣，引出巡夜司追捕与墙根暗纹。",
-            hook: "黑匣里传出第二道心跳。",
-            status: "planned",
-            targetWords: 3000,
-            actualWords: 0,
-            archived: false,
-            notes: "",
-            conflictPoints: "巡夜司追捕与黑匣共鸣同时压上来。",
-            characters: ["林烬"],
-            worldRefs: ["星火修炼体系"]
-          },
-          {
-            id: "planning_ch_002",
-            number: 2,
-            title: "黑匣开声",
-            file: "",
-            goal: "让黑匣与血脉第一次共鸣，并抛出父亲线索。",
-            hook: "城门榜上出现父亲通缉画像。",
-            status: "planned",
-            targetWords: 3000,
-            actualWords: 0,
-            archived: false,
-            notes: "",
-            conflictPoints: "主角想查父亲，现实却逼他先逃命。",
-            characters: ["林烬"],
-            worldRefs: ["星火"]
-          }
-        ]
-      }
-    ]
-  }
+  worldEntries: [],
+  characters: [],
+  timeline: [],
+  terms: [],
+  clues: [],
+  outline: structuredClone(project.outline)
 });
 
 const increment = (target: Record<string, number>, key: string): void => {

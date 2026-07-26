@@ -1,4 +1,11 @@
 import type {
+  AgentChatSession,
+  AgentExtensionConfig,
+  AgentSourceReference,
+  AgentToolName,
+  AgentRunEvent,
+  AgentRunTrace,
+  BackupSnapshot,
   ChapterPlan,
   Character,
   Clue,
@@ -11,7 +18,8 @@ import type {
   Term,
   TimelineEvent,
   VolumePlan,
-  WorldEntry
+  WorldEntry,
+  WritingWorkspace
 } from "@inkforge/schemas";
 import type { WritingScene, WritingSessionState } from "@inkforge/agent-engine";
 
@@ -114,9 +122,42 @@ export interface UpdateOutlineInput {
 
 export interface ExportInput {
   projectPath: string;
-  format: "markdown" | "txt" | "docx";
+  format: "markdown" | "txt" | "docx" | "epub";
   includeChapterTitles: boolean;
   includeVolumeTitles: boolean;
+  epub?: {
+    title: string;
+    author: string;
+    language: string;
+    description: string;
+    cssTheme: "classic" | "modern";
+  };
+}
+
+export interface PlayableExportInput {
+  projectPath: string;
+  format: "twee" | "ink";
+}
+
+export interface SimulationRunInput {
+  requestId?: string;
+  projectPath: string;
+  scenarioId: string;
+}
+
+export interface SimulationRunEvent {
+  id: string;
+  type:
+    | "run_started"
+    | "branch_started"
+    | "turn_completed"
+    | "branch_completed"
+    | "run_completed"
+    | "run_failed"
+    | "run_cancelled";
+  label: string;
+  detail: string;
+  timestamp: string;
 }
 
 export interface ProviderStatus {
@@ -125,6 +166,7 @@ export interface ProviderStatus {
   displayName: string;
   baseUrl: string;
   model: string;
+  editorModel?: string;
   authMode: ProviderAuthMode;
   maskedKey?: string;
   updatedAt?: string;
@@ -137,6 +179,7 @@ export interface ProviderConfigInput {
   displayName: string;
   baseUrl: string;
   model: string;
+  editorModel?: string;
   authMode: ProviderAuthMode;
   apiKey?: string;
   temperature: number;
@@ -144,6 +187,7 @@ export interface ProviderConfigInput {
 }
 
 export interface AiTaskInput {
+  useEditorModel?: boolean;
   projectPath: string;
   task:
     | "continue"
@@ -297,6 +341,56 @@ export interface WritingSessionCommandInput {
   decision?: string;
 }
 
+export interface AgentChatInput {
+  requestId?: string;
+  projectPath: string;
+  chapterId: string;
+  message: string;
+  replayOfTraceId?: string;
+  mode?: "direct" | "plan" | "execute-plan";
+  writingApproach?: "stable" | "inspiration" | "compare";
+  targetAgentIds?: string[];
+  branchId?: string;
+  planMessageId?: string;
+  context?: {
+    tokenBudget?: number;
+    includeMemories?: boolean;
+    includeSemantic?: boolean;
+    pinnedSources?: AgentSourceReference[];
+    excludedSourceKeys?: string[];
+  };
+  limits?: {
+    maxTurns?: number;
+    maxToolCalls?: number;
+    maxTotalTokens?: number;
+  };
+  allowedTools?: AgentToolName[];
+}
+
+export interface AgentSessionCommandInput {
+  projectPath: string;
+  chapterId: string;
+  action: "create-branch" | "select-branch" | "toggle-favorite";
+  branchId?: string;
+  title?: string;
+  messageId?: string;
+}
+
+export interface AgentChangeResolutionInput {
+  projectPath: string;
+  chapterId: string;
+  proposalId: string;
+  blockId?: string;
+  action: "accept-block" | "reject-block" | "apply" | "reject" | "rollback";
+}
+
+export interface AgentDataResolutionInput {
+  projectPath: string;
+  chapterId: string;
+  proposalId: string;
+  action: "apply" | "reject";
+}
+
 export type ImportProjectFolder = () => Promise<ProjectSummary | undefined>;
 
 export type {
@@ -305,5 +399,11 @@ export type {
   PlanningImportResult,
   PlanningImportSelection,
   PlanningPackage,
-  PlanningSession
+  PlanningSession,
+  AgentChatSession,
+  AgentRunEvent,
+  AgentRunTrace,
+  AgentExtensionConfig,
+  BackupSnapshot,
+  WritingWorkspace
 };

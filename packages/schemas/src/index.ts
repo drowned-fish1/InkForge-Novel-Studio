@@ -3,6 +3,10 @@ import { defaultProviderConfig } from "./defaults.js";
 
 export * from "./defaults.js";
 export * from "./agent.js";
+export * from "./narrative.js";
+export * from "./production.js";
+export * from "./simulation.js";
+export * from "./workspace.js";
 
 export const inkforgeSchemaVersion = "0.1.0";
 

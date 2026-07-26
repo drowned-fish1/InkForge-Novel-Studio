@@ -49,6 +49,81 @@ const slugPart = (value: string): string =>
 const chapterFile = (volumeNumber: number, chapterNumber: number): string =>
   `chapters/volume-${String(volumeNumber).padStart(3, "0")}/ch-${String(chapterNumber).padStart(4, "0")}.md`;
 
+const fallbackChapterNames = [
+  "风起之时",
+  "暗流初现",
+  "旧事回响",
+  "迷雾渐深",
+  "变局将至",
+  "抉择之刻",
+  "临界之夜",
+  "新途开启"
+];
+
+const suggestChapterTitle = (chapterNumber: number, previous?: Pick<ChapterPlan, "goal" | "hook">): string => {
+  const seed = [previous?.hook, previous?.goal]
+    .map((value) =>
+      (value ?? "")
+        .replace(/^第[一二三四五六七八九十百千万\d]+章\s*/u, "")
+        .replace(/[“”"'《》【】]/gu, "")
+        .split(/[，,。！？!?；;：:\n]/u)[0]
+        .trim()
+    )
+    .find(
+      (value) =>
+        value.length >= 3 &&
+        !/未命名|明确问题推动读者|建立主角、冲突与第一处悬念|介绍主角|补充本章剧情目标/u.test(value)
+    );
+  const name = seed ? seed.slice(0, 16) : fallbackChapterNames[(chapterNumber - 1) % fallbackChapterNames.length];
+  return `第${chapterNumber}章 ${name}`;
+};
+
+const removeLegacyBrowserDefaults = (record: BrowserProjectRecord): BrowserProjectRecord => {
+  const next = structuredClone(record);
+  if (
+    next.summary.outline.premise === "边城少年得到父亲留下的黑匣，发现自身血脉与失落星火有关。" ||
+    next.summary.outline.premise === "边城少年林烬在父亲失踪后得到黑匣，发现体内藏着失落星火血脉。"
+  ) {
+    next.summary.outline.premise = "";
+  }
+  for (const volume of next.summary.outline.volumes) {
+    if (volume.goal === "建立世界、主角动机与核心冲突") {
+      volume.goal = "";
+    }
+    for (const chapter of volume.chapters) {
+      if (chapter.goal === "介绍主角：林烬，边城少年，寻找失踪父亲" || chapter.goal === "建立主角、冲突与第一处悬念") {
+        chapter.goal = "";
+      }
+      if (chapter.hook === "用一个明确问题推动读者进入下一章") {
+        chapter.hook = "";
+      }
+      if (next.chapterBodies[chapter.file] === `# ${chapter.title}\n\n在这里开始写作。\n`) {
+        next.chapterBodies[chapter.file] = "";
+      }
+    }
+  }
+  next.characters = next.characters.filter(
+    (character) =>
+      !(
+        character.id === "char_main_protagonist" &&
+        character.name === "主角" &&
+        !character.profile.age &&
+        !character.profile.identity &&
+        !character.profile.motivation &&
+        !character.profile.personality &&
+        !character.currentState.powerLevel &&
+        !character.currentState.location &&
+        !character.currentState.relationships.length &&
+        !character.currentState.secrets.length &&
+        !character.voiceNotes
+      )
+  );
+  next.worldEntries = next.worldEntries.filter(
+    (entry) => !(entry.id === "initial-world" && entry.title === "初始世界观" && !entry.content.trim())
+  );
+  return next;
+};
+
 const promptTasks: PromptTask[] = [
   "continue",
   "expand",
@@ -99,6 +174,7 @@ const projectHandleStoreName = "projectHandles";
 const projectHandleDbName = "inkforge-browser-project-handles";
 const projectFolderWarning =
   "浏览器预览无法创建项目文件夹，已退回到浏览器本地存储。建议使用桌面版或支持 File System Access 的 Chromium/Edge。";
+const projectFolderConflictPrefix = "目标项目文件夹已存在";
 
 const safeFileId = (value: string): string =>
   value
@@ -346,11 +422,33 @@ const createProjectFolder = async (record: BrowserProjectRecord): Promise<void> 
   }
   try {
     const parent = await picker.showDirectoryPicker({ mode: "readwrite" });
-    const handle = await parent.getDirectoryHandle(slugPart(record.summary.meta.title), { create: true });
+    const folderName = slugPart(record.summary.meta.title);
+    const handle = await parent.getDirectoryHandle(folderName, { create: true });
+    if (handle.values) {
+      for await (const _entry of handle.values()) {
+        throw new Error(`${projectFolderConflictPrefix}且不为空：${folderName}`);
+      }
+    } else {
+      const hasProjectFile = await handle
+        .getFileHandle("project.novel.json")
+        .then(() => true)
+        .catch((error) => {
+          if (error && typeof error === "object" && "name" in error && error.name === "NotFoundError") {
+            return false;
+          }
+          throw error;
+        });
+      if (hasProjectFile) {
+        throw new Error(`${projectFolderConflictPrefix}：${folderName}`);
+      }
+    }
     projectFolderHandles.set(record.summary.projectPath, handle);
     await saveProjectFolderHandle(record.summary.projectPath, handle);
     await syncProjectFolder(record, handle);
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith(projectFolderConflictPrefix)) {
+      throw error;
+    }
     console.warn(projectFolderWarning, error);
   }
 };
@@ -477,10 +575,10 @@ const createProjectRecord = (input: CreateProjectInput): BrowserProjectRecord =>
   const firstChapter: ChapterPlan = {
     id: "ch-0001",
     number: 1,
-    title: "第一章 未命名",
+    title: suggestChapterTitle(1),
     file: chapterFile(1, 1),
-    goal: input.protagonist ? `介绍主角：${input.protagonist}` : "建立主角、冲突与第一处悬念",
-    hook: "用一个明确问题推动读者进入下一章",
+    goal: "",
+    hook: "",
     status: "drafting",
     targetWords: 3000,
     actualWords: 0,
@@ -503,7 +601,7 @@ const createProjectRecord = (input: CreateProjectInput): BrowserProjectRecord =>
     defaultModel: defaultProviderConfig.model,
     writingPreferences: {
       pov: "第三人称有限视角",
-      style: input.style || "节奏快，冲突强，少解释，多行动",
+      style: input.style || "",
       chapterWords: 3000
     }
   };
@@ -516,7 +614,7 @@ const createProjectRecord = (input: CreateProjectInput): BrowserProjectRecord =>
       {
         id: "vol-001",
         title: "第一卷",
-        goal: "建立世界、主角动机与核心冲突",
+        goal: "",
         targetWords: 90000,
         chapters: [firstChapter]
       }
@@ -526,45 +624,11 @@ const createProjectRecord = (input: CreateProjectInput): BrowserProjectRecord =>
   return {
     summary: { projectPath, meta, outline },
     chapterBodies: {
-      [firstChapter.file]: `# ${firstChapter.title}\n\n在这里开始写作。\n`
+      [firstChapter.file]: ""
     },
     chapterHistory: {},
-    characters: [
-      {
-        id: "char_main_protagonist",
-        name: "主角",
-        aliases: [],
-        role: "protagonist",
-        tags: ["主角"],
-        profile: {
-          age: "",
-          identity: "",
-          motivation: input.protagonist,
-          personality: ""
-        },
-        currentState: {
-          arc: "第一卷",
-          powerLevel: "",
-          location: "",
-          relationships: [],
-          secrets: []
-        },
-        voiceNotes: ""
-      }
-    ],
-    worldEntries: [
-      {
-        id: "initial-world",
-        title: "初始世界观",
-        type: "note",
-        locked: false,
-        tags: ["待完善"],
-        summary: "记录本书最重要的世界规则、地点和势力。",
-        content: "",
-        relatedCharacters: [],
-        relatedClues: []
-      }
-    ],
+    characters: [],
+    worldEntries: [],
     timeline: [],
     clues: [],
     terms: [],
@@ -606,6 +670,7 @@ export const browserProjectService = {
     if (!nextPath || !storage.projects[nextPath]) {
       return undefined;
     }
+    storage.projects[nextPath] = removeLegacyBrowserDefaults(storage.projects[nextPath]);
     storage.activeProjectPath = nextPath;
     writeProjectStorage(storage);
     return structuredClone(storage.projects[nextPath].summary);
@@ -660,10 +725,11 @@ export const browserProjectService = {
     );
     const nextNumber = maxChapterNumber + 1;
     const volumeNumber = record.summary.outline.volumes.findIndex((item) => item.id === volume.id) + 1;
+    const previousChapter = volume.chapters.at(-1);
     const chapter: ChapterPlan = {
       id: `ch-${String(nextNumber).padStart(4, "0")}`,
       number: nextNumber,
-      title: input.title?.trim() || `第${nextNumber}章 未命名`,
+      title: input.title?.trim() || suggestChapterTitle(nextNumber, previousChapter),
       file: chapterFile(volumeNumber, nextNumber),
       goal: "",
       hook: "",
@@ -677,13 +743,16 @@ export const browserProjectService = {
       worldRefs: []
     };
     volume.chapters.push(chapter);
-    record.chapterBodies[chapter.file] = `# ${chapter.title}\n\n`;
+    record.chapterBodies[chapter.file] = "";
     saveProjectRecord(record);
     return structuredClone(record.summary);
   },
   async updateOutline(input: UpdateOutlineInput): Promise<ProjectSummary> {
     const record = getProjectRecord(input.projectPath);
     record.summary.outline = structuredClone(input.outline);
+    for (const chapter of record.summary.outline.volumes.flatMap((volume) => volume.chapters)) {
+      record.chapterBodies[chapter.file] ??= "";
+    }
     saveProjectRecord(record);
     return structuredClone(record.summary);
   },

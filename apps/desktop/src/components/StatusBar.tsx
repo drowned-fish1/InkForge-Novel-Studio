@@ -13,18 +13,28 @@ export const StatusBar = () => {
     () => window.localStorage.getItem(shortcutHintStorageKey) === "true"
   );
   const words = countCjkAwareWords(current?.content ?? "");
-  const tokenEstimate = Math.ceil(words * 1.2);
 
   useEffect(() => {
     window.localStorage.setItem(shortcutHintStorageKey, String(hideShortcutHints));
   }, [hideShortcutHints]);
 
+  const saveLabel =
+    saveState === "saving"
+      ? "正在保存"
+      : saveState === "dirty"
+        ? "有未保存改动"
+        : saveState === "error"
+          ? "保存失败"
+          : lastSavedAt
+            ? `已保存 ${lastSavedAt}`
+            : "已保存";
+
   return (
     <footer className="status-bar">
-      <span>字数 {words.toLocaleString("zh-CN")}</span>
-      <span>自动保存 {lastSavedAt ?? "等待写入"}</span>
-      <span>当前任务 {saveState === "saving" ? "保存章节" : "写作"}</span>
-      <span>Token 估算 {tokenEstimate.toLocaleString("zh-CN")}</span>
+      <span>本章 {words.toLocaleString("zh-CN")} 字</span>
+      <span className={`status-save-state ${saveState}`} aria-live="polite">
+        {saveLabel}
+      </span>
       {!hideShortcutHints ? <span className="shortcut-hints">{keybindingHints.join(" / ")}</span> : null}
       <button className="status-toggle" type="button" onClick={() => setHideShortcutHints((value) => !value)}>
         {hideShortcutHints ? "显示快捷键" : "隐藏快捷键"}

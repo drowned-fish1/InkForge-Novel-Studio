@@ -71,8 +71,8 @@ const moduleInfo: Record<string, ModuleInfo> = {
     status: "占位页已接通，冲突信息来自项目主冲突和章节冲突点。",
     description: "完整冲突板会汇总主线、支线、角色目标与章节冲突。当前可先在规划与章节卡片里维护这些字段。",
     icon: Swords,
-    nextModule: "planning",
-    nextLabel: "进入规划"
+    nextModule: "outline",
+    nextLabel: "进入大纲"
   },
   events: {
     title: "事件",
@@ -120,7 +120,7 @@ export const ModulePlaceholder = () => {
   const stats = getModuleStats(selectedModule, project, worldEntries, timeline);
 
   return (
-    <section className="library-screen">
+    <section className="library-screen module-summary-screen">
       <header className="library-header">
         <div>
           <div className="crumb">{module.crumb}</div>
@@ -134,30 +134,33 @@ export const ModulePlaceholder = () => {
         ) : null}
       </header>
 
-      <section className="writing-stats-panel">
-        <div className="overview-grid compact">
+      <div className="module-summary-content">
+        <section className="module-summary-metrics" aria-label={`${module.title}概览`}>
           {stats.map((stat) => (
-            <div className="stat-tile" key={stat.label}>
+            <div className="module-summary-stat" key={stat.label}>
               <strong>{stat.value}</strong>
               <span>{stat.label}</span>
             </div>
           ))}
-        </div>
-      </section>
+        </section>
 
-      <section className="issue-list">
-        <div className="section-heading">
-          <span>模块状态</span>
-          <Icon size={16} />
-        </div>
-        <article className="issue-row">
-          <Icon size={17} />
+        <section className="module-summary-status">
+          <header>
+            <span>
+              <Icon size={15} />
+              模块状态
+            </span>
+            <small>当前版本</small>
+          </header>
           <div>
-            <strong>{module.status}</strong>
-            <span>{module.description}</span>
+            <Icon size={18} />
+            <div>
+              <strong>{module.status}</strong>
+              <p>{module.description}</p>
+            </div>
           </div>
-        </article>
-      </section>
+        </section>
+      </div>
     </section>
   );
 };

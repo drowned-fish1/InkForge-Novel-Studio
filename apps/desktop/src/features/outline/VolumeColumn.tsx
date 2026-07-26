@@ -55,11 +55,7 @@ export const VolumeColumn = ({ volume }: VolumeColumnProps) => {
   };
 
   return (
-    <div
-      className="volume-column"
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
-    >
+    <div className="volume-column" onDragOver={handleDragOver} onDrop={handleDrop}>
       <div className="volume-header">
         <h3 onClick={handleRename}>{volume.title}</h3>
         <span className="chapter-count">{volume.chapters.length} 章</span>

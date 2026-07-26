@@ -2,6 +2,8 @@ import path from "node:path";
 import { writeFile } from "node:fs/promises";
 import { dialog, type FileFilter } from "electron";
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
+import { strToU8, zipSync, type Zippable } from "fflate";
+import { marked, Renderer } from "marked";
 import type { ExportInput } from "../types.js";
 import { FileRepository } from "./FileRepository.js";
 import { ProjectService } from "./ProjectService.js";
@@ -49,6 +51,16 @@ export class ExportService {
 
     if (input.format === "docx") {
       await this.writeDocx(result.filePath, project.meta.title, blocks);
+    } else if (input.format === "epub") {
+      await this.writeEpub(result.filePath, {
+        identifier: project.meta.projectId,
+        title: input.epub?.title.trim() || project.meta.title,
+        author: input.epub?.author.trim() || project.meta.author,
+        language: input.epub?.language.trim() || "zh-CN",
+        description: input.epub?.description.trim() || project.outline.premise,
+        theme: input.epub?.cssTheme ?? "classic",
+        blocks
+      });
     } else {
       await this.files.writeTextAtomic(result.filePath, `${this.renderText(input.format, blocks)}\n`);
     }
@@ -61,6 +73,9 @@ export class ExportService {
     }
     if (format === "docx") {
       return { name: "Word Document", extensions: ["docx"] };
+    }
+    if (format === "epub") {
+      return { name: "EPUB Electronic Book", extensions: ["epub"] };
     }
     return { name: "Text", extensions: ["txt"] };
   }
@@ -139,6 +154,79 @@ export class ExportService {
     });
     const buffer = await Packer.toBuffer(doc);
     await writeFile(filePath, buffer);
+  }
+
+  private async writeEpub(
+    filePath: string,
+    input: {
+      identifier: string;
+      title: string;
+      author: string;
+      language: string;
+      description: string;
+      theme: "classic" | "modern";
+      blocks: ExportBlock[];
+    }
+  ): Promise<void> {
+    const publicationId = escapeXml(input.identifier);
+    const chapters = input.blocks.map((block, index) => ({
+      ...block,
+      id: `section-${index + 1}`,
+      file: `section-${index + 1}.xhtml`,
+      label: block.title || (block.kind === "volume" ? `第 ${index + 1} 卷` : `第 ${index + 1} 章`)
+    }));
+    const manifest = chapters
+      .map((chapter) => `<item id="${chapter.id}" href="text/${chapter.file}" media-type="application/xhtml+xml"/>`)
+      .join("\n    ");
+    const spine = chapters.map((chapter) => `<itemref idref="${chapter.id}"/>`).join("\n    ");
+    const nav = chapters
+      .map((chapter) => `<li><a href="text/${chapter.file}">${escapeXml(chapter.label)}</a></li>`)
+      .join("\n        ");
+    const css =
+      input.theme === "modern"
+        ? "body{font-family:system-ui,sans-serif;line-height:1.85;margin:6%;color:#152b26}h1,h2{line-height:1.25}p{text-indent:2em;margin:.55em 0}"
+        : "body{font-family:serif;line-height:1.9;margin:7%;color:#221f1a}h1,h2{text-align:center;line-height:1.35;margin:2em 0 1.4em}p{text-indent:2em;margin:.6em 0}";
+
+    const archive: Zippable = {
+      mimetype: [strToU8("application/epub+zip"), { level: 0 }],
+      "META-INF/container.xml": strToU8(
+        '<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
+      ),
+      "OEBPS/styles/book.css": strToU8(css),
+      "OEBPS/nav.xhtml": strToU8(`<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${escapeXml(input.language)}">
+<head><title>目录</title><link rel="stylesheet" href="styles/book.css"/></head>
+<body><nav epub:type="toc"><h1>目录</h1><ol>${nav}</ol></nav></body></html>`),
+      "OEBPS/content.opf": strToU8(`<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id" xml:lang="${escapeXml(input.language)}">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="book-id">${publicationId}</dc:identifier>
+    <dc:title>${escapeXml(input.title)}</dc:title>
+    <dc:creator>${escapeXml(input.author)}</dc:creator>
+    <dc:language>${escapeXml(input.language)}</dc:language>
+    <dc:description>${escapeXml(input.description)}</dc:description>
+    <meta property="dcterms:modified">${new Date().toISOString().replace(/\.\d{3}Z$/u, "Z")}</meta>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="css" href="styles/book.css" media-type="text/css"/>
+    ${manifest}
+  </manifest>
+  <spine>${spine}</spine>
+</package>`)
+    };
+
+    for (const chapter of chapters) {
+      const heading = chapter.kind === "volume" ? "h1" : "h2";
+      const headingMarkup = chapter.title ? `<${heading}>${escapeXml(chapter.title)}</${heading}>` : "";
+      const body = chapter.body ? renderMarkdownAsXhtml(chapter.body) : "";
+      archive[`OEBPS/text/${chapter.file}`] = strToU8(`<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="${escapeXml(input.language)}">
+<head><title>${escapeXml(chapter.label)}</title><link rel="stylesheet" href="../styles/book.css"/></head>
+<body>${headingMarkup}${body}</body></html>`);
+    }
+
+    await writeFile(filePath, Buffer.from(zipSync(archive, { level: 6 })));
   }
 
   private stripLeadingMarkdownTitle(markdown: string): string {
@@ -257,3 +345,28 @@ export class ExportService {
     return runs.length ? runs : [new TextRun({ text: "", size: 24 })];
   }
 }
+
+const escapeXml = (value: string): string =>
+  value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/"/gu, "&quot;");
+
+const epubRenderer = new Renderer();
+epubRenderer.html = ({ text }) => escapeXml(text);
+epubRenderer.hr = () => "<hr />\n";
+epubRenderer.br = () => "<br />\n";
+epubRenderer.checkbox = ({ checked }) => (checked ? "☒ " : "☐ ");
+epubRenderer.image = ({ text }) => `<span class="image-alt">${escapeXml(text)}</span>`;
+epubRenderer.link = function ({ href, title, tokens }) {
+  const label = this.parser.parseInline(tokens);
+  const normalizedHref = href.trim();
+  if (!/^(?:https?:|mailto:|#)/iu.test(normalizedHref)) {
+    return label;
+  }
+  const titleAttribute = title ? ` title="${escapeXml(title)}"` : "";
+  return `<a href="${escapeXml(normalizedHref)}"${titleAttribute}>${label}</a>`;
+};
+
+export const renderMarkdownAsXhtml = (markdown: string): string =>
+  String(marked.parse(markdown, { async: false, renderer: epubRenderer })).replace(
+    /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);)/giu,
+    "&amp;"
+  );

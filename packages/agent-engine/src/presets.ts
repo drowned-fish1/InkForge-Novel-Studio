@@ -4,6 +4,7 @@ export type PipelinePresetId =
   | "quick-continue"
   | "full-chapter"
   | "chapter-revise"
+  | "literary-polish"
   | "consistency-check"
   | "pre-publish";
 
@@ -26,41 +27,54 @@ const passStep = (id: string, title: string, inputFrom?: string | string[]): Pip
 export const pipelinePresets: Record<PipelinePresetId, PipelinePreset> = {
   "quick-continue": {
     id: "quick-continue",
-    name: "Quick Continue",
-    description: "Build context, draft the next passage, and run a lightweight self review.",
+    name: "快速续写协作组",
+    description: "资料员准备上下文，正文 Agent 续写，审稿 Agent 做轻量检查。",
     autoCommit: true,
     stopOnError: true,
     steps: [
-      passStep("context", "Build context"),
-      passStep("draft", "Draft continuation", "context"),
-      passStep("review", "Self review", "draft")
+      passStep("context", "资料员 · 构建上下文"),
+      passStep("draft", "正文 Agent · 续写"),
+      passStep("review", "审稿 Agent · 自检")
     ]
   },
   "full-chapter": {
     id: "full-chapter",
-    name: "Full Chapter",
-    description: "Plan scenes, draft each scene, self review, revise, and summarize the chapter.",
+    name: "完整章节 Agent 组",
+    description: "策划、正文、审稿、修订和记忆 Agent 依次工作，每阶段由作者确认。",
     autoCommit: true,
     stopOnError: true,
     steps: [
-      passStep("context", "Build context"),
-      passStep("scene-plan", "Plan scenes", "context"),
-      passStep("draft-scenes", "Draft scenes", "scene-plan"),
-      passStep("review", "Self review", "draft-scenes"),
-      passStep("revise", "Auto revise", "review"),
-      passStep("summary", "Summarize chapter", "revise")
+      passStep("context", "资料员 · 构建上下文"),
+      passStep("scene-plan", "策划 Agent · 场景方案", "context"),
+      passStep("draft-scenes", "正文 Agent · 起草场景", "scene-plan"),
+      passStep("review", "审稿 Agent · 质量检查", "draft-scenes"),
+      passStep("revise", "修订 Agent · 定向改稿", "review"),
+      passStep("summary", "记忆 Agent · 沉淀状态", "revise")
     ]
   },
   "chapter-revise": {
     id: "chapter-revise",
-    name: "Chapter Revise",
-    description: "Review an existing chapter and produce a focused revision pass.",
+    name: "章节修订 Agent 组",
+    description: "审稿、修订和终检 Agent 对当前章节进行定向改稿。",
     autoCommit: false,
     stopOnError: true,
     steps: [
       passStep("review", "Review chapter"),
       passStep("revise", "Revise chapter", "review"),
       passStep("final-check", "Final check", "revise")
+    ]
+  },
+  "literary-polish": {
+    id: "literary-polish",
+    name: "文学精修 Agent 组",
+    description: "粗稿 Agent 铺齐情节，感官 Agent 去除默认表达，独立编辑模型修剪节奏；确认前不写入正文。",
+    autoCommit: false,
+    stopOnError: true,
+    steps: [
+      passStep("context", "资料员 · 锁定事实"),
+      passStep("rough-draft", "粗稿 Agent · 铺齐节点", "context"),
+      passStep("sensory-pass", "感官 Agent · 逐段精修", "rough-draft"),
+      passStep("editor-pass", "编辑 Agent · 节奏修剪", "sensory-pass")
     ]
   },
   "consistency-check": {
