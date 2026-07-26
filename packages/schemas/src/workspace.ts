@@ -271,3 +271,40 @@ export type AgentCustomTool = z.infer<typeof AgentCustomToolSchema>;
 export type AgentTaskTemplate = z.infer<typeof AgentTaskTemplateSchema>;
 export type AgentMember = z.infer<typeof AgentMemberSchema>;
 export type AgentExtensionConfig = z.infer<typeof AgentExtensionConfigSchema>;
+
+/**
+ * Quote-based annotation anchoring: when chapter text is edited before a
+ * mark, its stored offsets drift. Re-locates each annotation by searching for
+ * its quote and picking the occurrence closest to the old position. Marks
+ * whose quote no longer exists are left untouched (jump stays approximate).
+ */
+export const rebaseChapterAnnotations = (
+  annotations: WritingAnnotation[],
+  chapterId: string,
+  content: string
+): { annotations: WritingAnnotation[]; changed: boolean } => {
+  let changed = false;
+  const rebased = annotations.map((annotation) => {
+    if (annotation.chapterId !== chapterId || !annotation.quote) {
+      return annotation;
+    }
+    if (content.slice(annotation.start, annotation.end) === annotation.quote) {
+      return annotation;
+    }
+    const occurrences: number[] = [];
+    let cursor = content.indexOf(annotation.quote);
+    while (cursor >= 0) {
+      occurrences.push(cursor);
+      cursor = content.indexOf(annotation.quote, cursor + 1);
+    }
+    if (!occurrences.length) {
+      return annotation;
+    }
+    const nearest = occurrences.reduce((best, candidate) =>
+      Math.abs(candidate - annotation.start) < Math.abs(best - annotation.start) ? candidate : best
+    );
+    changed = true;
+    return { ...annotation, start: nearest, end: nearest + annotation.quote.length };
+  });
+  return { annotations: changed ? rebased : annotations, changed };
+};

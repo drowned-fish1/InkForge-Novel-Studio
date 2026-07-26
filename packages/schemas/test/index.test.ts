@@ -449,3 +449,53 @@ describe("writing workspace annotations", () => {
     expect(mark.status).toBe("resolved");
   });
 });
+
+describe("rebaseChapterAnnotations", () => {
+  const annotation = (start, end, quote) => ({
+    id: "a1",
+    chapterId: "ch-1",
+    start,
+    end,
+    quote,
+    note: "",
+    color: "green",
+    kind: "comment",
+    status: "open",
+    createdAt: "2026-07-27T00:00:00.000Z"
+  });
+
+  it("relocates a drifted annotation to its quote", async () => {
+    const { rebaseChapterAnnotations } = await import("../src/workspace");
+    const content = "新增的开头段落。\n\n他推开门，雨水落下。";
+    const drifted = annotation(0, 4, "他推开门");
+    const result = rebaseChapterAnnotations([drifted], "ch-1", content);
+    expect(result.changed).toBe(true);
+    expect(content.slice(result.annotations[0].start, result.annotations[0].end)).toBe("他推开门");
+  });
+
+  it("picks the occurrence closest to the old position for duplicate quotes", async () => {
+    const { rebaseChapterAnnotations } = await import("../src/workspace");
+    const content = "灯灭了。中间很长的一段其他内容。灯灭了。";
+    const secondOccurrence = content.indexOf("灯灭了。", 4);
+    const drifted = annotation(secondOccurrence + 2, secondOccurrence + 6, "灯灭了。");
+    const result = rebaseChapterAnnotations([drifted], "ch-1", content);
+    expect(result.annotations[0].start).toBe(secondOccurrence);
+  });
+
+  it("leaves annotations alone when the quote matches or disappeared", async () => {
+    const { rebaseChapterAnnotations } = await import("../src/workspace");
+    const content = "他推开门，雨水落下。";
+    const intact = annotation(0, 4, "他推开门");
+    const gone = { ...annotation(5, 9, "已删除的句子"), id: "a2" };
+    const result = rebaseChapterAnnotations([intact, gone], "ch-1", content);
+    expect(result.changed).toBe(false);
+    expect(result.annotations[1].start).toBe(5);
+  });
+
+  it("ignores annotations from other chapters", async () => {
+    const { rebaseChapterAnnotations } = await import("../src/workspace");
+    const other = { ...annotation(0, 4, "他推开门"), chapterId: "ch-2" };
+    const result = rebaseChapterAnnotations([other], "ch-1", "完全不同的内容");
+    expect(result.changed).toBe(false);
+  });
+});

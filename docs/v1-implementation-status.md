@@ -156,6 +156,14 @@ npm run test:desktop-smoke
 - **压测结论与修复**：唯一热点为 `revision:overview`（逐章 `chatAgent.load` 各自重新解析整个项目，1446ms）；新增 `ChatAgentService.listExistingSessions`（单次会话目录扫描，跳过损坏文件，不触碰 project/outline 解析），RevisionService 改用后 **1446ms → 36ms**。其余路径在 400 章规模全部健康：重开 9ms、单次大纲编辑 ~140ms、全量备份 1.5s/7.6MB、校验 194ms、导出检查 106ms、聚合历史 85ms。
 - 验证：typecheck ✅ / 281 tests ✅ / lint ✅ / desktop-smoke ✅ / 探针前后对比 ✅。
 
+## 拓展二：改名同步与标记锚点稳定（2026-07-27）
+
+- **改名自动同步**：`renameStoryReferences` 纯函数（复用 detach-replace 引擎，新增 namesOverride 参数）；主进程 `saveCharacterWithRenameSync` / `saveWorldEntryWithRenameSync` 接管 `library:characters:save` / `library:world:save`——主名/标题变更时把旧名在人物关系句、事件参与者/地点、冲突各方、世界观关联、章节出场/引用中全部改写为新名（被改名实体自身不动）；浏览器镜像同逻辑；渲染层 store 检测到改名后重载全部资料与大纲。
+- **标记锚点稳定**：`rebaseChapterAnnotations` 纯函数（按引文重定位，重复引文取距原位置最近者，引文消失则保持原样）；ChapterEditor 在每次保存成功后自动重定位当前章批注/待修改标记并持久化。
+- 新增测试：rename 纯函数（人物/地点两向）、StoryReferenceService 三用例（人物改名跨五类引用+章节、地点改名含标量位置、未改名不动）、rebase 四用例（漂移重定位/重复引文取最近/消失保持/跨章隔离）——290 total。
+- 验证：typecheck ✅ / 290 tests ✅ / lint ✅ / smoke（重建后）✅ / 探针复跑（revision:overview 34ms 保持）✅ / 浏览器实测（"顾沉"改名"晏北"后冲突页立即显示"晏北 vs 缉私队"；批注建在偏移 20，前插 24 字符自动保存后跳转精确命中新偏移 44）✅。
+- 顺带修复：改名后渲染层各资料列表未重载的陈旧数据问题。
+
 # 最终交付摘要（v1.0-rc.1）
 
 ## 提交列表（基线 87ff6cf 之后）

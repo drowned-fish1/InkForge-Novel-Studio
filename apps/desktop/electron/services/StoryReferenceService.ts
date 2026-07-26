@@ -1,10 +1,12 @@
 import {
   detachStoryReferences,
   findStoryReferences,
+  type Character,
   type StoryDetachMode,
   type StoryEntityRef,
   type StoryReferenceData,
-  type StoryReferenceHit
+  type StoryReferenceHit,
+  type WorldEntry
 } from "@inkforge/schemas";
 import { FileRepository } from "./FileRepository.js";
 import { LibraryService } from "./LibraryService.js";
@@ -63,14 +65,49 @@ export class StoryReferenceService {
     }
   }
 
+  /**
+   * Save a character and, if its primary name changed, rewrite every
+   * reference to the old name across the project (relations, participants,
+   * conflict parties, chapter refs). Returns the refreshed character list.
+   */
+  async saveCharacterWithRenameSync(projectPath: string, character: Character): Promise<Character[]> {
+    const existing = (await this.library.listCharacters(projectPath)).find((item) => item.id === character.id);
+    const oldName = existing?.name.trim() ?? "";
+    const newName = character.name.trim();
+    await this.library.saveCharacter(projectPath, character);
+    if (existing && oldName && newName && oldName !== newName) {
+      await this.applyDetach(
+        projectPath,
+        { kind: "character", id: character.id },
+        "replace",
+        newName,
+        new Set([oldName])
+      );
+    }
+    return this.library.listCharacters(projectPath);
+  }
+
+  /** World-entry variant of saveCharacterWithRenameSync (title rename). */
+  async saveWorldEntryWithRenameSync(projectPath: string, entry: WorldEntry): Promise<WorldEntry[]> {
+    const existing = (await this.library.listWorldEntries(projectPath)).find((item) => item.id === entry.id);
+    const oldTitle = existing?.title.trim() ?? "";
+    const newTitle = entry.title.trim();
+    await this.library.saveWorldEntry(projectPath, entry);
+    if (existing && oldTitle && newTitle && oldTitle !== newTitle) {
+      await this.applyDetach(projectPath, { kind: "world", id: entry.id }, "replace", newTitle, new Set([oldTitle]));
+    }
+    return this.library.listWorldEntries(projectPath);
+  }
+
   private async applyDetach(
     projectPath: string,
     target: StoryEntityRef,
     mode: StoryDetachMode,
-    replacement: string
+    replacement: string,
+    namesOverride?: Set<string>
   ): Promise<void> {
     const data = await this.loadData(projectPath);
-    const result = detachStoryReferences(data, target, mode, replacement);
+    const result = detachStoryReferences(data, target, mode, replacement, namesOverride);
     for (const id of result.changedCharacterIds) {
       const character = result.characters.find((item) => item.id === id);
       if (character) {

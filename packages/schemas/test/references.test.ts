@@ -135,3 +135,33 @@ describe("ConflictSchema", () => {
     expect(conflict.chapterIds).toEqual([]);
   });
 });
+
+describe("renameStoryReferences", () => {
+  it("rewrites every reference to the old name and leaves the target record alone", async () => {
+    const { renameStoryReferences } = await import("../src/index");
+    const data = buildData();
+    // Simulate the post-save state: the character record already carries the new name.
+    data.characters = data.characters.map((item) => (item.id === "char-lin" ? { ...item, name: "陆离" } : item));
+    const result = renameStoryReferences(data, { kind: "character", id: "char-lin" }, "林烬", "陆离");
+    expect(result.timeline[0].participants).toEqual(["陆离", "苏禾"]);
+    expect(result.conflicts[0].parties).toEqual(["陆离", "缉私队"]);
+    expect(result.conflicts[0].relatedCharacters).toEqual(["陆离"]);
+    expect(result.chapters[0].characters).toEqual(["陆离"]);
+    expect(result.worldEntries.find((item) => item.id === "loc-station")?.relatedCharacters).toEqual(["陆离"]);
+    expect(result.characters.find((item) => item.id === "char-su")?.currentState.relationships).toEqual(["信任陆离"]);
+    // Renamed entity's own record untouched by the reference pass.
+    expect(result.characters.find((item) => item.id === "char-lin")?.name).toBe("陆离");
+  });
+
+  it("rewrites world title references including scalar locations", async () => {
+    const { renameStoryReferences } = await import("../src/index");
+    const data = buildData();
+    data.worldEntries = data.worldEntries.map((item) =>
+      item.id === "loc-station" ? { ...item, title: "废弃车站" } : item
+    );
+    const result = renameStoryReferences(data, { kind: "world", id: "loc-station" }, "旧车站", "废弃车站");
+    expect(result.characters.find((item) => item.id === "char-lin")?.currentState.location).toBe("废弃车站");
+    expect(result.timeline[0].location).toBe("废弃车站");
+    expect(result.chapters[0].worldRefs).toEqual(["废弃车站"]);
+  });
+});

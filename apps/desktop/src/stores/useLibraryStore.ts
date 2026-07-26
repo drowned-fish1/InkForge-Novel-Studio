@@ -79,14 +79,27 @@ export const useLibraryStore = create<LibraryState>((set) => ({
     if (!project) {
       return;
     }
+    const previous = useLibraryStore.getState().characters.find((item) => item.id === character.id);
+    const renamed = Boolean(previous && previous.name.trim() !== character.name.trim());
     set({ characters: await bridge.saveCharacter({ projectPath: project.projectPath, character }) });
+    if (renamed) {
+      // The main process rewrote references across every store; reload them.
+      await useLibraryStore.getState().loadLibraries();
+      await useProjectStore.getState().refreshProject();
+    }
   },
   saveWorldEntry: async (entry) => {
     const project = useProjectStore.getState().project;
     if (!project) {
       return;
     }
+    const previous = useLibraryStore.getState().worldEntries.find((item) => item.id === entry.id);
+    const renamed = Boolean(previous && previous.title.trim() !== entry.title.trim());
     set({ worldEntries: await bridge.saveWorldEntry({ projectPath: project.projectPath, entry }) });
+    if (renamed) {
+      await useLibraryStore.getState().loadLibraries();
+      await useProjectStore.getState().refreshProject();
+    }
   },
   saveTimelineEvent: async (event) => {
     const project = useProjectStore.getState().project;

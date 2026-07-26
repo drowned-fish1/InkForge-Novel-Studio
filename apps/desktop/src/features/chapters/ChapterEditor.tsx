@@ -28,6 +28,7 @@ import type { Character, Term, WritingWorkspace } from "@inkforge/schemas";
 import type { MouseEvent } from "react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ScenePlanner } from "@/features/agent/ScenePlanner";
+import { rebaseChapterAnnotations } from "@inkforge/schemas";
 import { bridge } from "@/lib/browserBridge";
 import { listMarkdownHeadings } from "@/lib/chapterContent";
 import { countCjkAwareWords } from "@/lib/textMetrics";
@@ -237,6 +238,7 @@ export const ChapterEditor = () => {
   const project = useProjectStore((state) => state.project);
   const current = useProjectStore((state) => state.current);
   const error = useProjectStore((state) => state.error);
+  const saveState = useProjectStore((state) => state.saveState);
   const focusMode = useProjectStore((state) => state.focusMode);
   const setFocusMode = useProjectStore((state) => state.setFocusMode);
   const updateContent = useProjectStore((state) => state.updateContent);
@@ -309,6 +311,28 @@ export const ChapterEditor = () => {
   useEffect(() => {
     window.localStorage.setItem(typewriterStorageKey, String(typewriterScroll));
   }, [typewriterScroll]);
+
+  useEffect(() => {
+    // After each successful save, re-anchor this chapter's annotations by
+    // their quotes so edits above a mark do not leave stale offsets behind.
+    if (saveState !== "saved" || !project) {
+      return;
+    }
+    const latest = useProjectStore.getState().current;
+    if (!latest) {
+      return;
+    }
+    const chapterId = latest.plan.id;
+    const content = latest.content;
+    const probe = rebaseChapterAnnotations(writingWorkspace.annotations, chapterId, content);
+    if (!probe.changed) {
+      return;
+    }
+    void saveWritingWorkspace((workspace) => {
+      const rebase = rebaseChapterAnnotations(workspace.annotations, chapterId, content);
+      return rebase.changed ? { ...workspace, annotations: rebase.annotations } : workspace;
+    });
+  }, [saveState]);
 
   useEffect(() => {
     if (!project || !current) return;

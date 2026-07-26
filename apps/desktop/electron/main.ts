@@ -374,7 +374,8 @@ const registerIpc = (): void => {
   });
 
   ipcMain.handle("library:characters:save", async (_event, input: SaveCharacterInput) => {
-    return library.saveCharacter(input.projectPath, input.character);
+    // Rename-aware save: propagates a changed name to every reference.
+    return storyReferences.saveCharacterWithRenameSync(input.projectPath, input.character);
   });
 
   ipcMain.handle("library:world:list", async (_event, projectPath: string) => {
@@ -382,7 +383,8 @@ const registerIpc = (): void => {
   });
 
   ipcMain.handle("library:world:save", async (_event, input: SaveWorldEntryInput) => {
-    return library.saveWorldEntry(input.projectPath, input.entry);
+    // Rename-aware save: propagates a changed title to every reference.
+    return storyReferences.saveWorldEntryWithRenameSync(input.projectPath, input.entry);
   });
 
   ipcMain.handle("provider:status", () => aiProvider.getStatus());

@@ -4,6 +4,7 @@ import {
   ConflictSchema,
   detachStoryReferences,
   findStoryReferences,
+  renameStoryReferences,
   inkforgeSchemaVersion,
   OutlineSchema,
   PlanningPackageSchema,
@@ -54,13 +55,22 @@ export const browserLibraryService = {
   async saveCharacter(input: SaveCharacterInput): Promise<Character[]> {
     const record = getProjectRecord(input.projectPath);
     const character = normalizeCharacter(input.character);
-    const existing = record.characters.findIndex((item) => item.id === character.id);
+    const existingIndex = record.characters.findIndex((item) => item.id === character.id);
+    const oldName = existingIndex >= 0 ? normalizeCharacter(record.characters[existingIndex]).name.trim() : "";
     record.characters =
-      existing >= 0
+      existingIndex >= 0
         ? record.characters.map((item) => (item.id === character.id ? character : normalizeCharacter(item)))
         : [...record.characters.map(normalizeCharacter), character];
     saveProjectRecord(record);
-    return structuredClone(record.characters);
+    if (oldName && oldName !== character.name.trim()) {
+      applyBrowserRenameSync(
+        input.projectPath,
+        { kind: "character", id: character.id },
+        oldName,
+        character.name.trim()
+      );
+    }
+    return structuredClone(getProjectRecord(input.projectPath).characters);
   },
   async listWorldEntries(projectPath: string): Promise<WorldEntry[]> {
     return structuredClone(getProjectRecord(projectPath).worldEntries.map(normalizeWorldEntry));
@@ -68,13 +78,17 @@ export const browserLibraryService = {
   async saveWorldEntry(input: SaveWorldEntryInput): Promise<WorldEntry[]> {
     const record = getProjectRecord(input.projectPath);
     const entry = normalizeWorldEntry(input.entry);
-    const existing = record.worldEntries.findIndex((item) => item.id === entry.id);
+    const existingIndex = record.worldEntries.findIndex((item) => item.id === entry.id);
+    const oldTitle = existingIndex >= 0 ? normalizeWorldEntry(record.worldEntries[existingIndex]).title.trim() : "";
     record.worldEntries =
-      existing >= 0
+      existingIndex >= 0
         ? record.worldEntries.map((item) => (item.id === entry.id ? entry : normalizeWorldEntry(item)))
         : [...record.worldEntries.map(normalizeWorldEntry), entry];
     saveProjectRecord(record);
-    return structuredClone(record.worldEntries);
+    if (oldTitle && oldTitle !== entry.title.trim()) {
+      applyBrowserRenameSync(input.projectPath, { kind: "world", id: entry.id }, oldTitle, entry.title.trim());
+    }
+    return structuredClone(getProjectRecord(input.projectPath).worldEntries);
   },
   async listTimeline(projectPath: string): Promise<TimelineEvent[]> {
     return structuredClone(getProjectRecord(projectPath).timeline.map(normalizeTimelineEvent));
@@ -1207,4 +1221,33 @@ const browserReferenceData = (projectPath: string): StoryReferenceData => {
     conflicts: (record.conflicts ?? []).map(normalizeConflict),
     chapters: record.summary.outline.volumes.flatMap((volume) => volume.chapters)
   };
+};
+
+const applyBrowserRenameSync = (
+  projectPath: string,
+  target: StoryEntityRef,
+  oldName: string,
+  newName: string
+): void => {
+  const result = renameStoryReferences(browserReferenceData(projectPath), target, oldName, newName);
+  const record = getProjectRecord(projectPath);
+  record.characters = result.characters;
+  record.worldEntries = result.worldEntries;
+  record.timeline = result.timeline;
+  record.clues = result.clues;
+  record.conflicts = result.conflicts;
+  if (result.chaptersChanged) {
+    const chapterById = new Map(result.chapters.map((chapter) => [chapter.id, chapter]));
+    record.summary = {
+      ...record.summary,
+      outline: {
+        ...record.summary.outline,
+        volumes: record.summary.outline.volumes.map((volume) => ({
+          ...volume,
+          chapters: volume.chapters.map((chapter) => chapterById.get(chapter.id) ?? chapter)
+        }))
+      }
+    };
+  }
+  saveProjectRecord(record);
 };
