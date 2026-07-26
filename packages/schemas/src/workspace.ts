@@ -88,6 +88,17 @@ export const WritingWorkspaceSchema = z.object({
   fragments: z.array(InspirationFragmentSchema).default([])
 });
 
+export const RevisionDispositionSchema = z.object({
+  key: z.string().min(1),
+  status: z.enum(["open", "accepted", "ignored", "deferred"]).default("open"),
+  note: z.string().default(""),
+  updatedAt: z.string()
+});
+
+export const RevisionStateSchema = z.object({
+  dispositions: z.array(RevisionDispositionSchema).default([])
+});
+
 export const AgentPromptPresetSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -238,6 +249,8 @@ export type BackupInspection = z.infer<typeof BackupInspectionSchema>;
 export type BackupVerification = z.infer<typeof BackupVerificationSchema>;
 export type BackupDiffSummary = z.infer<typeof BackupDiffSummarySchema>;
 export type InspirationFragment = z.infer<typeof InspirationFragmentSchema>;
+export type RevisionDisposition = z.infer<typeof RevisionDispositionSchema>;
+export type RevisionState = z.infer<typeof RevisionStateSchema>;
 export type WritingAnnotation = z.infer<typeof WritingAnnotationSchema>;
 export type WritingBookmark = z.infer<typeof WritingBookmarkSchema>;
 export type WritingSessionRecord = z.infer<typeof WritingSessionRecordSchema>;

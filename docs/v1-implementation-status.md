@@ -40,7 +40,7 @@ npm run test:desktop-smoke
 | 1. 人工写作工作台 | 完成（浏览器实测验证通过） | 见 git log |
 | 2. 备份/恢复/草稿 | 完成（浏览器实测验证通过） | 见 git log |
 | 3. 故事资料关系中心 | 完成（浏览器实测验证通过） | 见 git log |
-| 4. 集中修订工作台 | 未开始 | - |
+| 4. 集中修订工作台 | 完成（浏览器实测验证通过） | 见 git log |
 | 5. Agent 控制与扩展 | 未开始 | - |
 | 6. EPUB 与交付 | 未开始 | - |
 | 7. 发布级质量收口 | 未开始 | - |
@@ -92,6 +92,18 @@ npm run test:desktop-smoke
 验证：typecheck ✅ / 263 tests ✅ / lint ✅ / 浏览器实测（导航无占位徽章、冲突创建保存、删除对话框正确列出引用并"替换并删除"后冲突各方自动改名、关系中心双向引用、四页全部渲染无控制台错误）✅。
 
 已知限制：跨实体引用仍为名字字符串匹配（沿用现有数据格式，改名不自动同步——列入阶段七已知限制文档）；scene plans 的 clueRefs 未纳入引用检查。
+
+## 阶段四：已完成内容（2026-07-27）
+
+- **RevisionService**（electron）：单次 IPC `revision:overview` 聚合批注/待修改标记（含章节标题）、每章最新质量报告（分数+基线差+findings）、连续性检查结果、跨章节全部 pending Agent 提案（正文提案+数据提案，经 ChatAgentService.load 消毒加载）；处置状态存 `.inkforge/revision-state.json`（`RevisionStateSchema`，key 规则：annotation:<id> / quality:<chapterId>:<dimension>:<title>（规避 randomUUID 不稳定 id）/ continuity:<issueId> / proposal:<id>）。
+- **修订工作台页面**（写作分组新模块 `revision`）：来源/状态/章节筛选、按严重度/时间/章节排序、搜索；行内接受/忽略/延期/恢复；多选批量处理；章节质量分速览条（分数+基线差，点击过滤该章）；章节跳转按钮。
+- **动作语义**：批注/待修改 → 写回 writing-workspace 状态（接受=resolved，无忽略防误删）；质量/连续性 → 处置记录；提案接受/拒绝 → 走既有 `resolveAgentChange`/`resolveAgentDataChange`（保留章节锁、hash 冲突检测与快照回滚），正文提案应用后自动本地重评质量并展示分数与基线差。
+- **前后差异**：提案差异按钮 → 加载完整提案 + 当前正文，append/replace/patch 三种模式合成前后文本，渲染层 diffTextLines 行级预览。
+- 全流程无 AI 可用（质量评估为本地规则引擎；提案来源可为空）。
+- 浏览器镜像：revisionOverview/setRevisionDisposition（内存态，聚合浏览器各 mock 源）。
+- 新增测试：RevisionService 聚合（注入 mock AI 断言绝不调用）与处置 upsert（265 total）。
+
+验证：typecheck ✅ / 265 tests ✅ / lint ✅ / 浏览器实测（待修改标记创建→工作台聚合显示章节链接→接受→"已接受"状态过滤可见）✅。
 
 ## 审计差距摘要（阶段二至七实施依据）
 

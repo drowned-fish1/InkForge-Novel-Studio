@@ -11,6 +11,7 @@ import {
   type BackupSettings,
   type BackupSnapshot,
   type BeatBoard,
+  type RevisionState,
   type BranchDiffLine,
   type AgentExtensionConfig,
   type QualityReport,
@@ -34,6 +35,7 @@ import type {
   AiTaskResult,
   ChapterHistoryEntry,
   ExportInput,
+  RevisionProposalSummary,
   PlayableExportInput,
   SimulationRunEvent,
   SimulationRunInput,
@@ -140,6 +142,7 @@ let browserBranches: StoryBranch[] = [];
 let browserBatchRuns: BatchRun[] = [];
 const browserBackups = new Map<string, BackupSnapshot[]>();
 const browserBackupSettings = new Map<string, BackupSettings>();
+const browserRevisionStates = new Map<string, RevisionState>();
 const browserSimulations = new Map<string, SimulationDocument[]>();
 const browserWritingWorkspaces = new Map<string, WritingWorkspace>();
 const browserAgentExtensions = new Map<string, AgentExtensionConfig>();
@@ -325,6 +328,77 @@ export const browserBridge: InkforgeApi = {
     return structuredClone(
       browserWritingWorkspaces.get(projectPath) ?? { annotations: [], bookmarks: [], sessions: [], fragments: [] }
     );
+  },
+  async revisionOverview(projectPath) {
+    const record = getProjectRecord(projectPath);
+    const chapters = record.summary.outline.volumes.flatMap((volume) => volume.chapters);
+    const chapterTitle = new Map(chapters.map((chapter) => [chapter.id, chapter.title]));
+    const workspace = browserWritingWorkspaces.get(projectPath) ?? {
+      annotations: [],
+      bookmarks: [],
+      sessions: [],
+      fragments: []
+    };
+    const proposals: RevisionProposalSummary[] = [];
+    if (browserAgentSession) {
+      for (const proposal of browserAgentSession.proposals.filter((item) => item.status === "pending")) {
+        proposals.push({
+          id: proposal.id,
+          chapterId: proposal.chapterId,
+          chapterTitle: chapterTitle.get(proposal.chapterId) ?? proposal.chapterId,
+          kind: "change",
+          mode: proposal.mode,
+          title: proposal.mode === "append" ? "续写提案" : proposal.mode === "replace" ? "替换提案" : "结构化改稿",
+          explanation: proposal.explanation,
+          createdAt: proposal.createdAt,
+          blockCount: proposal.blocks.length,
+          contentPreview: proposal.content.slice(0, 200)
+        });
+      }
+      for (const proposal of browserAgentSession.dataProposals.filter((item) => item.status === "pending")) {
+        proposals.push({
+          id: proposal.id,
+          chapterId: browserAgentSession.chapterId,
+          chapterTitle: chapterTitle.get(browserAgentSession.chapterId) ?? browserAgentSession.chapterId,
+          kind: "data",
+          entityType: proposal.entityType,
+          title: proposal.title,
+          explanation: proposal.explanation,
+          createdAt: proposal.createdAt,
+          blockCount: 0,
+          contentPreview: JSON.stringify(proposal.payload).slice(0, 200)
+        });
+      }
+    }
+    return {
+      annotations: workspace.annotations.map((annotation) => ({
+        ...annotation,
+        chapterTitle: chapterTitle.get(annotation.chapterId) ?? annotation.chapterId
+      })),
+      qualityReports: browserQualityReports.slice(0, 20).map((report) => ({
+        chapterId: report.chapterId,
+        chapterTitle: chapterTitle.get(report.chapterId) ?? report.chapterTitle,
+        overallScore: report.overallScore,
+        baselineDelta: report.baselineDelta,
+        createdAt: report.createdAt,
+        findings: report.findings
+      })),
+      continuityIssues: await browserLibraryService.inspectStory(projectPath),
+      proposals,
+      revisionState: structuredClone(browserRevisionStates.get(projectPath) ?? { dispositions: [] })
+    };
+  },
+  async setRevisionDisposition(projectPath, key, status, note = "") {
+    const state = browserRevisionStates.get(projectPath) ?? { dispositions: [] };
+    const disposition = { key, status, note, updatedAt: new Date().toISOString() };
+    const existing = state.dispositions.findIndex((item) => item.key === key);
+    const dispositions =
+      existing >= 0
+        ? state.dispositions.map((item, index) => (index === existing ? disposition : item))
+        : [...state.dispositions, disposition];
+    const next = { dispositions };
+    browserRevisionStates.set(projectPath, next);
+    return structuredClone(next);
   },
   async saveWritingWorkspace(projectPath, workspace) {
     browserWritingWorkspaces.set(projectPath, structuredClone(workspace));

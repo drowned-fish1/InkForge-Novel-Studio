@@ -5,6 +5,7 @@ import {
   Boxes,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
   Clock3,
   FlaskConical,
   FolderPen,
@@ -32,7 +33,8 @@ const moduleGroups = [
     items: [
       ["outline", "大纲", ListTree],
       ["chapters", "章节写作台", PenLine],
-      ["drafts", "草稿箱", FileText]
+      ["drafts", "草稿箱", FileText],
+      ["revision", "修订工作台", ClipboardCheck]
     ]
   },
   {

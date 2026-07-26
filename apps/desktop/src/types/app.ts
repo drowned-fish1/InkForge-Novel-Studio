@@ -407,3 +407,5 @@ export type {
   BackupSnapshot,
   WritingWorkspace
 };
+
+export type { RevisionOverview, RevisionProposalSummary } from "../../electron/types";

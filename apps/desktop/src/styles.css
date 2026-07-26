@@ -10054,3 +10054,261 @@ body.resizing-panes * {
 .relationship-node-list button.chapter {
   border-left-color: #6a89b0;
 }
+
+/* Revision workbench v1 (phase 4) */
+.revision-header-side {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.revision-header-side > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.revision-header-side b {
+  color: var(--accent-text);
+}
+
+.revision-quality-strip {
+  display: flex;
+  gap: 8px;
+  overflow: auto;
+  padding-bottom: 2px;
+}
+
+.revision-quality-strip button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: baseline;
+  gap: 7px;
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.revision-quality-strip button:hover {
+  border-color: var(--accent);
+}
+
+.revision-quality-strip strong {
+  font-size: 15px;
+}
+
+.revision-quality-strip span {
+  overflow: hidden;
+  max-width: 130px;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.revision-quality-strip em.up {
+  color: var(--accent-text);
+  font-style: normal;
+}
+
+.revision-quality-strip em.down {
+  color: var(--danger);
+  font-style: normal;
+}
+
+.revision-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.revision-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.revision-row.severity-error {
+  border-left: 3px solid var(--danger);
+}
+
+.revision-row.severity-warning {
+  border-left: 3px solid #b08948;
+}
+
+.revision-row.severity-info {
+  border-left: 3px solid var(--border);
+}
+
+.revision-row.status-accepted,
+.revision-row.status-ignored {
+  opacity: 0.62;
+}
+
+.revision-row > input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+}
+
+.revision-source {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.revision-source.proposal {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.revision-source.revision-mark {
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.revision-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.revision-body strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.revision-body small {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.revision-suggestion {
+  color: var(--accent-text) !important;
+}
+
+.revision-chapter {
+  overflow: hidden;
+  max-width: 130px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--transparent);
+  color: var(--text-button);
+  cursor: pointer;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+span.revision-chapter {
+  border: 0;
+  cursor: default;
+}
+
+.revision-chapter:hover {
+  border-color: var(--accent);
+}
+
+.revision-status {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.revision-status.accepted {
+  color: var(--accent-text);
+}
+
+.revision-status.deferred {
+  color: #b08948;
+}
+
+.revision-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.revision-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--transparent);
+  color: var(--text-button);
+  cursor: pointer;
+}
+
+.revision-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.revision-actions button:disabled {
+  opacity: 0.45;
+}
+
+.revision-diff-preview {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.revision-diff-preview header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.revision-diff-preview header strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.revision-diff-preview header .tiny-text-button {
+  margin-left: auto;
+}
+
+.revision-diff-preview pre {
+  display: grid;
+  overflow: auto;
+  max-height: 300px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

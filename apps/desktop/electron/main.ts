@@ -56,6 +56,7 @@ import { ProjectService } from "./services/ProjectService.js";
 import { RecentProjectService } from "./services/RecentProjectService.js";
 import { QualityService } from "./services/QualityService.js";
 import { ReleaseService } from "./services/ReleaseService.js";
+import { RevisionService } from "./services/RevisionService.js";
 import { ScenePlanService } from "./services/ScenePlanService.js";
 import { SimulationService } from "./services/SimulationService.js";
 import { PlanningService } from "./services/PlanningService.js";
@@ -101,6 +102,7 @@ const batches = new BatchProductionService(files, projects, aiProvider, branches
 const release = new ReleaseService(projects, aiProvider, quality, branches, batches);
 const workspace = new WorkspaceService(files);
 const storyReferences = new StoryReferenceService(files, projects, library, storyState);
+const revisions = new RevisionService(files, projects, workspace, quality, storyState, chatAgent);
 const narrativeBoards = new NarrativeBoardService(files);
 const playableExports = new PlayableExportService(projects, files, narrativeBoards);
 const simulations = new SimulationService(files, library, aiProvider);
@@ -415,6 +417,19 @@ const registerIpc = (): void => {
   ipcMain.handle("story:entity:references", async (_event, projectPath: string, target: StoryEntityRef) => {
     return storyReferences.findReferences(projectPath, target);
   });
+
+  ipcMain.handle("revision:overview", async (_event, projectPath: string) => revisions.overview(projectPath));
+
+  ipcMain.handle(
+    "revision:disposition:set",
+    async (
+      _event,
+      projectPath: string,
+      key: string,
+      status: "open" | "accepted" | "ignored" | "deferred",
+      note?: string
+    ) => revisions.setDisposition(projectPath, key, status, note)
+  );
 
   ipcMain.handle(
     "story:entity:delete",

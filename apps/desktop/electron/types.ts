@@ -18,8 +18,11 @@ import type {
   Clue,
   Conflict,
   Outline,
+  QualityFinding,
+  RevisionState,
   StoryEntityRef,
   StoryReferenceHit,
+  WritingAnnotation,
   PlanningImportResult,
   PlanningImportSelection,
   PlanningPackage,
@@ -286,6 +289,35 @@ export interface SaveConflictInput {
   conflict: Conflict;
 }
 
+export interface RevisionProposalSummary {
+  id: string;
+  chapterId: string;
+  chapterTitle: string;
+  kind: "change" | "data";
+  mode?: "append" | "replace" | "patch";
+  entityType?: string;
+  title: string;
+  explanation: string;
+  createdAt: string;
+  blockCount: number;
+  contentPreview: string;
+}
+
+export interface RevisionOverview {
+  annotations: Array<WritingAnnotation & { chapterTitle: string }>;
+  qualityReports: Array<{
+    chapterId: string;
+    chapterTitle: string;
+    overallScore: number;
+    baselineDelta?: number;
+    createdAt: string;
+    findings: QualityFinding[];
+  }>;
+  continuityIssues: ConsistencyIssue[];
+  proposals: RevisionProposalSummary[];
+  revisionState: RevisionState;
+}
+
 export type { StoryDetachMode, StoryEntityKind, StoryEntityRef, StoryReferenceHit } from "@inkforge/schemas";
 
 export interface ConsistencyIssue {
@@ -540,6 +572,13 @@ export interface InkforgeApi {
   listConflicts: (projectPath: string) => Promise<Conflict[]>;
   saveConflict: (input: SaveConflictInput) => Promise<Conflict[]>;
   findEntityReferences: (projectPath: string, target: StoryEntityRef) => Promise<StoryReferenceHit[]>;
+  revisionOverview: (projectPath: string) => Promise<RevisionOverview>;
+  setRevisionDisposition: (
+    projectPath: string,
+    key: string,
+    status: "open" | "accepted" | "ignored" | "deferred",
+    note?: string
+  ) => Promise<RevisionState>;
   deleteStoryEntity: (
     projectPath: string,
     target: StoryEntityRef,
