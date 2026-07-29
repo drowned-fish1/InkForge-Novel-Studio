@@ -147,6 +147,7 @@ interface ProjectState {
   refreshProject: () => Promise<void>;
   closeProject: () => Promise<void>;
   selectChapter: (chapter: ChapterPlan) => Promise<void>;
+  reloadCurrentChapterFromDisk: (chapterId: string) => Promise<void>;
   updateContent: (content: string) => void;
   saveCurrentChapter: () => Promise<void>;
   loadChapterHistory: () => Promise<void>;
@@ -379,6 +380,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       historyPreview: undefined,
       recentChapterIds: [chapter.id, ...state.recentChapterIds.filter((id) => id !== chapter.id)].slice(0, 8),
       error: recoveredContent ? `已恢复「${chapter.title}」的未保存草稿，请确认后保存。` : undefined
+    }));
+    await get().loadChapterHistory();
+  },
+  reloadCurrentChapterFromDisk: async (chapterId) => {
+    const { project, current, saveState } = get();
+    if (!project || !current || current.plan.id !== chapterId) {
+      return;
+    }
+    if (saveState === "dirty" || saveState === "saving") {
+      throw new Error("当前章节仍有未保存内容，不能从磁盘重新载入。");
+    }
+    const storedContent = await bridge.readChapter(project.projectPath, current.plan.file);
+    const content = stripLegacyChapterHeading(storedContent, current.plan.title);
+    clearRecoveryDraft(project.projectPath, current.plan.file);
+    set((state) => ({
+      current: state.current?.plan.id === chapterId ? { ...state.current, content } : state.current,
+      saveState: "saved",
+      lastSavedAt: new Date().toLocaleTimeString(),
+      error: undefined
     }));
     await get().loadChapterHistory();
   },

@@ -236,6 +236,17 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
     }));
   };
 
+  const toggleModuleGroup = (title: (typeof moduleGroups)[number]["title"]) => {
+    setCollapsedModuleGroups((state) => {
+      const opening = Boolean(state[title]);
+      const next = { ...state, [title]: !state[title] };
+      if (opening && (title === "资料" || title === "剧情")) {
+        next[title === "资料" ? "剧情" : "资料"] = true;
+      }
+      return next;
+    });
+  };
+
   return (
     <aside className="project-nav" id="project-navigation-pane">
       <div className="project-nav-search">
@@ -277,7 +288,7 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
                 className="module-group-title"
                 type="button"
                 aria-expanded={!collapsed}
-                onClick={() => setCollapsedModuleGroups((state) => ({ ...state, [group.title]: !state[group.title] }))}
+                onClick={() => toggleModuleGroup(group.title)}
               >
                 <span>{group.title}</span>
                 {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}

@@ -49,6 +49,7 @@ import {
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { bridge } from "@/lib/browserBridge";
 import { formatAgentError } from "@/lib/agentError";
+import { composeAgentScopePrompt, toolsForAgentScope, type AgentScope } from "@/lib/agentScope";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { AgentDataPreview } from "@/features/agent/AgentDataPreview";
 import { PipelinePanel } from "@/features/agent/PipelinePanel";
@@ -197,6 +198,7 @@ export const AgentChatPanel = () => {
   const [traceOpen, setTraceOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [mode, setMode] = useState<AgentMode>("direct");
+  const [agentScope, setAgentScope] = useState<AgentScope>("chapter");
   const [writingApproach, setWritingApproach] = useState<WritingApproach>("stable");
   const [yoloMode, setYoloMode] = useState(false);
   const [confirmation, setConfirmation] = useState<AgentConfirmation>();
@@ -249,6 +251,7 @@ export const AgentChatPanel = () => {
   const abortRef = useRef<AbortController | undefined>(undefined);
   const activeRequestIdRef = useRef<string | undefined>(undefined);
   const documentInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const busy = running || resolving;
@@ -263,6 +266,21 @@ export const AgentChatPanel = () => {
       (member) => member.handle.toLowerCase().includes(query) || member.name.toLowerCase().includes(query)
     );
   }, [agentRoster, mentionQuery]);
+  const scopedAllowedTools = useMemo(() => toolsForAgentScope(allowedTools, agentScope), [agentScope, allowedTools]);
+
+  useEffect(() => {
+    const receiveTask = (event: Event) => {
+      const detail = (event as CustomEvent<{ prompt?: string; scope?: AgentScope }>).detail;
+      if (!detail?.prompt) {
+        return;
+      }
+      setAgentScope(detail.scope ?? "chapter");
+      setMessage(detail.prompt);
+      window.setTimeout(() => composerRef.current?.focus(), 0);
+    };
+    window.addEventListener("inkforge:agent-task-ready", receiveTask);
+    return () => window.removeEventListener("inkforge:agent-task-ready", receiveTask);
+  }, []);
 
   useEffect(() => {
     if (!project || !current) {
@@ -287,6 +305,26 @@ export const AgentChatPanel = () => {
     return () => {
       active = false;
     };
+  }, [current?.plan.id, project?.projectPath]);
+
+  useEffect(() => {
+    if (!project || !current) {
+      return;
+    }
+    const projectPath = project.projectPath;
+    const chapterId = current.plan.id;
+    const refreshChangedSession = (event: Event) => {
+      const detail = (event as CustomEvent<{ chapterId?: string }>).detail;
+      if (detail?.chapterId !== chapterId) {
+        return;
+      }
+      void bridge
+        .loadAgentChat(projectPath, chapterId)
+        .then(setSession)
+        .catch((reason) => setError(reason instanceof Error ? reason.message : "无法刷新 Agent 会话。"));
+    };
+    window.addEventListener("inkforge:agent-session-changed", refreshChangedSession);
+    return () => window.removeEventListener("inkforge:agent-session-changed", refreshChangedSession);
   }, [current?.plan.id, project?.projectPath]);
 
   useEffect(() => {
@@ -631,10 +669,11 @@ export const AgentChatPanel = () => {
   const submit = async (value?: string, replayOfTraceId?: string, options?: SubmitOptions) => {
     const composerSubmission = value === undefined;
     const submittedDocuments = composerSubmission ? textDocuments : [];
-    const prompt = composerSubmission
+    const rawPrompt = composerSubmission
       ? composeAgentDocumentPrompt(message, submittedDocuments).trim()
       : (value ?? "").trim();
-    if (!project || !current || !prompt || busy) {
+    const prompt = composeAgentScopePrompt(rawPrompt, agentScope);
+    if (!project || !current || !rawPrompt || busy) {
       return;
     }
     if (prompt.length > agentMessageCharacterLimit) {
@@ -659,7 +698,7 @@ export const AgentChatPanel = () => {
     activeRequestIdRef.current = requestId;
     const existingProposalIds = new Set(session?.proposals.map((proposal) => proposal.id) ?? []);
     const existingDataProposalIds = new Set(session?.dataProposals.map((proposal) => proposal.id) ?? []);
-    const targetAgentIds = mentionedAgentIds(prompt, agentRoster);
+    const targetAgentIds = mentionedAgentIds(rawPrompt, agentRoster);
     const abortController = new AbortController();
     abortRef.current = abortController;
     shouldAutoScrollRef.current = true;
@@ -697,7 +736,7 @@ export const AgentChatPanel = () => {
             maxToolCalls,
             maxTotalTokens
           },
-          allowedTools,
+          allowedTools: scopedAllowedTools,
           askBeforeTools,
           targetAgentIds
         },
@@ -1747,7 +1786,30 @@ export const AgentChatPanel = () => {
 
       <div className="agent-context-strip">
         <FilePenLine size={14} />
-        <span>{current?.plan.title ?? "尚未选择章节"}</span>
+        <div className="agent-scope-switch" role="group" aria-label="Agent 作用域">
+          <button
+            className={agentScope === "chapter" ? "active" : ""}
+            type="button"
+            disabled={busy}
+            aria-pressed={agentScope === "chapter"}
+            onClick={() => setAgentScope("chapter")}
+          >
+            本章
+          </button>
+          <button
+            className={agentScope === "project" ? "active" : ""}
+            type="button"
+            disabled={busy}
+            aria-pressed={agentScope === "project"}
+            title="跨大纲、资料与全项目检索；章节正文写入请切回本章"
+            onClick={() => setAgentScope("project")}
+          >
+            全书
+          </button>
+        </div>
+        <span title={agentScope === "project" ? "当前章节仅作为全书会话的锚点" : undefined}>
+          {agentScope === "project" ? "项目全局" : (current?.plan.title ?? "尚未选择章节")}
+        </span>
         <select
           aria-label="选择 Agent 会话分支"
           value={activeBranchId}
@@ -2437,10 +2499,15 @@ export const AgentChatPanel = () => {
             </div>
           ) : null}
           <textarea
+            ref={composerRef}
             value={message}
             disabled={!current || busy}
             rows={3}
-            placeholder="告诉 Agent 你想写什么；输入 @ 可指定导演、作家、编辑或资料员…"
+            placeholder={
+              agentScope === "project"
+                ? "让全书 Agent 检查结构、设定与跨章节问题；输入 @ 可指定成员…"
+                : "告诉 Agent 你想写什么；输入 @ 可指定导演、作家、编辑或资料员…"
+            }
             onChange={(event) => setMessage(event.target.value)}
             onKeyDown={handleComposerKeyDown}
           />

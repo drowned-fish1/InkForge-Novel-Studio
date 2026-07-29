@@ -131,6 +131,21 @@ export const AppShell = () => {
   }, [agentCollapsed]);
 
   useEffect(() => {
+    const openAgentForTask = (event: Event) => {
+      const detail = (event as CustomEvent<{ prompt?: string; scope?: "chapter" | "project" }>).detail;
+      setAgentCollapsed(false);
+      if (compactLayout) {
+        setCompactPane("agent");
+      }
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("inkforge:agent-task-ready", { detail }));
+      }, 0);
+    };
+    window.addEventListener("inkforge:agent-task", openAgentForTask);
+    return () => window.removeEventListener("inkforge:agent-task", openAgentForTask);
+  }, [compactLayout]);
+
+  useEffect(() => {
     if (!compactPane) {
       return;
     }

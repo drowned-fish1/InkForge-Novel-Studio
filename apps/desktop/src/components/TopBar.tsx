@@ -104,7 +104,7 @@ export const TopBar = ({
           <button
             className="icon-button compact-pane-toggle"
             type="button"
-            aria-label={agentOpen ? "关闭创作 Agent" : "打开创作 Agent"}
+            aria-label={agentOpen ? "关闭 Agent 面板" : "打开 Agent 面板（支持全书作用域）"}
             aria-pressed={agentOpen}
             onClick={onToggleAgent}
           >
@@ -114,9 +114,9 @@ export const TopBar = ({
           <button
             className={`icon-button agent-collapse-toggle ${agentCollapsed ? "" : "panel-open"}`}
             type="button"
-            aria-label={agentCollapsed ? "展开 Agent 面板" : "收起 Agent 面板"}
+            aria-label={agentCollapsed ? "展开 Agent 面板（支持全书作用域）" : "收起 Agent 面板"}
             aria-pressed={!agentCollapsed}
-            title={agentCollapsed ? "展开 Agent 面板" : "收起 Agent 面板"}
+            title={agentCollapsed ? "展开 Agent 面板（支持全书作用域）" : "收起 Agent 面板"}
             onClick={onToggleAgentCollapsed}
           >
             <Bot size={17} />

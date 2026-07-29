@@ -4,6 +4,7 @@ import type { ProjectSummary } from "../types/app";
 
 const bridgeMock = vi.hoisted(() => ({
   saveChapter: vi.fn(),
+  readChapter: vi.fn(),
   listChapterHistory: vi.fn(async () => []),
   updateOutline: vi.fn()
 }));
@@ -83,6 +84,7 @@ const project: ProjectSummary = {
 describe("project store chapter saves", () => {
   beforeEach(() => {
     bridgeMock.saveChapter.mockReset();
+    bridgeMock.readChapter.mockReset();
     bridgeMock.listChapterHistory.mockClear();
     useProjectStore.setState({
       project,
@@ -118,5 +120,23 @@ describe("project store chapter saves", () => {
       content: "保存期间输入的新内容"
     });
     expect(useProjectStore.getState().saveState).toBe("saved");
+  });
+
+  it("reloads the active chapter after an external proposal writes to disk", async () => {
+    bridgeMock.readChapter.mockResolvedValue("Agent 写入后的正文");
+    useProjectStore.setState({ saveState: "saved" });
+
+    await useProjectStore.getState().reloadCurrentChapterFromDisk(chapter.id);
+
+    expect(bridgeMock.readChapter).toHaveBeenCalledWith(project.projectPath, chapter.file);
+    expect(useProjectStore.getState().current?.content).toBe("Agent 写入后的正文");
+    expect(useProjectStore.getState().saveState).toBe("saved");
+    expect(bridgeMock.listChapterHistory).toHaveBeenCalled();
+  });
+
+  it("does not overwrite unsaved editor content while reloading from disk", async () => {
+    await expect(useProjectStore.getState().reloadCurrentChapterFromDisk(chapter.id)).rejects.toThrow("仍有未保存内容");
+    expect(bridgeMock.readChapter).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().current?.content).toBe("旧内容");
   });
 });

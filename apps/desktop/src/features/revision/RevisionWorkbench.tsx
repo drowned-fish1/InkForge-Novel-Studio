@@ -70,6 +70,10 @@ const severityRank: Record<RevisionItem["severity"], number> = { error: 0, warni
 export const RevisionWorkbench = () => {
   const project = useProjectStore((state) => state.project);
   const selectChapter = useProjectStore((state) => state.selectChapter);
+  const current = useProjectStore((state) => state.current);
+  const saveState = useProjectStore((state) => state.saveState);
+  const saveCurrentChapter = useProjectStore((state) => state.saveCurrentChapter);
+  const reloadCurrentChapterFromDisk = useProjectStore((state) => state.reloadCurrentChapterFromDisk);
   const setSelectedModule = useProjectStore((state) => state.setSelectedModule);
   const [overview, setOverview] = useState<RevisionOverview | undefined>();
   const [loading, setLoading] = useState(false);
@@ -238,6 +242,16 @@ export const RevisionWorkbench = () => {
       return;
     }
     if (item.proposal && action === "accepted") {
+      if (
+        item.proposal.kind === "change" &&
+        current?.plan.id === item.proposal.chapterId &&
+        (saveState === "dirty" || saveState === "saving")
+      ) {
+        await saveCurrentChapter();
+        if (useProjectStore.getState().saveState === "error") {
+          throw new Error(useProjectStore.getState().error || "章节保存失败，提案没有应用。");
+        }
+      }
       if (item.proposal.kind === "change") {
         await bridge.resolveAgentChange({
           projectPath: project.projectPath,
@@ -254,6 +268,7 @@ export const RevisionWorkbench = () => {
         });
       }
       if (item.proposal.kind === "change") {
+        await reloadCurrentChapterFromDisk(item.proposal.chapterId);
         try {
           const report = await bridge.evaluateChapterQuality(project.projectPath, item.proposal.chapterId);
           setNotice(
@@ -267,6 +282,11 @@ export const RevisionWorkbench = () => {
           setNotice(`已写入《${item.proposal.chapterTitle}》。`);
         }
       }
+      window.dispatchEvent(
+        new CustomEvent("inkforge:agent-session-changed", {
+          detail: { chapterId: item.proposal.chapterId }
+        })
+      );
       return;
     }
     if (item.proposal && action === "ignored") {
@@ -285,6 +305,11 @@ export const RevisionWorkbench = () => {
           action: "reject"
         });
       }
+      window.dispatchEvent(
+        new CustomEvent("inkforge:agent-session-changed", {
+          detail: { chapterId: item.proposal.chapterId }
+        })
+      );
       return;
     }
     await bridge.setRevisionDisposition(project.projectPath, item.key, action);
@@ -296,6 +321,17 @@ export const RevisionWorkbench = () => {
     try {
       await applyItemAction(item, action);
       await refresh();
+      if (!item.proposal) {
+        setNotice(
+          action === "accepted"
+            ? "已标记为处理完成。这个动作不会自动改写正文；需要 Agent 执行时请使用“交给 Agent”。"
+            : action === "ignored"
+              ? "已忽略该条目。"
+              : action === "deferred"
+                ? "已延期处理。"
+                : "已恢复为待处理。"
+        );
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "操作失败");
     } finally {
@@ -358,6 +394,28 @@ export const RevisionWorkbench = () => {
       void selectChapter(chapter).then(() => setSelectedModule("chapters"));
     }
   };
+
+  const handOffToAgent = (item: RevisionItem) => {
+    const chapter = chapters.find((candidate) => candidate.id === item.chapterId);
+    const prompt = [
+      `请处理修订工作台中的${sourceLabels[item.source]}问题：${item.title}`,
+      item.detail,
+      item.suggestion ? `建议方向：${item.suggestion}` : "",
+      "请先检查上下文，再给出可审阅的修改提案，不要直接覆盖正文。"
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const openAgent = () =>
+      window.dispatchEvent(new CustomEvent("inkforge:agent-task", { detail: { prompt, scope: "chapter" } }));
+    if (chapter && current?.plan.id !== chapter.id) {
+      void selectChapter(chapter).then(openAgent);
+    } else {
+      openAgent();
+    }
+  };
+
+  const itemStatusLabel = (item: RevisionItem) =>
+    item.status === "accepted" ? (item.proposal ? "已应用" : "已处理") : statusLabels[item.status];
 
   const counts = useMemo(() => {
     const open = items.filter((item) => item.status === "open");
@@ -497,7 +555,7 @@ export const RevisionWorkbench = () => {
           <strong>已选 {selectedKeys.size} 项</strong>
           <button type="button" disabled={busyKey === "__batch__"} onClick={() => void runBatch("accepted")}>
             <CheckCircle2 size={14} />
-            批量接受
+            批量标记 / 应用
           </button>
           <button type="button" disabled={busyKey === "__batch__"} onClick={() => void runBatch("ignored")}>
             <EyeOff size={14} />
@@ -579,7 +637,7 @@ export const RevisionWorkbench = () => {
               ) : (
                 <span className="revision-chapter muted">全局</span>
               )}
-              <span className={`revision-status ${item.status}`}>{statusLabels[item.status]}</span>
+              <span className={`revision-status ${item.status}`}>{itemStatusLabel(item)}</span>
               <div className="revision-actions">
                 {item.proposal ? (
                   <button type="button" title="查看修改前后差异" onClick={() => void showProposalDiff(item.proposal!)}>
@@ -588,9 +646,14 @@ export const RevisionWorkbench = () => {
                 ) : null}
                 {item.status === "open" ? (
                   <>
+                    {!item.proposal && item.chapterId ? (
+                      <button type="button" title="交给 Agent 处理" onClick={() => handOffToAgent(item)}>
+                        <Wand2 size={14} />
+                      </button>
+                    ) : null}
                     <button
                       type="button"
-                      title={item.proposal ? "应用提案" : "接受"}
+                      title={item.proposal ? "应用提案并更新正文" : "标记为已处理"}
                       disabled={busyKey === item.key}
                       onClick={() => void runAction(item, "accepted")}
                     >
