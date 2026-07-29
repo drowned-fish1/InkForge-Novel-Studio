@@ -220,7 +220,9 @@ export const MarkdownCodeEditor = forwardRef<MarkdownCodeEditorHandle, MarkdownC
         }
         const { from, to } = view.state.selection.main;
         const startLine = view.state.doc.lineAt(from);
-        const endLine = view.state.doc.lineAt(Math.max(from, to));
+        // A selection ending exactly at the next line's start should not
+        // modify that otherwise-unselected line.
+        const endLine = view.state.doc.lineAt(to > from ? to - 1 : to);
         const changes = [];
         for (let lineNumber = startLine.number; lineNumber <= endLine.number; lineNumber += 1) {
           changes.push({ from: view.state.doc.line(lineNumber).from, insert: prefix });

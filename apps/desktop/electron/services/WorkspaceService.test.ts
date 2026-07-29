@@ -184,6 +184,20 @@ describe("WorkspaceService backup settings and integrity", () => {
     ]);
   });
 
+  it("ignores transient files created by atomic writes", async () => {
+    const projectPath = await createProjectFixture();
+    const service = new WorkspaceService();
+    const transientName = `outline.json.${process.pid}.${Date.now()}.tmp`;
+    await writeFile(path.join(projectPath, transientName), "incomplete", "utf8");
+
+    const snapshot = await service.createBackup(projectPath, "manual");
+    const inspection = await service.inspectBackups(projectPath);
+    const transientCopy = path.join(inspection.backupRoot, snapshot.id, "project", transientName);
+
+    await expect(readFile(transientCopy, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await service.verifyBackup(projectPath, snapshot.id)).ok).toBe(true);
+  });
+
   it("verifies snapshot integrity and detects tampering", async () => {
     const projectPath = await createProjectFixture();
     const service = new WorkspaceService();

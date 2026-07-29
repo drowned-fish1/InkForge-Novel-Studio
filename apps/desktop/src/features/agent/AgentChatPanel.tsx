@@ -314,6 +314,7 @@ export const AgentChatPanel = () => {
     }
     const projectPath = project.projectPath;
     const chapterId = current.plan.id;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
       void bridge
         .estimateAgentRun({
@@ -329,13 +330,24 @@ export const AgentChatPanel = () => {
           limits: { maxTurns, maxToolCalls, maxTotalTokens }
         })
         .then((estimate) => {
-          if (useProjectStore.getState().project?.projectPath === projectPath) {
+          if (
+            !cancelled &&
+            useProjectStore.getState().project?.projectPath === projectPath &&
+            useProjectStore.getState().current?.plan.id === chapterId
+          ) {
             setRunEstimate(estimate);
           }
         })
-        .catch(() => setRunEstimate(undefined));
+        .catch(() => {
+          if (!cancelled) {
+            setRunEstimate(undefined);
+          }
+        });
     }, 700);
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [
     project?.projectPath,
     current?.plan.id,

@@ -94,26 +94,33 @@ export class WorkspaceService {
     const id = `${safeStamp()}-${Math.random().toString(36).slice(2, 8)}`;
     const snapshotDir = path.join(root, id);
     const contentDir = path.join(snapshotDir, "project");
-    await this.files.ensureDir(snapshotDir);
-    await this.copyDirectory(projectPath, contentDir, this.excludedRoots(projectPath, root));
-    const totals = await this.measureDirectory(contentDir);
-    const chapterHashes = await this.hashChapters(contentDir);
-    const changedChapterFiles = diffHashKeys(previous?.chapterHashes ?? {}, chapterHashes);
-    const snapshot = BackupSnapshotSchema.parse({
-      id,
-      createdAt: new Date().toISOString(),
-      reason,
-      label: label.trim(),
-      chapterHashes,
-      changedChapterFiles,
-      ...totals
-    });
-    await this.files.writeJsonAtomic(path.join(snapshotDir, "manifest.json"), snapshot);
-    if (reason === "automatic") {
-      await this.pruneAutomaticBackups(projectPath, settings);
+    try {
+      await this.files.ensureDir(snapshotDir);
+      await this.copyDirectory(projectPath, contentDir, this.excludedRoots(projectPath, root));
+      const totals = await this.measureDirectory(contentDir);
+      const chapterHashes = await this.hashChapters(contentDir);
+      const changedChapterFiles = diffHashKeys(previous?.chapterHashes ?? {}, chapterHashes);
+      const snapshot = BackupSnapshotSchema.parse({
+        id,
+        createdAt: new Date().toISOString(),
+        reason,
+        label: label.trim(),
+        chapterHashes,
+        changedChapterFiles,
+        ...totals
+      });
+      await this.files.writeJsonAtomic(path.join(snapshotDir, "manifest.json"), snapshot);
+      if (reason === "automatic") {
+        await this.pruneAutomaticBackups(projectPath, settings);
+      }
+      await this.enforceDiskCap(projectPath, settings, snapshot.id);
+      return snapshot;
+    } catch (error) {
+      // A failed copy must not leave a corrupt snapshot that appears in the
+      // recovery UI. Atomic writer temp files can also disappear mid-scan.
+      await rm(snapshotDir, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
     }
-    await this.enforceDiskCap(projectPath, settings, snapshot.id);
-    return snapshot;
   }
 
   async ensureAutomaticBackup(projectPath: string): Promise<BackupSnapshot | undefined> {
@@ -364,6 +371,12 @@ export class WorkspaceService {
   private async copyDirectory(source: string, destination: string, excludedRoots: string[] = []): Promise<void> {
     await this.files.ensureDir(destination);
     for (const entry of await readdir(source, { withFileTypes: true })) {
+      // FileRepository writes through <name>.<pid>.<timestamp>.tmp and then
+      // renames. Such a file is both disposable and liable to vanish between
+      // readdir() and copyFile().
+      if (entry.isFile() && isAtomicTempFile(entry.name)) {
+        continue;
+      }
       const sourcePath = path.join(source, entry.name);
       const resolved = path.resolve(sourcePath);
       if (excludedRoots.some((root) => resolved === root || resolved.startsWith(`${root}${path.sep}`))) {
@@ -374,7 +387,16 @@ export class WorkspaceService {
         await this.copyDirectory(sourcePath, destinationPath, excludedRoots);
       } else if (entry.isFile()) {
         await this.files.ensureDir(path.dirname(destinationPath));
-        await copyFile(sourcePath, destinationPath);
+        try {
+          await copyFile(sourcePath, destinationPath);
+        } catch (error) {
+          if (!isMissingFile(error)) {
+            throw error;
+          }
+          // A concurrently removed cache/export file is not part of the
+          // completed point-in-time snapshot. Canonical project writes use an
+          // atomic rename, so their final path remains readable.
+        }
       }
     }
   }
@@ -442,6 +464,9 @@ export class WorkspaceService {
 }
 
 const isSafeSnapshotId = (snapshotId: string): boolean => /^(?!\.{1,2}$)[\w.-]+$/u.test(snapshotId);
+const isAtomicTempFile = (name: string): boolean => /\.\d+\.\d+\.tmp$/u.test(name);
+const isMissingFile = (error: unknown): boolean =>
+  Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
 
 const samePath = (left: string, right: string): boolean =>
   process.platform === "win32"

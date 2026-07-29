@@ -146,10 +146,7 @@ try {
     automaticIntervalMinutes: 5,
     maxTotalSizeMb: 256
   });
-  assert.equal(
-    (await __electronMock.invoke("backup:settings:load", project.projectPath)).automaticIntervalMinutes,
-    5
-  );
+  assert.equal((await __electronMock.invoke("backup:settings:load", project.projectPath)).automaticIntervalMinutes, 5);
   const verification = await __electronMock.invoke("backup:verify", project.projectPath, manualBackup.id);
   assert.equal(verification.ok, true, "manual backup should verify clean");
   const backupDiff = await __electronMock.invoke("backup:diff", project.projectPath, manualBackup.id);
@@ -204,7 +201,13 @@ try {
     references.some((hit) => hit.sourceKind === "conflict"),
     "conflict should reference the character"
   );
-  await __electronMock.invoke("story:entity:delete", project.projectPath, { kind: "character", id: "smoke-char" }, "replace", "替身者");
+  await __electronMock.invoke(
+    "story:entity:delete",
+    project.projectPath,
+    { kind: "character", id: "smoke-char" },
+    "replace",
+    "替身者"
+  );
   const conflictsAfter = await __electronMock.invoke("story:conflicts:list", project.projectPath);
   assert.deepEqual(conflictsAfter[0].parties, ["替身者", "缉私队"]);
 
@@ -212,13 +215,7 @@ try {
   await __electronMock.invoke("quality:evaluate", project.projectPath, firstChapter.id);
   const revisionOverview = await __electronMock.invoke("revision:overview", project.projectPath);
   assert.ok(revisionOverview.qualityReports.length >= 1);
-  await __electronMock.invoke(
-    "revision:disposition:set",
-    project.projectPath,
-    "continuity:smoke",
-    "deferred",
-    "smoke"
-  );
+  await __electronMock.invoke("revision:disposition:set", project.projectPath, "continuity:smoke", "deferred", "smoke");
   assert.equal(
     (await __electronMock.invoke("revision:overview", project.projectPath)).revisionState.dispositions[0].status,
     "deferred"
@@ -243,10 +240,7 @@ try {
   });
   const preflight = await __electronMock.invoke("export:preflight", project.projectPath);
   assert.ok(Array.isArray(preflight));
-  assert.equal(
-    (await __electronMock.invoke("export:config:load", project.projectPath)).epub.copyright,
-    "© smoke"
-  );
+  assert.equal((await __electronMock.invoke("export:config:load", project.projectPath)).epub.copyright, "© smoke");
 
   const inspectIssues = await __electronMock.invoke("project:inspect", project.projectPath);
   assert.deepEqual(inspectIssues, [], "healthy project should pass inspection");

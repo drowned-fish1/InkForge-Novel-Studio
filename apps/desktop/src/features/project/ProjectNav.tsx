@@ -180,17 +180,25 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
       return;
     }
     const projectPath = project.projectPath;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
       void bridge
         .searchProject(projectPath, query)
         .then((results) => {
-          if (useProjectStore.getState().project?.projectPath === projectPath) {
+          if (!cancelled && useProjectStore.getState().project?.projectPath === projectPath) {
             setSearchResults(results);
           }
         })
-        .catch(() => setSearchResults(undefined));
+        .catch(() => {
+          if (!cancelled) {
+            setSearchResults(undefined);
+          }
+        });
     }, 350);
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [chapterQuery, project?.projectPath]);
 
   const openSearchResult = (result: ProjectSearchResult) => {

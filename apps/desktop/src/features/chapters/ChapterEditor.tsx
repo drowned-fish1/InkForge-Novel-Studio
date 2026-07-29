@@ -220,6 +220,7 @@ export const ChapterEditor = () => {
   const terms = useLibraryStore((state) => state.terms);
   const cmRef = useRef<MarkdownCodeEditorHandle>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const chapterWordCountsRef = useRef(new Map<string, number>());
   const [editorTab, setEditorTab] = useState<EditorTab>("write");
   const [supportTab, setSupportTab] = useState<SupportTab>("scenes");
   const [selectionStart, setSelectionStart] = useState(0);
@@ -324,9 +325,8 @@ export const ChapterEditor = () => {
     };
     sessionStartedRef.current = session;
     return () => {
-      const latest = useProjectStore.getState().current;
       const finalWords =
-        latest?.plan.id === session.chapterId ? countCjkAwareWords(latest.content) : session.initialWords;
+        chapterWordCountsRef.current.get(`${project.projectPath}:${session.chapterId}`) ?? session.initialWords;
       const endedAt = Date.now();
       const durationSeconds = Math.round((endedAt - session.startedAt) / 1000);
       if (durationSeconds < 5 && finalWords === session.initialWords) return;
@@ -375,7 +375,21 @@ export const ChapterEditor = () => {
     }
     return result;
   }, [current?.content, findText]);
-  const chapterAnnotations = writingWorkspace.annotations.filter((item) => item.chapterId === current?.plan.id);
+  const chapterAnnotations = useMemo(
+    () => writingWorkspace.annotations.filter((item) => item.chapterId === current?.plan.id),
+    [writingWorkspace.annotations, current?.plan.id]
+  );
+  const editorMarks = useMemo(
+    () =>
+      chapterAnnotations.map((annotation) => ({
+        id: annotation.id,
+        start: annotation.start,
+        end: annotation.end,
+        kind: annotation.kind === "revision" ? ("revision" as const) : ("comment" as const),
+        resolved: annotation.status === "resolved"
+      })),
+    [chapterAnnotations]
+  );
   const chapterComments = chapterAnnotations.filter((item) => item.kind !== "revision");
   const chapterRevisions = chapterAnnotations.filter((item) => item.kind === "revision");
   const chapterBookmarks = writingWorkspace.bookmarks.filter((item) => item.chapterId === current?.plan.id);
@@ -530,6 +544,12 @@ export const ChapterEditor = () => {
   }
 
   const words = countCjkAwareWords(current.content);
+  // Keep the last observed count for every visited chapter. Effect cleanup
+  // runs after the next chapter has rendered, so reading only the current
+  // store value would otherwise lose the previous chapter's writing delta.
+  if (project) {
+    chapterWordCountsRef.current.set(`${project.projectPath}:${current.plan.id}`, words);
+  }
   const sessionWords = words - sessionStartedRef.current.initialWords;
   const todayWords = todaySessions.reduce((total, item) => total + item.wordsAdded, 0) + sessionWords;
   const todayMinutes = Math.round(todaySessions.reduce((total, item) => total + item.durationSeconds, 0) / 60);
@@ -1133,13 +1153,7 @@ export const ChapterEditor = () => {
               chapterKey={current.plan.id}
               value={current.content}
               placeholder="从这里开始写正文……"
-              marks={chapterAnnotations.map((annotation) => ({
-                id: annotation.id,
-                start: annotation.start,
-                end: annotation.end,
-                kind: annotation.kind === "revision" ? "revision" : "comment",
-                resolved: annotation.status === "resolved"
-              }))}
+              marks={editorMarks}
               find={
                 findOpen && findText.trim()
                   ? {

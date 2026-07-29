@@ -74,7 +74,10 @@ export class QualityService {
         baselineDelta: baseline ? round(report.overallScore - baseline.overallScore) : undefined
       });
       const history = await this.listReports(projectPath, chapter.id);
-      const unchanged = history[0]?.fingerprint === withDelta.fingerprint;
+      // The content fingerprint alone is insufficient: project-level
+      // continuity/clue context and the selected baseline can change while
+      // chapter prose stays untouched.
+      const unchanged = history[0] ? qualityStateKey(history[0]) === qualityStateKey(withDelta) : false;
       if (!unchanged) {
         await this.files.writeJsonAtomic(
           this.reportPath(projectPath, chapter.id),
@@ -323,3 +326,19 @@ const repeatedSentences = (sentences: string[]): string[] => {
   }
   return [...seen.entries()].filter(([, count]) => count > 1).map(([sentence]) => sentence);
 };
+
+const qualityStateKey = (report: QualityReport): string =>
+  JSON.stringify({
+    fingerprint: report.fingerprint,
+    baselineDelta: report.baselineDelta,
+    overallScore: report.overallScore,
+    dimensionScores: report.dimensionScores,
+    findings: report.findings.map(({ dimension, severity, title, detail, evidence, suggestion }) => ({
+      dimension,
+      severity,
+      title,
+      detail,
+      evidence,
+      suggestion
+    }))
+  });

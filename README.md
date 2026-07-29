@@ -5,32 +5,38 @@ InkForge is a local-first AI novel writing cockpit for solo authors. Your chapte
 ## v1.0 RC Feature Overview
 
 **Manual writing workbench（章节写作台）**
+
 - Markdown editor with find/replace, heading jump, format shortcuts (Ctrl+B/I in the editor), typewriter scrolling and paragraph-focus mode.
 - Selection-based annotations, revision marks (待修改) with a resolve lifecycle, and bookmarks.
 - Daily word counts, writing-session durations and a 7-day history from local session records.
 - Collapsible Agent panel with persisted state; autosave with crash-recovery drafts and per-chapter history versions.
 
 **Story data & relationships**
+
 - Full CRUD pages for characters, worldbuilding, locations, factions, conflicts, events, timeline, clues and terms — all backed by one source of truth in the project folder.
 - Relationship centre with bidirectional reference views across every entity family including chapters.
 - Reference-checked deletion: cancel, unlink everywhere, or replace with a new name.
 
 **Revision workbench**
+
 - Aggregates annotations, revision marks, rule-based quality findings, continuity issues and pending Agent proposals across all chapters.
 - Accept / ignore / defer / reopen with batch operations, filters, sorting and per-chapter quality scores with baseline deltas.
 - Proposal before/after line diffs; applying a chapter proposal re-runs the local quality evaluation.
 
 **Backups, drafts & recovery**
+
 - Automatic snapshots with configurable interval, retention, disk cap and an optional external backup directory.
 - Integrity verification (chapter hashes), per-snapshot changed-chapter lists and a pre-restore diff with a protected rollback point.
 - Corrupted-project recovery from the start screen; draft box with batch operations, aggregated history diffs and inspiration fragments.
 
 **Agent control**
+
 - 22 registered tools with a single read/proposal registry; writes are proposal-only and author-confirmed, previewable, revertible and traced.
 - Pre-send token estimates (clearly marked as estimates) with optional cost estimation, per-tool ask-before-each-call authorization, decision logging in run traces, cancellation that aborts in-flight provider calls, and session-file compaction.
 - Prompt packs, task templates and workflow templates with JSON import/export.
 
 **Delivery**
+
 - Unified export to Markdown, TXT, DOCX (auto page breaks) and full EPUB 3: cover image, copyright page, volume-nested TOC + NCX, configurable typography — with pre-export checks and post-build structural/XHTML validation.
 - Project-level export configuration persisted inside the project.
 

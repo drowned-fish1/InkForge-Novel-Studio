@@ -61,6 +61,7 @@ import { browserLibraryService } from "@/lib/browserLibraryService";
 import { exportManuscriptInBrowser } from "@/lib/browserManuscriptExport";
 import { browserProjectService } from "@/lib/browserProjectService";
 import { invokeWithRendererAbort } from "@/lib/rendererAbort";
+import { countCjkAwareWords } from "@/lib/textMetrics";
 import {
   getProjectRecord,
   readProviderStorage,
@@ -468,6 +469,9 @@ export const browserBridge: InkforgeApi = {
         });
       }
     }
+    const continuityIssues = (await browserLibraryService.inspectStory(projectPath)).filter(
+      (issue) => issue.id !== "ok"
+    );
     return {
       annotations: workspace.annotations.map((annotation) => ({
         ...annotation,
@@ -481,7 +485,7 @@ export const browserBridge: InkforgeApi = {
         createdAt: report.createdAt,
         findings: report.findings
       })),
-      continuityIssues: await browserLibraryService.inspectStory(projectPath),
+      continuityIssues,
       proposals,
       revisionState: structuredClone(browserRevisionStates.get(projectPath) ?? { dispositions: [] })
     };
@@ -1130,7 +1134,7 @@ export const browserBridge: InkforgeApi = {
       throw new Error("Chapter not found.");
     }
     const content = record.chapterBodies[chapter.file] ?? "";
-    const wordCount = Math.max(0, content.replace(/\s/gu, "").length);
+    const wordCount = countCjkAwareWords(content);
     const report: QualityReport = {
       schemaVersion: "0.1.0",
       id: `quality_${Date.now()}`,

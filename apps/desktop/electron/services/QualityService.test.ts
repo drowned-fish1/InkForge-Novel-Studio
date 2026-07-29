@@ -63,6 +63,15 @@ describe("QualityService", () => {
     const again = await service.evaluateAll(project.projectPath);
     expect(again.chapterCount).toBe(2);
     expect(await service.listReports(project.projectPath, first.id)).toHaveLength(1);
+
+    const refreshed = await projects.openProject(project.projectPath);
+    refreshed.outline.volumes[0].chapters[0].characters = ["不存在的人物"];
+    await projects.updateOutline({ projectPath: project.projectPath, outline: refreshed.outline });
+    await service.evaluateAll(project.projectPath);
+    expect(await service.listReports(project.projectPath, first.id)).toHaveLength(2);
+
+    await service.evaluateAll(project.projectPath);
+    expect(await service.listReports(project.projectPath, first.id)).toHaveLength(2);
   });
 
   it("produces deterministic dimensions and flags repeated prose", async () => {

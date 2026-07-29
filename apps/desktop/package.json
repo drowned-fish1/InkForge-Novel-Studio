@@ -51,6 +51,7 @@
     "appId": "studio.inkforge.novel",
     "productName": "InkForge 小说工坊",
     "asar": true,
+    "npmRebuild": false,
     "directories": {
       "output": "release"
     },
