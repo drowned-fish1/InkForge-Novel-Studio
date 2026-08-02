@@ -1,16 +1,57 @@
+# Dependencies
 node_modules/
+
+# Build and packaging output
 dist/
 dist-electron/
 apps/desktop/release/
 apps/desktop/release-installer/
 apps/desktop/release-final/
 apps/desktop/release-electron-cache/
+output/
+coverage/
+.nyc_output/
+
+# Test and browser automation output
+test-results/
+playwright-report/
+.playwright-cli/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+
+# Tool caches and logs
 *.tsbuildinfo
 *.log
-.DS_Store
-Thumbs.db
-output/
-.playwright-cli/
-test-results/
+.cache/
+.eslintcache
+.vite/
+.turbo/
+.npm/
 .reasonix/
 .claude/
+
+# Editors
+.idea/
+.vscode/
+*.suo
+*.user
+*.sln.docstates
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini

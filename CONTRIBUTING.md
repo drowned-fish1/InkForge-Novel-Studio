@@ -12,9 +12,20 @@ InkForge is local-first and solo-author focused. Contributions should preserve t
 
 ## Development
 
-Run checks before opening a pull request:
+Use Node.js 22 and install the locked dependency tree:
 
 ```bash
-npm run typecheck
-npm run build
+npm ci
 ```
+
+Run the same quality gates as CI before opening a pull request:
+
+```bash
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npm run test:desktop-smoke
+```
+
+Keep pull requests focused, explain user-visible behavior changes, and add or update tests for changed behavior.

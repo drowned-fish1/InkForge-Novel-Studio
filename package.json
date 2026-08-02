@@ -4,6 +4,10 @@
   "private": true,
   "description": "Local-first AI novel writing cockpit for solo authors.",
   "license": "MIT",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  },
   "workspaces": [
     "apps/desktop",
     "packages/*"

@@ -42,8 +42,10 @@ InkForge is a local-first AI novel writing cockpit for solo authors. Your chapte
 
 ## Development
 
+Prerequisites: Node.js 22 and npm 10 or newer.
+
 ```bash
-npm install
+npm ci
 npm run dev        # renderer dev server (browser preview with mock desktop services)
 npm run desktop    # desktop shell
 ```
@@ -95,3 +97,11 @@ Files under `.inkforge/` are local app state/cache and should not be committed w
 - `docs/long-novel-continuation-design.md` — 600–700 万字未完结小说的续写工程改造设计。
 - `docs/v1-implementation-status.md` — v1.0 RC phase log, decisions and known limitations.
 - `docs/release-windows.md` — Windows packaging, installer verification, update feed and signing integration.
+
+## Contributing and Security
+
+Contributions are welcome. Read `CONTRIBUTING.md` before opening a pull request. Please report security issues privately as described in `SECURITY.md`.
+
+## License
+
+InkForge is released under the MIT License. See `LICENSE`.
