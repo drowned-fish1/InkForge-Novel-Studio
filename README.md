@@ -1,107 +1,167 @@
-# InkForge Local Novel Studio
+<p align="center">
+  <img src="./apps/desktop/build/icon.png" width="88" alt="InkForge logo" />
+</p>
 
-InkForge is a local-first AI novel writing cockpit for solo authors. Your chapters, outlines and worldbuilding stay in your own project folder — every core workflow (writing, story data, revision, backup, export) works with **no API key configured**, and every AI write goes through an author-confirmed proposal.
+<h1 align="center">InkForge Local Novel Studio</h1>
 
-## v1.0 RC Feature Overview
+<p align="center">
+  A local-first AI writing cockpit for novelists who want assistance without giving up authorship or control of their drafts.
+</p>
 
-**Manual writing workbench（章节写作台）**
+<p align="center">
+  <a href="./README.md">English</a> · <a href="./README.zh-CN.md">简体中文</a>
+</p>
 
-- Markdown editor with find/replace, heading jump, format shortcuts (Ctrl+B/I in the editor), typewriter scrolling and paragraph-focus mode.
-- Selection-based annotations, revision marks (待修改) with a resolve lifecycle, and bookmarks.
-- Daily word counts, writing-session durations and a 7-day history from local session records.
-- Collapsible Agent panel with persisted state; autosave with crash-recovery drafts and per-chapter history versions.
+<p align="center">
+  <a href="https://github.com/drowned-fish1/InkForge-Novel-Studio/actions/workflows/ci.yml"><img src="https://github.com/drowned-fish1/InkForge-Novel-Studio/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-0f766e" alt="MIT License" /></a>
+  <img src="https://img.shields.io/badge/status-v1.0.0--rc.1-c58b3a" alt="v1.0.0 RC 1" />
+  <img src="https://img.shields.io/badge/platform-Windows-2563eb" alt="Windows" />
+</p>
 
-**Story data & relationships**
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#product-tour">Product tour</a> ·
+  <a href="./docs/user-guide.md">User guide</a> ·
+  <a href="./docs/architecture.md">Architecture</a> ·
+  <a href="./docs/roadmap-next.md">Roadmap</a>
+</p>
 
-- Full CRUD pages for characters, worldbuilding, locations, factions, conflicts, events, timeline, clues and terms — all backed by one source of truth in the project folder.
-- Relationship centre with bidirectional reference views across every entity family including chapters.
-- Reference-checked deletion: cancel, unlink everywhere, or replace with a new name.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme/writing-workspace-dark.png" />
+  <img src="./docs/assets/readme/writing-workspace-light.png" alt="InkForge chapter writing workspace with the chapter tree, Markdown editor, and author-controlled Agent panel" />
+</picture>
 
-**Revision workbench**
+> [!IMPORTANT]
+> InkForge is currently a **v1.0 release candidate**. The application is usable and covered by automated tests, but public Windows builds are unsigned and may trigger SmartScreen. See [release status](#project-status).
 
-- Aggregates annotations, revision marks, rule-based quality findings, continuity issues and pending Agent proposals across all chapters.
-- Accept / ignore / defer / reopen with batch operations, filters, sorting and per-chapter quality scores with baseline deltas.
-- Proposal before/after line diffs; applying a chapter proposal re-runs the local quality evaluation.
+## Why InkForge
 
-**Backups, drafts & recovery**
+| Your work stays yours                                                                                                                          | AI stays under control                                                                                                   | One workspace for a whole novel                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chapters, outlines, story data, history, and backups live in a folder you choose. Core writing workflows do not require an account or API key. | Agent writes are proposals: preview the diff, accept or reject it, trace what happened, and roll back confirmed changes. | Draft, plan, inspect continuity, manage story entities, revise across chapters, back up, and export without stitching together separate tools. |
 
-- Automatic snapshots with configurable interval, retention, disk cap and an optional external backup directory.
-- Integrity verification (chapter hashes), per-snapshot changed-chapter lists and a pre-restore diff with a protected rollback point.
-- Corrupted-project recovery from the start screen; draft box with batch operations, aggregated history diffs and inspiration fragments.
+InkForge is deliberately built for **solo long-form fiction**. It does not include accounts, cloud sync, billing, ads, or team permissions.
 
-**Agent control**
+## Product tour
 
-- 22 registered tools with a single read/proposal registry; writes are proposal-only and author-confirmed, previewable, revertible and traced.
-- Pre-send token estimates (clearly marked as estimates) with optional cost estimation, per-tool ask-before-each-call authorization, decision logging in run traces, cancellation that aborts in-flight provider calls, and session-file compaction.
-- Prompt packs, task templates and workflow templates with JSON import/export.
+### Write with context-aware agents
 
-**Delivery**
+The writing workspace combines a Markdown editor, chapter goals, search, annotations, revision marks, bookmarks, writing statistics, and an optional Agent panel. Agent roles can inspect approved context, coordinate tool calls, and return author-reviewable proposals.
 
-- Unified export to Markdown, TXT, DOCX (auto page breaks) and full EPUB 3: cover image, copyright page, volume-nested TOC + NCX, configurable typography — with pre-export checks and post-build structural/XHTML validation.
-- Project-level export configuration persisted inside the project.
+![Multi-Agent collaboration inside the InkForge writing workspace](./docs/assets/readme/multi-agent-collaboration.png)
 
-## Development
+### Review the manuscript, not only the current page
 
-Prerequisites: Node.js 22 and npm 10 or newer.
+Run deterministic local quality checks, compare chapter baselines, inspect continuity and reference issues, and collect annotations and pending proposals in one revision workflow. AI is optional for these checks.
+
+![InkForge manuscript quality review with dimension scores and history](./docs/assets/readme/quality-review.png)
+
+## What is included
+
+| Area           | Capabilities                                                                                                                                                                        |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Writing        | CodeMirror Markdown editor, chapter tree, focus and typewriter modes, find/replace, headings, annotations, revision marks, bookmarks, session statistics, and crash-recovery drafts |
+| Story planning | Volumes and outlines, characters, worldbuilding, locations, factions, events, timeline, clues, terms, conflicts, and bidirectional relationship views                               |
+| Revision       | Project-wide quality sweep, continuity and reference checks, centralized dispositions, proposal diffs, immutable quality baselines, and story branches                              |
+| Agent control  | OpenAI-compatible providers, multi-role Agent sessions, tool authorization, token and cost estimates, cancellation, trace history, templates, and proposal-only writes              |
+| Delivery       | Automatic snapshots, integrity verification, protected restore, Markdown/TXT/DOCX export, and validated EPUB 3 with cover, metadata, nested TOC, NCX, and typography options        |
+
+The complete walkthrough lives in the [user guide](./docs/user-guide.md).
+
+## Quick start
+
+### Prerequisites
+
+- Node.js 22
+- npm 10 or newer
+- Windows for the packaged desktop target; the browser preview can run on other development platforms
+
+### Run the desktop app from source
 
 ```bash
+git clone https://github.com/drowned-fish1/InkForge-Novel-Studio.git
+cd InkForge-Novel-Studio
 npm ci
-npm run dev        # renderer dev server (browser preview with mock desktop services)
-npm run desktop    # desktop shell
+npm run desktop
 ```
 
-Quality gates:
+To run the renderer with mock desktop services in a browser:
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
-npm run test:desktop-smoke   # builds and exercises the real main process end to end
+npm run dev
 ```
 
-Build a local Windows application directory or installer:
+To build a local Windows application directory or an unsigned NSIS installer:
 
 ```bash
 npm run pack:desktop
 npm run dist:windows
 ```
 
-Public distribution still requires a code-signing certificate and an update feed — see `docs/release-windows.md`.
+See the [Windows release guide](./docs/release-windows.md) before distributing a build.
 
-## Project Data
+## Privacy and AI boundary
 
-Each novel is stored as a folder with Markdown and JSON files — see `docs/project-format.md` for the full layout:
+- All non-AI writing, planning, revision, backup, and export workflows work without a provider.
+- Novel data is stored in user-selected project folders; provider credentials stay outside the project and renderer storage.
+- Writing context is sent only when the author explicitly starts an AI task.
+- Agent tools separate reads from writes. Writes create pending proposals and require author confirmation.
+- AI output is treated as untrusted text, never as executable instructions.
+
+Supported presets include OpenAI, Gemini's OpenAI-compatible endpoint, Ollama, compatible Claude gateways, DeepSeek, and other OpenAI-compatible services. Tool-calling capability depends on the selected model.
+
+Read the [Agent protocol](./docs/agent-chat.md), [prompt system](./docs/prompt-system.md), and [security policy](./SECURITY.md) for details.
+
+## Architecture
 
 ```text
-project.novel.json
-outline.json
-chapters/
-summaries/
-characters/
-world/
-timeline.json
-clues.json
-terms.json
-conflicts.json
-prompts/
-exports/
-.inkforge/        # app state: backups, history, quality, agent sessions, configs
+React renderer
+  → context-isolated preload bridge
+  → Electron main-process services
+  → local Markdown / JSON project folder
+  → optional OpenAI-compatible provider
 ```
 
-Files under `.inkforge/` are local app state/cache and should not be committed with a novel project.
+This npm-workspaces monorepo contains:
 
-## Documentation
+| Path                     | Responsibility                                                      |
+| ------------------------ | ------------------------------------------------------------------- |
+| `apps/desktop`           | Electron shell, React UI, preload bridge, IPC, and desktop services |
+| `packages/schemas`       | Zod schemas and shared project contracts                            |
+| `packages/prompt-engine` | Prompt templates and rendering                                      |
+| `packages/ai-provider`   | OpenAI-compatible transport and error handling                      |
+| `packages/agent-engine`  | Context compilation, pipelines, review, and Agent session logic     |
 
-- `docs/user-guide.md` — end-user walkthrough of every module.
-- `docs/architecture.md`, `docs/dev-guide.md` — codebase orientation.
-- `docs/long-novel-continuation-design.md` — 600–700 万字未完结小说的续写工程改造设计。
-- `docs/v1-implementation-status.md` — v1.0 RC phase log, decisions and known limitations.
-- `docs/release-windows.md` — Windows packaging, installer verification, update feed and signing integration.
+Start with [architecture](./docs/architecture.md), [developer guide](./docs/dev-guide.md), and [project format](./docs/project-format.md).
 
-## Contributing and Security
+## Development
 
-Contributions are welcome. Read `CONTRIBUTING.md` before opening a pull request. Please report security issues privately as described in `SECURITY.md`.
+```bash
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npm run test:desktop-smoke
+```
+
+The CI workflow runs the same gates on Windows and Ubuntu, then builds an unsigned Windows installer for manual verification.
+
+## Project status
+
+InkForge is at `v1.0.0-rc.1`. Current intentional limitations:
+
+- Windows is the only packaging target.
+- Public builds are unsigned until a code-signing certificate and update feed are available.
+- Browser preview uses reduced-fidelity backup and EPUB implementations; the Electron app contains the complete implementations.
+- Images referenced inside chapter Markdown are reported during export checks but are not embedded in exported manuscripts.
+
+See the [implementation status](./docs/v1-implementation-status.md) and [post-v1 candidates](./docs/roadmap-next.md) for the detailed record.
+
+## Contributing
+
+Issues and focused pull requests are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before making changes. Security vulnerabilities should be reported privately according to [SECURITY.md](./SECURITY.md).
 
 ## License
 
-InkForge is released under the MIT License. See `LICENSE`.
+InkForge is released under the [MIT License](./LICENSE).
