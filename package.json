@@ -20,7 +20,8 @@
     "test:desktop-smoke": "npm run build && node --import ./scripts/register-mock-electron.mjs ./scripts/desktop-smoke.mjs",
     "pack:desktop": "npm --workspace @inkforge/desktop run pack",
     "dist:windows": "npm --workspace @inkforge/desktop run dist",
-    "perf:probe": "npm run build && node --import ./scripts/register-mock-electron.mjs ./scripts/perf-probe.mjs"
+    "perf:probe": "npm run build && node --import ./scripts/register-mock-electron.mjs ./scripts/perf-probe.mjs",
+    "perf:probe:long": "npm run build && cross-env PERF_VOLUMES=10 PERF_CHAPTERS_PER_VOLUME=200 PERF_CHARS_PER_CHAPTER=3500 node --import ./scripts/register-mock-electron.mjs ./scripts/perf-probe.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

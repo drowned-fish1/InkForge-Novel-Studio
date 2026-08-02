@@ -27,4 +27,40 @@ describe("story branch diff", () => {
       await rm(projectPath, { recursive: true, force: true });
     }
   });
+
+  it("refuses to apply a continuation branch with unresolved hard failures", async () => {
+    const projectPath = await mkdtemp(path.join(os.tmpdir(), "inkforge-branch-blocked-"));
+    try {
+      await mkdir(path.join(projectPath, ".inkforge", "continuation"), { recursive: true });
+      const now = new Date().toISOString();
+      await writeFile(
+        path.join(projectPath, ".inkforge", "story-branches.json"),
+        JSON.stringify([
+          {
+            schemaVersion: "0.1.0",
+            id: "branch-blocked",
+            chapterId: "ch-1",
+            name: "blocked",
+            description: "",
+            baseFingerprint: "hash",
+            baseContent: "",
+            content: "draft",
+            status: "draft",
+            source: "agent",
+            createdAt: now,
+            updatedAt: now
+          }
+        ]),
+        "utf8"
+      );
+      await writeFile(
+        path.join(projectPath, ".inkforge", "continuation", "runs.json"),
+        JSON.stringify([{ branchId: "branch-blocked", status: "blocked", validation: { hardFailures: 1 } }]),
+        "utf8"
+      );
+      await expect(new BranchService().apply(projectPath, "branch-blocked")).rejects.toThrow("硬冲突");
+    } finally {
+      await rm(projectPath, { recursive: true, force: true });
+    }
+  });
 });

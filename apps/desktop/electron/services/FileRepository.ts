@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export class FileRepository {
+  private readonly writeQueues = new Map<string, Promise<void>>();
+
   async ensureDir(dirPath: string): Promise<void> {
     await mkdir(dirPath, { recursive: true });
   }
@@ -20,10 +23,22 @@ export class FileRepository {
   }
 
   async writeTextAtomic(filePath: string, value: string): Promise<void> {
-    await mkdir(path.dirname(filePath), { recursive: true });
-    const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tempPath, value, "utf8");
-    await rename(tempPath, filePath);
+    const key = path.resolve(filePath);
+    const previous = this.writeQueues.get(key) ?? Promise.resolve();
+    const operation = previous
+      .catch(() => undefined)
+      .then(async () => {
+        await mkdir(path.dirname(filePath), { recursive: true });
+        const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+        await writeFile(tempPath, value, "utf8");
+        await rename(tempPath, filePath);
+      });
+    this.writeQueues.set(key, operation);
+    try {
+      await operation;
+    } finally {
+      if (this.writeQueues.get(key) === operation) this.writeQueues.delete(key);
+    }
   }
 
   assertInsideProject(projectPath: string, relativeFile: string): string {

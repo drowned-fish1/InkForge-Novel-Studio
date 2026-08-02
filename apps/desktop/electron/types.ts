@@ -43,6 +43,36 @@ import type {
   WritingWorkspace
 } from "@inkforge/schemas";
 import type { WritingScene, WritingSessionState } from "@inkforge/agent-engine";
+import type {
+  AnalysisJob,
+  AnalysisJobInput,
+  CorpusImportInput,
+  CorpusImportManifest,
+  ImportProgress
+} from "./services/ContinuationTypes.js";
+import type { AdoptCorpusInput, CorpusAdoptionResult } from "./services/CorpusAdoptionService.js";
+import type { ChunkIndexStats, ChunkIndexUpdateResult, IndexChapterInput } from "./services/ChunkIndexService.js";
+import type { HybridRetrieveOptions, HybridSearchResult } from "./services/HybridRetriever.js";
+import type { CanonFactFilter } from "./services/CanonStore.js";
+import type { StoryThreadFilter } from "./services/StoryThreadService.js";
+import type { CompileContextInput } from "./services/ContextCompiler.js";
+import type { StyleEvaluationResult, StyleProfileBuildResult } from "./services/StyleProfileService.js";
+import type {
+  ContinuationRun,
+  ContinuationRunInput,
+  ContinuationRunResult,
+  ContinuationRetryInput
+} from "./services/ContinuationOrchestrator.js";
+
+/** Renderer-safe import request (progress handlers never cross the IPC boundary). */
+export type CorpusImportRequest = Omit<CorpusImportInput, "onProgress">;
+
+/** Renderer-safe analysis request (progress handlers never cross the IPC boundary). */
+export type AnalysisJobRequest = Omit<AnalysisJobInput, "onProgress">;
+
+export interface ContinuationProgressHandlers {
+  onProgress?: (progress: ImportProgress | import("./services/ContinuationTypes.js").AnalysisProgress) => void;
+}
 
 export interface ProjectSummary {
   projectPath: string;
@@ -563,6 +593,31 @@ export interface ReleaseReadiness {
   items: ReleaseReadinessItem[];
 }
 
+export type CorpusImportStartInput = CorpusImportRequest;
+export type AnalysisJobStartInput = AnalysisJobRequest;
+
+/** Inputs used by the incremental chapter indexer. */
+export interface IndexProjectInput {
+  projectPath: string;
+  chapters: IndexChapterInput[];
+}
+
+export interface ContinuationIndexStats extends ChunkIndexStats {
+  /** UI-friendly aliases retained alongside the service's concise names. */
+  chapterCount: number;
+  chunkCount: number;
+}
+
+export interface SaveCanonFactInput {
+  projectPath: string;
+  fact: import("@inkforge/schemas").CanonFact;
+}
+
+export interface SaveStoryThreadInput {
+  projectPath: string;
+  thread: import("@inkforge/schemas").StoryThread;
+}
+
 export interface InkforgeApi {
   setTheme: (theme: "light" | "dark", manual?: boolean) => Promise<void>;
   listProjects: () => Promise<ProjectListItem[]>;
@@ -707,6 +762,95 @@ export interface InkforgeApi {
     onEvent?: (event: SimulationRunEvent) => void
   ) => Promise<SimulationDocument>;
   cancelSimulation: (requestId: string) => Promise<void>;
+
+  /** Long-novel continuation corpus lifecycle. */
+  chooseCorpusSource: () => Promise<string | undefined>;
+  startCorpusImport: (
+    input: CorpusImportStartInput,
+    onProgress?: (progress: ImportProgress) => void
+  ) => Promise<CorpusImportManifest>;
+  listCorpusImports: (projectPath: string) => Promise<CorpusImportManifest[]>;
+  pauseCorpusImport: (projectPath: string, importId: string) => Promise<CorpusImportManifest>;
+  resumeCorpusImport: (
+    projectPath: string,
+    importId: string,
+    onProgress?: (progress: ImportProgress) => void
+  ) => Promise<CorpusImportManifest>;
+  cancelCorpusImport: (projectPath: string, importId: string) => Promise<CorpusImportManifest>;
+  adoptCorpusImport: (input: AdoptCorpusInput) => Promise<CorpusAdoptionResult>;
+
+  /** Durable chapter-at-a-time analysis lifecycle. */
+  startAnalysisJob: (
+    input: AnalysisJobStartInput,
+    onProgress?: (progress: import("./services/ContinuationTypes.js").AnalysisProgress) => void
+  ) => Promise<AnalysisJob>;
+  listAnalysisJobs: (projectPath: string) => Promise<AnalysisJob[]>;
+  pauseAnalysisJob: (projectPath: string, jobId: string) => Promise<AnalysisJob>;
+  resumeAnalysisJob: (
+    projectPath: string,
+    jobId: string,
+    onProgress?: (progress: import("./services/ContinuationTypes.js").AnalysisProgress) => void
+  ) => Promise<AnalysisJob>;
+  cancelAnalysisJob: (projectPath: string, jobId: string) => Promise<AnalysisJob>;
+
+  /** Incremental retrieval index. */
+  indexChapter: (projectPath: string, input: IndexChapterInput) => Promise<ChunkIndexUpdateResult>;
+  indexProject: {
+    (input: IndexProjectInput): Promise<ChunkIndexUpdateResult[]>;
+    (projectPath: string): Promise<ChunkIndexUpdateResult[]>;
+  };
+  getChunkIndexStats: (projectPath: string) => Promise<ContinuationIndexStats>;
+  searchContinuation: (
+    projectPath: string,
+    query: string,
+    options?: HybridRetrieveOptions
+  ) => Promise<HybridSearchResult>;
+
+  /** Author-reviewed canon facts and long-running story threads. */
+  listCanonFacts: (projectPath: string, filter?: CanonFactFilter) => Promise<import("@inkforge/schemas").CanonFact[]>;
+  saveCanonFact: {
+    (input: SaveCanonFactInput): Promise<import("@inkforge/schemas").CanonFact>;
+    (projectPath: string, fact: import("@inkforge/schemas").CanonFact): Promise<import("@inkforge/schemas").CanonFact>;
+  };
+  setCanonFactStatus: (
+    projectPath: string,
+    factId: string,
+    status: import("@inkforge/schemas").CanonFactStatus
+  ) => Promise<import("@inkforge/schemas").CanonFact>;
+  listStoryThreads: (
+    projectPath: string,
+    filter?: StoryThreadFilter
+  ) => Promise<import("@inkforge/schemas").StoryThread[]>;
+  saveStoryThread: {
+    (input: SaveStoryThreadInput): Promise<import("@inkforge/schemas").StoryThread>;
+    (
+      projectPath: string,
+      thread: import("@inkforge/schemas").StoryThread
+    ): Promise<import("@inkforge/schemas").StoryThread>;
+  };
+  setStoryThreadStatus: (
+    projectPath: string,
+    threadId: string,
+    status: import("@inkforge/schemas").StoryThreadStatus
+  ) => Promise<import("@inkforge/schemas").StoryThread>;
+
+  /** Measurable prose style profile and bounded evidence compilation. */
+  analyzeStyleProfile: (
+    projectPath: string,
+    options?: { chapterIds?: string[]; maxExemplarsPerType?: number }
+  ) => Promise<StyleProfileBuildResult>;
+  loadStyleProfile: (projectPath: string) => Promise<import("@inkforge/schemas").StyleProfile | undefined>;
+  evaluateStyle: (projectPath: string, text: string, tolerance?: number) => Promise<StyleEvaluationResult>;
+  compileContinuationContext: (input: CompileContextInput) => Promise<import("@inkforge/schemas").EvidencePack>;
+  /** Continuation orchestration is wired by the main process when available. */
+  listContinuationRuns: (projectPath: string, chapterId?: string) => Promise<ContinuationRun[]>;
+  startContinuationRun: (input: ContinuationRunInput) => Promise<ContinuationRunResult>;
+  retryContinuationRun: (
+    projectPath: string,
+    runId: string,
+    options?: ContinuationRetryInput
+  ) => Promise<ContinuationRunResult>;
+  cancelContinuationRun: (projectPath: string, runId: string) => Promise<ContinuationRun>;
 }
 
 export type {
@@ -719,4 +863,28 @@ export type {
   AgentChatSession,
   AgentRunEvent,
   AgentRunTrace
+};
+
+export type {
+  AnalysisJob,
+  AnalysisJobInput,
+  CorpusImportInput,
+  CorpusImportManifest,
+  ImportProgress,
+  AdoptCorpusInput,
+  CorpusAdoptionResult,
+  ChunkIndexStats,
+  ChunkIndexUpdateResult,
+  IndexChapterInput,
+  HybridRetrieveOptions,
+  HybridSearchResult,
+  CanonFactFilter,
+  StoryThreadFilter,
+  CompileContextInput,
+  StyleEvaluationResult,
+  StyleProfileBuildResult,
+  ContinuationRun,
+  ContinuationRunInput,
+  ContinuationRunResult,
+  ContinuationRetryInput
 };

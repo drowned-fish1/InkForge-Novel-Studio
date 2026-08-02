@@ -16,6 +16,12 @@ const volumeCount = Number(process.env.PERF_VOLUMES ?? 4);
 const chaptersPerVolume = Number(process.env.PERF_CHAPTERS_PER_VOLUME ?? 100);
 const charsPerChapter = Number(process.env.PERF_CHARS_PER_CHAPTER ?? 7000);
 const totalChapters = volumeCount * chaptersPerVolume;
+const totalCharacters = totalChapters * charsPerChapter;
+let peakRssBytes = process.memoryUsage().rss;
+
+const sampleMemory = () => {
+  peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss);
+};
 
 const root = await mkdtemp(path.join(os.tmpdir(), "inkforge-perf-"));
 process.env.INKFORGE_SMOKE_USER_DATA = path.join(root, "user-data");
@@ -26,9 +32,11 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 
 const timings = {};
 const time = async (label, fn) => {
+  sampleMemory();
   const start = performance.now();
   const result = await fn();
   timings[label] = Math.round(performance.now() - start);
+  sampleMemory();
   return result;
 };
 
@@ -105,6 +113,21 @@ try {
     }
   });
 
+  const chunkStats = await time("continuation:index:stats", () =>
+    __electronMock.invoke("continuation:index:stats", project.projectPath)
+  );
+  if (chunkStats.chapters !== totalChapters || chunkStats.chunks < totalChapters) {
+    throw new Error(`continuation index is incomplete: ${chunkStats.chapters} chapters / ${chunkStats.chunks} chunks`);
+  }
+  const retrieval = await time("continuation:index:search", () =>
+    __electronMock.invoke("continuation:index:search", project.projectPath, "雨声 储物柜 编号", {
+      limit: 20,
+      mode: "hybrid"
+    })
+  );
+  if (!retrieval.hits?.length) throw new Error("continuation retrieval returned no evidence");
+  timings["continuation index chunks"] = chunkStats.chunks;
+
   const reopened = await time("project:open (reopen)", () =>
     __electronMock.invoke("project:open", project.projectPath)
   );
@@ -168,7 +191,11 @@ try {
     JSON.stringify(
       {
         ok: true,
-        scale: { volumes: volumeCount, chapters: totalChapters, charsPerChapter },
+        scale: { volumes: volumeCount, chapters: totalChapters, charsPerChapter, totalCharacters },
+        memory: {
+          peakRssMb: Math.round((peakRssBytes / 1024 / 1024) * 10) / 10,
+          finalRssMb: Math.round((process.memoryUsage().rss / 1024 / 1024) * 10) / 10
+        },
         timingsMs: timings
       },
       null,

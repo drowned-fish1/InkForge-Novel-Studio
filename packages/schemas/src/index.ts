@@ -9,6 +9,7 @@ export * from "./production.js";
 export * from "./references.js";
 export * from "./simulation.js";
 export * from "./workspace.js";
+export * from "./continuation.js";
 
 export const inkforgeSchemaVersion = "0.1.0";
 

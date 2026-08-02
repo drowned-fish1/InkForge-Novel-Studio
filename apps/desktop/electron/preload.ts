@@ -5,11 +5,20 @@ import type {
   AgentChatInput,
   AgentSessionCommandInput,
   AgentRunEvent,
+  AnalysisJob,
+  AnalysisJobStartInput,
   CreateBatchRunInput,
   CreateChapterInput,
   CreateProjectInput,
   CreateStoryBranchInput,
   ExportInput,
+  CorpusImportManifest,
+  CorpusImportStartInput,
+  ImportProgress,
+  AdoptCorpusInput,
+  CorpusAdoptionResult,
+  IndexChapterInput,
+  IndexProjectInput,
   AiTaskInput,
   AiTaskResult,
   PlanningAiInput,
@@ -25,6 +34,8 @@ import type {
   ProviderStatus,
   SaveChapterInput,
   SaveChapterSummaryInput,
+  SaveCanonFactInput,
+  SaveStoryThreadInput,
   SaveStoryBranchInput,
   SaveCharacterInput,
   SaveClueInput,
@@ -95,6 +106,24 @@ const invokeWithAbort = async <T, Input extends { requestId?: string }, Delta = 
     if (delta) {
       ipcRenderer.removeListener(delta.channel, handleDelta);
     }
+  }
+};
+
+const invokeWithProgress = async <T, Progress>(
+  channel: string,
+  progressChannel: string,
+  input: unknown,
+  key: string,
+  onProgress?: (progress: Progress) => void
+): Promise<T> => {
+  const listener = (_event: IpcRendererEvent, progressKey: string, progress: Progress) => {
+    if (!key || progressKey === key) onProgress?.(progress);
+  };
+  if (onProgress) ipcRenderer.on(progressChannel, listener);
+  try {
+    return await ipcRenderer.invoke(channel, input);
+  } finally {
+    if (onProgress) ipcRenderer.removeListener(progressChannel, listener);
   }
 };
 
@@ -261,7 +290,122 @@ const api: InkforgeApi = {
       "simulation",
       onEvent ? { channel: "simulation:event", onDelta: onEvent } : undefined
     ),
-  cancelSimulation: (requestId) => ipcRenderer.invoke("simulation:cancel", requestId)
+  cancelSimulation: (requestId) => ipcRenderer.invoke("simulation:cancel", requestId),
+  chooseCorpusSource: (): Promise<string | undefined> => ipcRenderer.invoke("continuation:choose-source"),
+  startCorpusImport: (
+    input: CorpusImportStartInput,
+    onProgress?: (progress: ImportProgress) => void
+  ): Promise<CorpusImportManifest> =>
+    invokeWithProgress(
+      "continuation:import:start",
+      "continuation:import:progress",
+      input,
+      input.importId ?? "",
+      onProgress
+    ),
+  listCorpusImports: (projectPath: string): Promise<CorpusImportManifest[]> =>
+    ipcRenderer.invoke("continuation:import:list", projectPath),
+  pauseCorpusImport: (projectPath: string, importId: string): Promise<CorpusImportManifest> =>
+    ipcRenderer.invoke("continuation:import:pause", projectPath, importId),
+  resumeCorpusImport: (
+    projectPath: string,
+    importId: string,
+    onProgress?: (progress: ImportProgress) => void
+  ): Promise<CorpusImportManifest> =>
+    invokeWithProgress(
+      "continuation:import:resume",
+      "continuation:import:progress",
+      {
+        projectPath,
+        importId
+      },
+      importId,
+      onProgress
+    ),
+  cancelCorpusImport: (projectPath: string, importId: string): Promise<CorpusImportManifest> =>
+    ipcRenderer.invoke("continuation:import:cancel", projectPath, importId),
+  adoptCorpusImport: (input: AdoptCorpusInput): Promise<CorpusAdoptionResult> =>
+    ipcRenderer.invoke("continuation:adopt", input),
+  startAnalysisJob: (
+    input: AnalysisJobStartInput,
+    onProgress?: (progress: import("./services/ContinuationTypes.js").AnalysisProgress) => void
+  ): Promise<AnalysisJob> =>
+    invokeWithProgress(
+      "continuation:analysis:start",
+      "continuation:analysis:progress",
+      input,
+      input.jobId ?? "",
+      onProgress
+    ),
+  listAnalysisJobs: (projectPath: string): Promise<AnalysisJob[]> =>
+    ipcRenderer.invoke("continuation:analysis:list", projectPath),
+  pauseAnalysisJob: (projectPath: string, jobId: string): Promise<AnalysisJob> =>
+    ipcRenderer.invoke("continuation:analysis:pause", projectPath, jobId),
+  resumeAnalysisJob: (
+    projectPath: string,
+    jobId: string,
+    onProgress?: (progress: import("./services/ContinuationTypes.js").AnalysisProgress) => void
+  ): Promise<AnalysisJob> =>
+    invokeWithProgress(
+      "continuation:analysis:resume",
+      "continuation:analysis:progress",
+      {
+        projectPath,
+        jobId
+      },
+      jobId,
+      onProgress
+    ),
+  cancelAnalysisJob: (projectPath: string, jobId: string): Promise<AnalysisJob> =>
+    ipcRenderer.invoke("continuation:analysis:cancel", projectPath, jobId),
+  indexChapter: (projectPath: string, input: IndexChapterInput) =>
+    ipcRenderer.invoke("continuation:index:chapter", projectPath, input),
+  indexProject: (input: IndexProjectInput | string) => ipcRenderer.invoke("continuation:index:project", input),
+  getChunkIndexStats: (projectPath: string) => ipcRenderer.invoke("continuation:index:stats", projectPath),
+  searchContinuation: (
+    projectPath: string,
+    query: string,
+    options?: import("./services/HybridRetriever.js").HybridRetrieveOptions
+  ) => ipcRenderer.invoke("continuation:index:search", projectPath, query, options),
+  listCanonFacts: (projectPath: string, filter?: import("./services/CanonStore.js").CanonFactFilter) =>
+    ipcRenderer.invoke("continuation:canon:list", projectPath, filter),
+  saveCanonFact: (inputOrProject: SaveCanonFactInput | string, fact?: import("@inkforge/schemas").CanonFact) =>
+    ipcRenderer.invoke(
+      "continuation:canon:save",
+      typeof inputOrProject === "string" ? { projectPath: inputOrProject, fact } : inputOrProject
+    ),
+  setCanonFactStatus: (projectPath: string, factId: string, status: import("@inkforge/schemas").CanonFactStatus) =>
+    ipcRenderer.invoke("continuation:canon:status", projectPath, factId, status),
+  listStoryThreads: (projectPath: string, filter?: import("./services/StoryThreadService.js").StoryThreadFilter) =>
+    ipcRenderer.invoke("continuation:threads:list", projectPath, filter),
+  saveStoryThread: (inputOrProject: SaveStoryThreadInput | string, thread?: import("@inkforge/schemas").StoryThread) =>
+    ipcRenderer.invoke(
+      "continuation:threads:save",
+      typeof inputOrProject === "string" ? { projectPath: inputOrProject, thread } : inputOrProject
+    ),
+  setStoryThreadStatus: (
+    projectPath: string,
+    threadId: string,
+    status: import("@inkforge/schemas").StoryThreadStatus
+  ) => ipcRenderer.invoke("continuation:threads:status", projectPath, threadId, status),
+  analyzeStyleProfile: (projectPath: string, options?: { chapterIds?: string[]; maxExemplarsPerType?: number }) =>
+    ipcRenderer.invoke("continuation:style:analyze", projectPath, options),
+  loadStyleProfile: (projectPath: string) => ipcRenderer.invoke("continuation:style:load", projectPath),
+  evaluateStyle: (projectPath: string, text: string, tolerance?: number) =>
+    ipcRenderer.invoke("continuation:style:evaluate", projectPath, text, tolerance),
+  compileContinuationContext: (input: import("./services/ContextCompiler.js").CompileContextInput) =>
+    ipcRenderer.invoke("continuation:context:compile", input),
+  listContinuationRuns: (projectPath: string, chapterId?: string) =>
+    ipcRenderer.invoke("continuation:run:list", projectPath, chapterId),
+  startContinuationRun: (input: import("./services/ContinuationOrchestrator.js").ContinuationRunInput) =>
+    ipcRenderer.invoke("continuation:run:start", input),
+  retryContinuationRun: (
+    projectPath: string,
+    runId: string,
+    options?: import("./services/ContinuationOrchestrator.js").ContinuationRetryInput
+  ) => ipcRenderer.invoke("continuation:run:retry", projectPath, runId, options),
+  cancelContinuationRun: (projectPath: string, runId: string) =>
+    ipcRenderer.invoke("continuation:run:cancel", projectPath, runId)
 };
 
 contextBridge.exposeInMainWorld("inkforge", api);

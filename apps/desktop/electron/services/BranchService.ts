@@ -77,6 +77,7 @@ export class BranchService {
     if (!branch) {
       throw new Error("Story branch not found.");
     }
+    await this.assertContinuationBranchCanApply(projectPath, branchId);
     const chapter = await this.findChapter(projectPath, branch.chapterId);
     await this.chapters.saveChapter({ projectPath, file: chapter.file, content: branch.content });
     const updated = StoryBranchSchema.parse({ ...branch, status: "applied", updatedAt: new Date().toISOString() });
@@ -128,6 +129,21 @@ export class BranchService {
 
   private path(projectPath: string): string {
     return this.files.assertInsideProject(projectPath, ".inkforge/story-branches.json");
+  }
+
+  private async assertContinuationBranchCanApply(projectPath: string, branchId: string): Promise<void> {
+    try {
+      const runs = await this.files.readJson<
+        Array<{ branchId?: string; status?: string; validation?: { hardFailures?: number } }>
+      >(this.files.assertInsideProject(projectPath, ".inkforge/continuation/runs.json"));
+      const run = runs.find((item) => item.branchId === branchId);
+      if (run && (run.status === "blocked" || (run.validation?.hardFailures ?? 0) > 0)) {
+        throw new Error("该续写分支存在未解决的硬冲突，不能写入正文。请修订并重新生成。");
+      }
+    } catch (error) {
+      if (isMissingFile(error)) return;
+      throw error;
+    }
   }
 }
 

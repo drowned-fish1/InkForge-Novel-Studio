@@ -4,13 +4,18 @@ import {
   estimateTokensCjkAware,
   runExportPreflight,
   BeatBoardSchema,
+  CanonFactSchema,
+  ChapterContractSchema,
   ExportConfigSchema,
+  EvidencePackSchema,
   type ExportConfig,
   compileBeatBoardToInk,
   compileBeatBoardToTwee,
   dedupeSimulationBranches,
   SimulationDocumentSchema,
   SimulationScenarioSchema,
+  StoryThreadSchema,
+  StyleProfileSchema,
   type BatchRun,
   type BackupSettings,
   type BackupSnapshot,
@@ -23,6 +28,11 @@ import {
   type SimulationDocument,
   type SimulationRun,
   type SimulationScenario,
+  type CanonFact,
+  type CanonFactStatus,
+  type StoryThread,
+  type StoryThreadStatus,
+  type StyleProfile,
   type StoryBranch,
   type WritingWorkspace
 } from "@inkforge/schemas";
@@ -55,7 +65,23 @@ import type {
   WritingSessionState
 } from "@/types/app";
 import type { ScenePlan } from "@inkforge/schemas";
-import type { InkforgeApi } from "../../electron/types";
+import type {
+  AdoptCorpusInput,
+  AnalysisJob,
+  AnalysisJobStartInput,
+  CorpusAdoptionResult,
+  CorpusImportManifest,
+  CorpusImportStartInput,
+  ImportProgress,
+  IndexChapterInput,
+  IndexProjectInput,
+  InkforgeApi,
+  SaveCanonFactInput,
+  SaveStoryThreadInput,
+  ContinuationRun,
+  ContinuationRunInput,
+  ContinuationRunResult
+} from "../../electron/types";
 import { hasAuthMaterial, maskApiKey, runBrowserAiTask } from "@/lib/browserAiProvider";
 import { browserLibraryService } from "@/lib/browserLibraryService";
 import { exportManuscriptInBrowser } from "@/lib/browserManuscriptExport";
@@ -158,6 +184,56 @@ const browserExportConfigs = new Map<string, ExportConfig>();
 const browserSimulations = new Map<string, SimulationDocument[]>();
 const browserWritingWorkspaces = new Map<string, WritingWorkspace>();
 const browserAgentExtensions = new Map<string, AgentExtensionConfig>();
+const browserCorpusImports = new Map<string, CorpusImportManifest[]>();
+const browserCorpusContents = new Map<string, Record<string, string>>();
+const browserAnalysisJobs = new Map<string, AnalysisJob[]>();
+const browserChunkIndexes = new Map<
+  string,
+  Array<{
+    id: string;
+    chapterId: string;
+    chapterTitle: string;
+    chunkIndex: number;
+    startOffset: number;
+    endOffset: number;
+    text: string;
+    contentHash: string;
+    chapterContentHash: string;
+    vector: number[];
+    sceneId?: string;
+    sceneTitle?: string;
+  }>
+>();
+const browserCanonFacts = new Map<string, CanonFact[]>();
+const browserStoryThreads = new Map<string, StoryThread[]>();
+const browserStyleProfiles = new Map<string, StyleProfile>();
+const browserContinuationRuns = new Map<string, ContinuationRun[]>();
+
+const browserHash = (value: string): string => {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `browser-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+};
+
+const browserWordCount = (value: string): number => value.replace(/\s/gu, "").length;
+
+const browserProjectChapters = (projectPath: string) =>
+  getProjectRecord(projectPath).summary.outline.volumes.flatMap((volume) => volume.chapters);
+
+const browserImportFor = (projectPath: string, importId: string): CorpusImportManifest => {
+  const manifest = browserCorpusImports.get(projectPath)?.find((item) => item.id === importId);
+  if (!manifest) throw new Error("Import not found.");
+  return manifest;
+};
+
+const browserEnsureStyle = (projectPath: string): StyleProfile => {
+  const existing = browserStyleProfiles.get(projectPath);
+  if (existing) return structuredClone(existing);
+  return StyleProfileSchema.parse({ id: "default", name: "Browser demo style", version: 1 });
+};
 
 const estimateBrowserTokens = (text: string): number => Math.max(1, Math.round(text.length / 2));
 
@@ -1495,6 +1571,636 @@ export const browserBridge: InkforgeApi = {
   async cancelSimulation(): Promise<void> {
     return undefined;
   },
+  async chooseCorpusSource(): Promise<string | undefined> {
+    // Browser demo mode cannot safely expose arbitrary local paths. The
+    // import form can still accept a caller-provided sourcePath.
+    return undefined;
+  },
+  async startCorpusImport(input: CorpusImportStartInput, onProgress?: (progress: ImportProgress) => void) {
+    const project = getProjectRecord(input.projectPath);
+    const importId = input.importId?.trim() || `browser-import-${Date.now()}`;
+    const previous = browserCorpusImports.get(input.projectPath)?.find((item) => item.id === importId);
+    if (previous?.status === "completed") return structuredClone(previous);
+    const sourcePath = input.sourcePath || "browser-project-chapters";
+    const chapters = browserProjectChapters(input.projectPath);
+    const contents: Record<string, string> = {};
+    const imported = chapters.map((chapter, index) => {
+      const content = project.chapterBodies[chapter.file] ?? "";
+      const chapterId = `${importId}-ch-${String(index + 1).padStart(5, "0")}`;
+      const contentPath = `.inkforge/continuation/corpus/${importId}/chapters/ch-${String(index + 1).padStart(5, "0")}.md`;
+      contents[chapterId] = content;
+      return {
+        id: chapterId,
+        key: `browser:${chapter.id}`,
+        ordinal: index,
+        title: chapter.title,
+        sourcePath,
+        sourceIndex: 0,
+        chapterIndex: index,
+        contentPath,
+        startOffset: 0,
+        endOffset: content.length,
+        byteStart: 0,
+        byteEnd: content.length,
+        contentHash: browserHash(content),
+        charCount: content.length,
+        wordCount: browserWordCount(content),
+        status: "imported" as const,
+        importedAt: new Date().toISOString()
+      };
+    });
+    browserCorpusContents.set(`${input.projectPath}:${importId}`, contents);
+    const now = new Date().toISOString();
+    const manifest: CorpusImportManifest = {
+      schemaVersion: 1,
+      id: importId,
+      projectPath: input.projectPath,
+      sourcePath,
+      sourceType: "file",
+      sourceFiles: [
+        { index: 0, path: sourcePath, size: imported.reduce((sum, item) => sum + item.charCount, 0), modifiedAt: now }
+      ],
+      encoding: input.encoding ?? "utf8",
+      encodingConfidence: 1,
+      status: "completed",
+      totalBytes: imported.reduce((sum, item) => sum + item.charCount, 0),
+      bytesRead: imported.reduce((sum, item) => sum + item.charCount, 0),
+      chapters: imported,
+      duplicateChapterIds: [],
+      checkpoint: {
+        sourceIndex: 0,
+        chapterIndex: Math.max(-1, imported.length - 1),
+        nextSourceIndex: 1,
+        bytesRead: imported.reduce((sum, item) => sum + item.charCount, 0),
+        lastChapterId: imported.at(-1)?.id,
+        updatedAt: now
+      },
+      createdAt: now,
+      updatedAt: now
+    };
+    const imports = browserCorpusImports.get(input.projectPath) ?? [];
+    browserCorpusImports.set(input.projectPath, [manifest, ...imports.filter((item) => item.id !== importId)]);
+    onProgress?.({
+      importId,
+      status: "completed",
+      bytesRead: manifest.bytesRead,
+      totalBytes: manifest.totalBytes,
+      completedChapters: manifest.chapters.length,
+      checkpoint: manifest.checkpoint
+    });
+    return structuredClone(manifest);
+  },
+  async listCorpusImports(projectPath: string) {
+    return structuredClone(browserCorpusImports.get(projectPath) ?? []);
+  },
+  async pauseCorpusImport(projectPath: string, importId: string) {
+    return structuredClone(browserImportFor(projectPath, importId));
+  },
+  async resumeCorpusImport(projectPath: string, importId: string, onProgress?: (progress: ImportProgress) => void) {
+    const manifest = browserImportFor(projectPath, importId);
+    onProgress?.({
+      importId,
+      status: manifest.status,
+      bytesRead: manifest.bytesRead,
+      totalBytes: manifest.totalBytes,
+      completedChapters: manifest.chapters.length,
+      checkpoint: manifest.checkpoint
+    });
+    return structuredClone(manifest);
+  },
+  async cancelCorpusImport(projectPath: string, importId: string) {
+    const manifest = browserImportFor(projectPath, importId);
+    if (manifest.status === "completed") return structuredClone(manifest);
+    const next = { ...manifest, status: "cancelled" as const, updatedAt: new Date().toISOString() };
+    browserCorpusImports.set(projectPath, [
+      next,
+      ...(browserCorpusImports.get(projectPath) ?? []).filter((item) => item.id !== importId)
+    ]);
+    return structuredClone(next);
+  },
+  async adoptCorpusImport(input: AdoptCorpusInput): Promise<CorpusAdoptionResult> {
+    const manifest = browserImportFor(input.projectPath, input.importId);
+    if (manifest.status !== "completed") throw new Error("Import must be completed before adoption.");
+    const record = getProjectRecord(input.projectPath);
+    const existing = record.summary.outline.volumes.flatMap((volume) => volume.chapters);
+    const adoptedIds = new Set(
+      existing.flatMap((chapter) => {
+        const match = /\[corpus:(.+?)\]/u.exec(chapter.notes);
+        return match?.[1] ? [match[1]] : [];
+      })
+    );
+    const candidates = manifest.chapters.filter((chapter) => input.includeDuplicates || chapter.status !== "duplicate");
+    const pending = candidates.filter((chapter) => !adoptedIds.has(chapter.id));
+    if (!pending.length) {
+      return {
+        importId: input.importId,
+        adoptedChapters: 0,
+        skippedDuplicates: manifest.duplicateChapterIds.length,
+        alreadyAdopted: candidates.length,
+        volumeIds: []
+      };
+    }
+    const volumeSize = Math.max(20, Math.min(500, Math.trunc(input.volumeSize ?? 100)));
+    const contents = browserCorpusContents.get(`${input.projectPath}:${input.importId}`) ?? {};
+    const volumeIds: string[] = [];
+    for (let offset = 0; offset < pending.length; offset += volumeSize) {
+      const group = pending.slice(offset, offset + volumeSize);
+      const volumeId = `browser-corpus-${input.importId}-${volumeIds.length + 1}`;
+      volumeIds.push(volumeId);
+      const volumeNumber = record.summary.outline.volumes.length + volumeIds.length;
+      const chapters = group.map((item, index) => {
+        const number = existing.length + offset + index + 1;
+        const file = `chapters/volume-corpus-${input.importId}-${String(volumeIds.length).padStart(3, "0")}/ch-${String(number).padStart(5, "0")}.md`;
+        record.chapterBodies[file] = contents[item.id] ?? "";
+        return {
+          id: `browser-${item.id}`,
+          number,
+          title: item.title || `第${number}章`,
+          file,
+          goal: "",
+          hook: "",
+          status: "done" as const,
+          targetWords: Math.max(1, item.charCount),
+          actualWords: item.charCount,
+          archived: false,
+          notes: `[corpus:${item.id}] 来源：${item.sourcePath}`,
+          conflictPoints: "",
+          characters: [],
+          worldRefs: []
+        };
+      });
+      record.summary.outline.volumes.push({
+        id: volumeId,
+        title: `${input.volumeTitlePrefix?.trim() || "导入卷"} ${volumeNumber}`,
+        goal: "",
+        targetWords: chapters.reduce((sum, chapter) => sum + chapter.targetWords, 0),
+        chapters
+      });
+      existing.push(...chapters);
+    }
+    saveProjectRecord(record);
+    return {
+      importId: input.importId,
+      adoptedChapters: pending.length,
+      skippedDuplicates: manifest.duplicateChapterIds.length,
+      alreadyAdopted: candidates.length - pending.length,
+      volumeIds
+    };
+  },
+  async startAnalysisJob(
+    input: AnalysisJobStartInput,
+    onProgress?: (progress: import("../../electron/services/ContinuationTypes.js").AnalysisProgress) => void
+  ) {
+    const manifest = browserImportFor(input.projectPath, input.importId);
+    const selected = input.chapterIds?.length
+      ? manifest.chapters.filter((chapter) => input.chapterIds?.includes(chapter.id))
+      : manifest.chapters;
+    const now = new Date().toISOString();
+    const jobId = input.jobId?.trim() || `browser-analysis-${Date.now()}`;
+    const job: AnalysisJob = {
+      schemaVersion: 1,
+      id: jobId,
+      projectPath: input.projectPath,
+      importId: input.importId,
+      status: "completed",
+      tasks: selected.map((chapter) => ({
+        id: `${jobId}:${chapter.id}`,
+        chapterId: chapter.id,
+        chapterTitle: chapter.title,
+        contentHash: chapter.contentHash,
+        status: "completed" as const,
+        analysisPath: `.inkforge/continuation/analysis/${input.importId}/${chapter.id}.json`
+      })),
+      completedTasks: selected.length,
+      checkpoint: { taskIndex: selected.length - 1, lastChapterId: selected.at(-1)?.id, updatedAt: now },
+      createdAt: now,
+      updatedAt: now
+    };
+    const jobs = browserAnalysisJobs.get(input.projectPath) ?? [];
+    browserAnalysisJobs.set(input.projectPath, [job, ...jobs.filter((item) => item.id !== jobId)]);
+    onProgress?.({
+      jobId,
+      status: "completed",
+      completedTasks: job.completedTasks,
+      totalTasks: job.tasks.length,
+      currentChapterId: selected.at(-1)?.id,
+      checkpoint: job.checkpoint
+    });
+    return structuredClone(job);
+  },
+  async listAnalysisJobs(projectPath: string) {
+    return structuredClone(browserAnalysisJobs.get(projectPath) ?? []);
+  },
+  async pauseAnalysisJob(projectPath: string, jobId: string) {
+    const job = browserAnalysisJobs.get(projectPath)?.find((item) => item.id === jobId);
+    if (!job) throw new Error("Analysis job not found.");
+    return structuredClone(job);
+  },
+  async resumeAnalysisJob(
+    projectPath: string,
+    jobId: string,
+    onProgress?: (progress: import("../../electron/services/ContinuationTypes.js").AnalysisProgress) => void
+  ) {
+    const job = browserAnalysisJobs.get(projectPath)?.find((item) => item.id === jobId);
+    if (!job) throw new Error("Analysis job not found.");
+    onProgress?.({
+      jobId,
+      status: job.status,
+      completedTasks: job.completedTasks,
+      totalTasks: job.tasks.length,
+      checkpoint: job.checkpoint
+    });
+    return structuredClone(job);
+  },
+  async cancelAnalysisJob(projectPath: string, jobId: string) {
+    const job = browserAnalysisJobs.get(projectPath)?.find((item) => item.id === jobId);
+    if (!job) throw new Error("Analysis job not found.");
+    if (job.status === "completed") return structuredClone(job);
+    const next = { ...job, status: "cancelled" as const, updatedAt: new Date().toISOString() };
+    browserAnalysisJobs.set(projectPath, [
+      next,
+      ...(browserAnalysisJobs.get(projectPath) ?? []).filter((item) => item.id !== jobId)
+    ]);
+    return structuredClone(next);
+  },
+  async indexChapter(projectPath: string, input: IndexChapterInput) {
+    const content = input.content ?? input.text ?? "";
+    const hash = browserHash(content);
+    const chunk = {
+      id: `browser-chunk-${input.chapterId}-0`,
+      chapterId: input.chapterId,
+      chapterTitle: input.title || input.chapterId,
+      chunkIndex: 0,
+      startOffset: 0,
+      endOffset: content.length,
+      text: content,
+      contentHash: hash,
+      chapterContentHash: hash,
+      vector: [],
+      sceneId: input.scenes?.[0]?.id,
+      sceneTitle: input.scenes?.[0]?.title
+    };
+    const current = browserChunkIndexes.get(projectPath) ?? [];
+    const next = [chunk, ...current.filter((item) => item.chapterId !== input.chapterId)];
+    browserChunkIndexes.set(projectPath, next);
+    return {
+      chapterId: input.chapterId,
+      changed: true,
+      contentHash: hash,
+      chunks: [chunk],
+      indexedChunks: 1,
+      totalChunks: next.length,
+      generation: next.length
+    };
+  },
+  async indexProject(inputOrProject: IndexProjectInput | string) {
+    const input: IndexProjectInput =
+      typeof inputOrProject === "string"
+        ? {
+            projectPath: inputOrProject,
+            chapters: browserProjectChapters(inputOrProject).map((chapter) => ({
+              chapterId: chapter.id,
+              title: chapter.title,
+              content: getProjectRecord(inputOrProject).chapterBodies[chapter.file] ?? "",
+              chapterNumber: chapter.number
+            }))
+          }
+        : inputOrProject;
+    const results = [];
+    for (const chapter of input.chapters) results.push(await this.indexChapter(input.projectPath, chapter));
+    return results;
+  },
+  async getChunkIndexStats(projectPath: string) {
+    const chunks = browserChunkIndexes.get(projectPath) ?? [];
+    const chapters = new Set(chunks.map((item) => item.chapterId)).size;
+    return {
+      generation: chunks.length,
+      chapters,
+      chunks: chunks.length,
+      chapterCount: chapters,
+      chunkCount: chunks.length,
+      embeddingProviderId: "browser-mock",
+      embeddingDimensions: 0
+    };
+  },
+  async searchContinuation(
+    projectPath: string,
+    query: string,
+    options?: import("../../electron/services/HybridRetriever.js").HybridRetrieveOptions
+  ) {
+    const chunks = browserChunkIndexes.get(projectPath) ?? [];
+    const needle = query.trim().toLocaleLowerCase("zh-CN");
+    const limit = Math.max(1, Math.min(100, Math.trunc(options?.limit ?? 20)));
+    const hits = !needle
+      ? []
+      : chunks
+          .filter((chunk) => `${chunk.chapterTitle}\n${chunk.text}`.toLocaleLowerCase("zh-CN").includes(needle))
+          .slice(0, limit)
+          .map((chunk) => {
+            const offset = chunk.text.toLocaleLowerCase("zh-CN").indexOf(needle);
+            const excerpt = chunk.text.slice(
+              Math.max(0, offset - 120),
+              Math.min(chunk.text.length, offset + needle.length + 240)
+            );
+            const source = {
+              chapterId: chunk.chapterId,
+              sceneId: chunk.sceneId,
+              startOffset: chunk.startOffset + Math.max(0, offset - 120),
+              endOffset: chunk.startOffset + Math.max(0, offset - 120) + excerpt.length,
+              excerpt,
+              contentHash: chunk.contentHash
+            };
+            return {
+              id: chunk.id,
+              chunkId: chunk.id,
+              chapterId: chunk.chapterId,
+              chapterTitle: chunk.chapterTitle,
+              sceneId: chunk.sceneId,
+              score: 1,
+              lexicalScore: 1,
+              semanticScore: 0,
+              mode: "lexical" as const,
+              retrievalMode: "lexical" as const,
+              snippet: excerpt,
+              source,
+              evidence: source,
+              chunkStartOffset: chunk.startOffset,
+              chunkEndOffset: chunk.endOffset,
+              contentHash: chunk.contentHash
+            };
+          });
+    return {
+      hits,
+      mode: "lexical" as const,
+      retrievalMode: "lexical" as const,
+      semanticAvailable: false,
+      indexedChunks: chunks.length,
+      query: query.trim()
+    };
+  },
+  async listCanonFacts(projectPath: string, filter?: import("../../electron/services/CanonStore.js").CanonFactFilter) {
+    return structuredClone(
+      (browserCanonFacts.get(projectPath) ?? []).filter((fact) => {
+        if (filter?.id && fact.id !== filter.id) return false;
+        if (filter?.subjectId && fact.subjectId !== filter.subjectId) return false;
+        if (filter?.predicate && fact.predicate !== filter.predicate) return false;
+        if (filter?.status && !(Array.isArray(filter.status) ? filter.status : [filter.status]).includes(fact.status))
+          return false;
+        return !(filter?.authorLockedOnly && fact.status !== "author_locked");
+      })
+    );
+  },
+  async saveCanonFact(inputOrProject: SaveCanonFactInput | string, fact?: CanonFact) {
+    const input: SaveCanonFactInput =
+      typeof inputOrProject === "string" ? { projectPath: inputOrProject, fact: fact! } : inputOrProject;
+    const parsed = CanonFactSchema.parse(input.fact);
+    const current = browserCanonFacts.get(input.projectPath) ?? [];
+    browserCanonFacts.set(input.projectPath, [...current.filter((fact) => fact.id !== parsed.id), parsed]);
+    return structuredClone(parsed);
+  },
+  async setCanonFactStatus(projectPath: string, factId: string, status: CanonFactStatus) {
+    const current = browserCanonFacts.get(projectPath) ?? [];
+    const fact = current.find((item) => item.id === factId);
+    if (!fact) throw new Error("Canon fact not found.");
+    const parsed = CanonFactSchema.parse({ ...fact, status, updatedAt: new Date().toISOString() });
+    browserCanonFacts.set(
+      projectPath,
+      current.map((item) => (item.id === factId ? parsed : item))
+    );
+    return structuredClone(parsed);
+  },
+  async listStoryThreads(
+    projectPath: string,
+    filter?: import("../../electron/services/StoryThreadService.js").StoryThreadFilter
+  ) {
+    return structuredClone(
+      (browserStoryThreads.get(projectPath) ?? []).filter((thread) => {
+        if (filter?.id && thread.id !== filter.id) return false;
+        if (filter?.locked !== undefined && thread.locked !== filter.locked) return false;
+        if (filter?.type && !(Array.isArray(filter.type) ? filter.type : [filter.type]).includes(thread.type))
+          return false;
+        if (filter?.status && !(Array.isArray(filter.status) ? filter.status : [filter.status]).includes(thread.status))
+          return false;
+        return true;
+      })
+    );
+  },
+  async saveStoryThread(inputOrProject: SaveStoryThreadInput | string, thread?: StoryThread) {
+    const input: SaveStoryThreadInput =
+      typeof inputOrProject === "string" ? { projectPath: inputOrProject, thread: thread! } : inputOrProject;
+    const parsed = StoryThreadSchema.parse(input.thread);
+    const current = browserStoryThreads.get(input.projectPath) ?? [];
+    browserStoryThreads.set(input.projectPath, [...current.filter((thread) => thread.id !== parsed.id), parsed]);
+    return structuredClone(parsed);
+  },
+  async setStoryThreadStatus(projectPath: string, threadId: string, status: StoryThreadStatus) {
+    const current = browserStoryThreads.get(projectPath) ?? [];
+    const thread = current.find((item) => item.id === threadId);
+    if (!thread) throw new Error("Story thread not found.");
+    const parsed = StoryThreadSchema.parse({ ...thread, status, updatedAt: new Date().toISOString() });
+    browserStoryThreads.set(
+      projectPath,
+      current.map((item) => (item.id === threadId ? parsed : item))
+    );
+    return structuredClone(parsed);
+  },
+  async analyzeStyleProfile(projectPath: string, options?: { chapterIds?: string[]; maxExemplarsPerType?: number }) {
+    const chapters = browserProjectChapters(projectPath).filter(
+      (chapter) => !chapter.archived && (!options?.chapterIds?.length || options.chapterIds.includes(chapter.id))
+    );
+    const profile = browserEnsureStyle(projectPath);
+    const exemplars: Record<
+      string,
+      Array<{ chapterId: string; startOffset: number; endOffset: number; excerpt: string; contentHash: string }>
+    > = { narrative: [], dialogue: [] };
+    let chars = 0;
+    let dialogue = 0;
+    const sourceChapterHashes: Record<string, string> = {};
+    for (const chapter of chapters) {
+      const content = getProjectRecord(projectPath).chapterBodies[chapter.file] ?? "";
+      if (!content.trim()) continue;
+      chars += content.length;
+      dialogue += (content.match(/[“”「」『』]/gu) ?? []).length;
+      const hash = browserHash(content);
+      sourceChapterHashes[chapter.id] = hash;
+      const excerpt = content.slice(0, 420);
+      const kind = dialogue >= 0.18 ? "dialogue" : "narrative";
+      if ((exemplars[kind]?.length ?? 0) < Math.max(1, Math.min(12, options?.maxExemplarsPerType ?? 4))) {
+        exemplars[kind].push({
+          chapterId: chapter.id,
+          startOffset: 0,
+          endOffset: excerpt.length,
+          excerpt,
+          contentHash: hash
+        });
+      }
+    }
+    const next = StyleProfileSchema.parse({
+      ...profile,
+      version: profile.version + 1,
+      sentenceLengthMean: chars ? Math.max(1, Math.round(chars / Math.max(1, chapters.length))) : 0,
+      paragraphLengthMean: chars ? Math.max(1, Math.round(chars / Math.max(1, chapters.length))) : 0,
+      dialogueRatio: chars ? Math.min(1, dialogue / chars) : 0,
+      sourceChapterHashes,
+      sceneExemplars: exemplars,
+      evidence: [...exemplars.narrative, ...exemplars.dialogue],
+      updatedAt: new Date().toISOString()
+    });
+    browserStyleProfiles.set(projectPath, next);
+    return {
+      profile: structuredClone(next),
+      analyzedChapters: chapters.length,
+      analyzedCharacters: chars,
+      skippedChapters: []
+    };
+  },
+  async loadStyleProfile(projectPath: string) {
+    return browserStyleProfiles.get(projectPath) ? structuredClone(browserStyleProfiles.get(projectPath)) : undefined;
+  },
+  async evaluateStyle(projectPath: string, text: string, tolerance = 0.35) {
+    const profile = browserStyleProfiles.get(projectPath);
+    if (!profile) throw new Error("Please analyze a style profile first.");
+    const baseline = profile.dialogueRatio ?? 0;
+    const actual = text.length ? (text.match(/[“”「」『』]/gu) ?? []).length / text.length : 0;
+    const relativeDelta = baseline ? Math.abs(actual - baseline) / baseline : actual;
+    const score = Math.max(0, Math.round(100 - Math.min(1, relativeDelta / Math.max(0.01, tolerance)) * 100));
+    return {
+      score,
+      warnings: score < 70 ? ["Dialogue ratio differs from the stored baseline."] : [],
+      deltas: [
+        {
+          metric: "dialogueRatio",
+          baseline,
+          actual,
+          relativeDelta,
+          severity: score < 70 ? ("warning" as const) : ("info" as const)
+        }
+      ]
+    };
+  },
+  async compileContinuationContext(input: import("../../electron/services/ContextCompiler.js").CompileContextInput) {
+    const contract = ChapterContractSchema.parse(input.contract);
+    const chapters = browserProjectChapters(input.projectPath);
+    const chapterIndex = chapters.findIndex((chapter) => chapter.id === input.chapterId);
+    const previous = chapterIndex > 0 ? chapters[chapterIndex - 1] : undefined;
+    const previousContent = previous ? (getProjectRecord(input.projectPath).chapterBodies[previous.file] ?? "") : "";
+    const immediateContinuity =
+      previous && previousContent.trim()
+        ? [
+            {
+              chapterId: previous.id,
+              startOffset: Math.max(0, previousContent.length - 1800),
+              endOffset: previousContent.length,
+              excerpt: previousContent.slice(-1800),
+              contentHash: browserHash(previousContent)
+            }
+          ]
+        : [];
+    const facts = await this.listCanonFacts(input.projectPath);
+    const threads = await this.listStoryThreads(input.projectPath);
+    const retrieval = await this.searchContinuation(
+      input.projectPath,
+      [input.instruction, contract.title, ...contract.mustHappen].filter(Boolean).join(" "),
+      { limit: input.retrievalLimit ?? 20 }
+    );
+    const profile = browserStyleProfiles.get(input.projectPath);
+    const tokenUsageBySection = {
+      hardConstraints: 0,
+      immediateContinuity: immediateContinuity.length,
+      activeCharacterStates: 0,
+      dueThreads: threads.length,
+      retrievedEvidence: retrieval.hits.length,
+      styleExemplars: profile?.evidence.length ?? 0,
+      chapterContract: 1
+    };
+    return EvidencePackSchema.parse({
+      hardConstraints: facts.filter((fact) => fact.status === "author_locked"),
+      immediateContinuity,
+      chapterContract: contract,
+      activeCharacterStates: facts.filter((fact) => fact.status !== "rejected"),
+      dueThreads: threads,
+      retrievedEvidence: retrieval.hits.map((hit) => hit.evidence),
+      styleExemplars: profile?.evidence ?? [],
+      exclusions: [],
+      tokenUsageBySection,
+      omittedSections: [],
+      generatedAt: new Date().toISOString(),
+      query: input.instruction ?? contract.title
+    });
+  },
+  async listContinuationRuns(projectPath: string, chapterId?: string) {
+    return structuredClone(
+      (browserContinuationRuns.get(projectPath) ?? []).filter((run) => !chapterId || run.chapterId === chapterId)
+    );
+  },
+  async startContinuationRun(input: ContinuationRunInput): Promise<ContinuationRunResult> {
+    const contract = ChapterContractSchema.parse(input.contract);
+    const now = new Date().toISOString();
+    const id = input.runId?.trim() || `browser-run-${Date.now()}`;
+    const evidencePack = await this.compileContinuationContext({
+      projectPath: input.projectPath,
+      chapterId: input.chapterId,
+      contract,
+      instruction: input.instruction,
+      tokenBudget: input.tokenBudget,
+      retrievalLimit: input.retrievalLimit
+    });
+    const draft = `${input.instruction?.trim() || "继续推进本章冲突"}\n\n（浏览器演示草稿：请在桌面版生成并审阅正文。）`;
+    const run: ContinuationRun = {
+      schemaVersion: 1,
+      id,
+      projectPath: input.projectPath,
+      chapterId: input.chapterId,
+      contract,
+      instruction: input.instruction ?? "",
+      status: "completed",
+      checkpoint: { phase: "completed", updatedAt: now, message: "Browser demo run completed." },
+      evidencePack,
+      draft,
+      validation: { canApply: true, hardFailures: 0, softWarnings: 0, findings: [] },
+      createdAt: now,
+      updatedAt: now
+    };
+    const runs = browserContinuationRuns.get(input.projectPath) ?? [];
+    browserContinuationRuns.set(input.projectPath, [run, ...runs.filter((item) => item.id !== id)]);
+    return {
+      run: structuredClone(run),
+      id,
+      status: run.status,
+      projectPath: run.projectPath,
+      chapterId: run.chapterId,
+      checkpoint: run.checkpoint,
+      evidencePack,
+      validation: run.validation,
+      draft
+    };
+  },
+  async retryContinuationRun(projectPath, runId, options = {}) {
+    const previous = (browserContinuationRuns.get(projectPath) ?? []).find((run) => run.id === runId);
+    if (!previous) throw new Error("续写运行不存在。");
+    return this.startContinuationRun({
+      projectPath,
+      chapterId: previous.chapterId,
+      contract: previous.contract,
+      instruction: options.instruction ?? previous.instruction
+    });
+  },
+  async cancelContinuationRun(projectPath, runId) {
+    const runs = browserContinuationRuns.get(projectPath) ?? [];
+    const previous = runs.find((run) => run.id === runId);
+    if (!previous) throw new Error("续写运行不存在。");
+    const cancelled: ContinuationRun = {
+      ...previous,
+      status: "cancelled",
+      checkpoint: { phase: "cancelled", updatedAt: new Date().toISOString(), message: "Cancelled." },
+      updatedAt: new Date().toISOString()
+    };
+    browserContinuationRuns.set(
+      projectPath,
+      runs.map((run) => (run.id === runId ? cancelled : run))
+    );
+    return structuredClone(cancelled);
+  },
   async listProviderPresets() {
     return structuredClone(browserProviderPresets);
   },
@@ -1702,12 +2408,10 @@ export const bridge: InkforgeApi = new Proxy(browserBridge, {
       return electronValue.bind(electronBridge);
     }
     if (typeof browserValue === "function") {
-      return () =>
-        Promise.reject(
-          new Error(
-            `Electron bridge method "${String(key)}" is unavailable. Browser demo fallback is disabled while preload is present.`
-          )
-        );
+      // Keep the browser mirror usable while an older preload is running. A
+      // newly added API can therefore be exercised in the web demo without
+      // turning a missing Electron method into a hard failure.
+      return browserValue.bind(target);
     }
     return browserValue;
   }

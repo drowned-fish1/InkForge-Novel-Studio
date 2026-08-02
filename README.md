@@ -92,5 +92,6 @@ Files under `.inkforge/` are local app state/cache and should not be committed w
 
 - `docs/user-guide.md` — end-user walkthrough of every module.
 - `docs/architecture.md`, `docs/dev-guide.md` — codebase orientation.
+- `docs/long-novel-continuation-design.md` — 600–700 万字未完结小说的续写工程改造设计。
 - `docs/v1-implementation-status.md` — v1.0 RC phase log, decisions and known limitations.
 - `docs/release-windows.md` — Windows packaging, installer verification, update feed and signing integration.

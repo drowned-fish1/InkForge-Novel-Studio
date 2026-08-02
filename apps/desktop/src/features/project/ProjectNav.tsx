@@ -2,6 +2,7 @@ import {
   Archive as ArchiveIcon,
   BookMarked,
   BookOpen,
+  BrainCircuit,
   Boxes,
   ChevronDown,
   ChevronRight,
@@ -60,7 +61,8 @@ const moduleGroups = [
       ["outline", "大纲", ListTree],
       ["chapters", "章节写作台", PenLine],
       ["drafts", "草稿箱", FileText],
-      ["revision", "修订工作台", ClipboardCheck]
+      ["revision", "修订工作台", ClipboardCheck],
+      ["continuation", "续写工程", BrainCircuit]
     ]
   },
   {

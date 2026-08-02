@@ -10,11 +10,14 @@ import type {
   SimulationScenario,
   WritingWorkspace
 } from "@inkforge/schemas";
+import { ChapterContractSchema } from "@inkforge/schemas";
 import type {
   AgentChangeResolutionInput,
   AgentDataResolutionInput,
   AgentChatInput,
   AgentSessionCommandInput,
+  AnalysisJobStartInput,
+  CorpusImportStartInput,
   CreateBatchRunInput,
   CreateChapterInput,
   CreateProjectInput,
@@ -66,6 +69,16 @@ import { StoryReferenceService } from "./services/StoryReferenceService.js";
 import { StoryStateService } from "./services/StoryStateService.js";
 import { SummaryService } from "./services/SummaryService.js";
 import { WorkspaceService } from "./services/WorkspaceService.js";
+import { AnalysisJobService } from "./services/AnalysisJobService.js";
+import { CanonStore } from "./services/CanonStore.js";
+import { ChunkIndexService } from "./services/ChunkIndexService.js";
+import { ContextCompiler } from "./services/ContextCompiler.js";
+import { ContinuationOrchestrator } from "./services/ContinuationOrchestrator.js";
+import { CorpusAdoptionService } from "./services/CorpusAdoptionService.js";
+import { CorpusImportService } from "./services/CorpusImportService.js";
+import { HybridRetriever } from "./services/HybridRetriever.js";
+import { StoryThreadService } from "./services/StoryThreadService.js";
+import { StyleProfileService } from "./services/StyleProfileService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -109,6 +122,23 @@ const projectSearch = new ProjectSearchService(files, projects, library, storySt
 const narrativeBoards = new NarrativeBoardService(files);
 const playableExports = new PlayableExportService(projects, files, narrativeBoards);
 const simulations = new SimulationService(files, library, aiProvider);
+const corpusImports = new CorpusImportService(files);
+const corpusAdoption = new CorpusAdoptionService(files, projects, corpusImports);
+const analysisJobs = new AnalysisJobService(files, corpusImports);
+const chunkIndex = new ChunkIndexService(files);
+const hybridRetriever = new HybridRetriever(chunkIndex);
+const canonStore = new CanonStore(files);
+const storyThreads = new StoryThreadService(files);
+const styleProfiles = new StyleProfileService(files, projects);
+const contextCompiler = new ContextCompiler(files, projects, canonStore, storyThreads, hybridRetriever);
+const continuationRuns = new ContinuationOrchestrator({
+  files,
+  projects,
+  provider: aiProvider,
+  branches,
+  compiler: contextCompiler,
+  styles: styleProfiles
+});
 
 const windowBackgrounds = {
   light: "#f4f2ed",
@@ -118,6 +148,101 @@ let hasManualWindowTheme = false;
 
 const resolvedWindowBackground = (): string =>
   nativeTheme.shouldUseDarkColors ? windowBackgrounds.dark : windowBackgrounds.light;
+
+type UnknownRecord = Record<string, unknown>;
+
+const asRecord = (value: unknown, label: string): UnknownRecord => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  return value as UnknownRecord;
+};
+
+const requiredString = (value: unknown, label: string): string => {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${label} must be a non-empty string.`);
+  }
+  return value.trim();
+};
+
+const optionalString = (value: unknown, label: string): string | undefined => {
+  if (value === undefined || value === null || value === "") return undefined;
+  return requiredString(value, label);
+};
+
+const optionalNumber = (value: unknown, label: string): number | undefined => {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${label} must be a finite number.`);
+  }
+  return value;
+};
+
+const optionalBoolean = (value: unknown, label: string): boolean | undefined => {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "boolean") throw new Error(`${label} must be a boolean.`);
+  return value;
+};
+
+const validateCorpusImportInput = (value: unknown): CorpusImportStartInput => {
+  const input = asRecord(value, "Corpus import input");
+  const importId = optionalString(input.importId, "importId");
+  const sourcePath = optionalString(input.sourcePath, "sourcePath");
+  if (!sourcePath && !importId) throw new Error("sourcePath or importId is required.");
+  const encoding = input.encoding;
+  if (encoding !== undefined && encoding !== "utf8" && encoding !== "gb18030") {
+    throw new Error("encoding must be utf8 or gb18030.");
+  }
+  return {
+    projectPath: requiredString(input.projectPath, "projectPath"),
+    sourcePath: sourcePath ?? "",
+    importId,
+    encoding,
+    headingPattern: optionalString(input.headingPattern, "headingPattern")
+  };
+};
+
+const validateAnalysisJobInput = (value: unknown): AnalysisJobStartInput => {
+  const input = asRecord(value, "Analysis job input");
+  if (input.chapterIds !== undefined) {
+    if (!Array.isArray(input.chapterIds) || input.chapterIds.some((item) => typeof item !== "string" || !item.trim())) {
+      throw new Error("chapterIds must be an array of non-empty strings.");
+    }
+  }
+  return {
+    projectPath: requiredString(input.projectPath, "projectPath"),
+    importId: requiredString(input.importId, "importId"),
+    jobId: optionalString(input.jobId, "jobId"),
+    chapterIds: input.chapterIds as string[] | undefined,
+    force: optionalBoolean(input.force, "force")
+  };
+};
+
+const validateAdoptCorpusInput = (value: unknown) => {
+  const input = asRecord(value, "Corpus adoption input");
+  const volumeSize = optionalNumber(input.volumeSize, "volumeSize");
+  if (volumeSize !== undefined && (!Number.isInteger(volumeSize) || volumeSize < 1)) {
+    throw new Error("volumeSize must be a positive integer.");
+  }
+  return {
+    projectPath: requiredString(input.projectPath, "projectPath"),
+    importId: requiredString(input.importId, "importId"),
+    volumeSize,
+    includeDuplicates: optionalBoolean(input.includeDuplicates, "includeDuplicates"),
+    volumeTitlePrefix: optionalString(input.volumeTitlePrefix, "volumeTitlePrefix")
+  };
+};
+
+const validateProjectPathAndId = (projectPath: unknown, id: unknown, idLabel: string): [string, string] => [
+  requiredString(projectPath, "projectPath"),
+  requiredString(id, idLabel)
+];
+
+const validateStatus = (value: unknown, allowed: readonly string[], label: string): string => {
+  const status = requiredString(value, label);
+  if (!allowed.includes(status)) throw new Error(`${label} is invalid.`);
+  return status;
+};
 
 const setWindowBackground = (theme: keyof typeof windowBackgrounds): void => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -266,6 +391,29 @@ const registerIpc = (): void => {
 
   ipcMain.handle("chapter:save", async (_event, input: SaveChapterInput) => {
     await chapters.saveChapter(input);
+    try {
+      const project = await projects.openProject(input.projectPath);
+      const entry = project.outline.volumes
+        .flatMap((volume) => volume.chapters.map((chapter) => ({ volume, chapter })))
+        .find(({ chapter }) => chapter.file === input.file);
+      if (entry) {
+        await chunkIndex.indexChapter(input.projectPath, {
+          chapterId: entry.chapter.id,
+          title: entry.chapter.title,
+          content: input.content,
+          volumeId: entry.volume.id,
+          volumeTitle: entry.volume.title,
+          chapterNumber: entry.chapter.number
+        });
+      }
+    } catch (error) {
+      const project = await projects.openProject(input.projectPath).catch(() => undefined);
+      const chapterId = project?.outline.volumes
+        .flatMap((volume) => volume.chapters)
+        .find((chapter) => chapter.file === input.file)?.id;
+      if (chapterId) await chunkIndex.removeChapter(input.projectPath, chapterId).catch(() => undefined);
+      console.error("Continuation index update failed; stale chapter entry was removed:", error);
+    }
     void workspace
       .ensureAutomaticBackup(input.projectPath)
       .catch((error) => console.error("Automatic backup failed:", error));
@@ -352,6 +500,13 @@ const registerIpc = (): void => {
     const result = await dialog.showOpenDialog({
       title: "选择 InkForge 项目文件夹",
       properties: ["openDirectory"]
+    });
+    return result.canceled || !result.filePaths.length ? undefined : result.filePaths[0];
+  });
+  ipcMain.handle("continuation:choose-source", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "选择长篇小说源文件或目录",
+      properties: ["openFile", "openDirectory"]
     });
     return result.canceled || !result.filePaths.length ? undefined : result.filePaths[0];
   });
@@ -684,4 +839,243 @@ const registerIpc = (): void => {
   ipcMain.handle("provider:presets", () => aiProvider.listPresets());
   ipcMain.handle("provider:probe", () => aiProvider.probeProvider());
   ipcMain.handle("release:readiness", async (_event, projectPath: string) => release.inspect(projectPath));
+
+  // Long-novel continuation IPC. Requests are validated at the boundary
+  // because preload input may be supplied by an untrusted renderer.
+  ipcMain.handle("continuation:import:start", async (event, rawInput: unknown) => {
+    const input = validateCorpusImportInput(rawInput);
+    return corpusImports.start({
+      ...input,
+      onProgress: (progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send("continuation:import:progress", progress.importId, progress);
+      }
+    });
+  });
+  ipcMain.handle("continuation:import:list", async (_event, projectPath: unknown) =>
+    corpusImports.list(requiredString(projectPath, "projectPath"))
+  );
+  ipcMain.handle("continuation:import:pause", async (_event, projectPath: unknown, importId: unknown) => {
+    const [project, id] = validateProjectPathAndId(projectPath, importId, "importId");
+    return corpusImports.pause(project, id);
+  });
+  ipcMain.handle("continuation:import:resume", async (event, projectPath: unknown, importId: unknown) => {
+    const [project, id] = validateProjectPathAndId(projectPath, importId, "importId");
+    return corpusImports.resume(project, id, (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send("continuation:import:progress", progress.importId, progress);
+    });
+  });
+  ipcMain.handle("continuation:import:cancel", async (_event, projectPath: unknown, importId: unknown) => {
+    const [project, id] = validateProjectPathAndId(projectPath, importId, "importId");
+    return corpusImports.cancel(project, id);
+  });
+  ipcMain.handle("continuation:adopt", async (_event, rawInput: unknown) =>
+    corpusAdoption.adopt(validateAdoptCorpusInput(rawInput))
+  );
+
+  ipcMain.handle("continuation:analysis:start", async (event, rawInput: unknown) => {
+    const input = validateAnalysisJobInput(rawInput);
+    return analysisJobs.start({
+      ...input,
+      onProgress: (progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send("continuation:analysis:progress", progress.jobId, progress);
+      }
+    });
+  });
+  ipcMain.handle("continuation:analysis:list", async (_event, projectPath: unknown) =>
+    analysisJobs.list(requiredString(projectPath, "projectPath"))
+  );
+  ipcMain.handle("continuation:analysis:pause", async (_event, projectPath: unknown, jobId: unknown) => {
+    const [project, id] = validateProjectPathAndId(projectPath, jobId, "jobId");
+    return analysisJobs.pause(project, id);
+  });
+  ipcMain.handle("continuation:analysis:resume", async (event, projectPath: unknown, jobId: unknown) => {
+    const [project, id] = validateProjectPathAndId(projectPath, jobId, "jobId");
+    return analysisJobs.resume(project, id, (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send("continuation:analysis:progress", progress.jobId, progress);
+    });
+  });
+  ipcMain.handle("continuation:analysis:cancel", async (_event, projectPath: unknown, jobId: unknown) => {
+    const [project, id] = validateProjectPathAndId(projectPath, jobId, "jobId");
+    return analysisJobs.cancel(project, id);
+  });
+
+  ipcMain.handle("continuation:index:chapter", async (_event, projectPath: unknown, rawInput: unknown) => {
+    const project = requiredString(projectPath, "projectPath");
+    const input = asRecord(rawInput, "Index chapter input");
+    requiredString(input.chapterId, "chapterId");
+    if (input.title !== undefined) requiredString(input.title, "title");
+    if (input.content !== undefined && typeof input.content !== "string") throw new Error("content must be a string.");
+    if (input.text !== undefined && typeof input.text !== "string") throw new Error("text must be a string.");
+    return chunkIndex.indexChapter(project, input as never);
+  });
+  ipcMain.handle("continuation:index:project", async (_event, rawInput: unknown) => {
+    if (typeof rawInput === "string") {
+      const projectPath = requiredString(rawInput, "projectPath");
+      const project = await projects.openProject(projectPath);
+      const chapters = [];
+      for (const volume of project.outline.volumes) {
+        for (const chapter of volume.chapters) {
+          const content = await files.readText(files.assertInsideProject(projectPath, chapter.file)).catch(() => "");
+          chapters.push({
+            chapterId: chapter.id,
+            title: chapter.title,
+            content,
+            volumeId: volume.id,
+            volumeTitle: volume.title,
+            chapterNumber: chapter.number
+          });
+        }
+      }
+      return chunkIndex.indexChapters(projectPath, chapters);
+    }
+    const input = asRecord(rawInput, "Index project input");
+    const projectPath = requiredString(input.projectPath, "projectPath");
+    if (!Array.isArray(input.chapters)) throw new Error("chapters must be an array.");
+    for (const chapter of input.chapters) {
+      const item = asRecord(chapter, "chapter");
+      requiredString(item.chapterId, "chapterId");
+      if (item.title !== undefined) requiredString(item.title, "title");
+    }
+    return chunkIndex.indexChapters(projectPath, input.chapters as never);
+  });
+  ipcMain.handle("continuation:index:stats", async (_event, projectPath: unknown) => {
+    const stats = await chunkIndex.getStats(requiredString(projectPath, "projectPath"));
+    return { ...stats, chapterCount: stats.chapters, chunkCount: stats.chunks };
+  });
+  ipcMain.handle(
+    "continuation:index:search",
+    async (_event, projectPath: unknown, query: unknown, options?: unknown) => {
+      const project = requiredString(projectPath, "projectPath");
+      if (typeof query !== "string") throw new Error("query must be a string.");
+      if (options !== undefined) asRecord(options, "search options");
+      return hybridRetriever.search(project, query, (options ?? {}) as never);
+    }
+  );
+
+  ipcMain.handle("continuation:canon:list", async (_event, projectPath: unknown, filter?: unknown) => {
+    const project = requiredString(projectPath, "projectPath");
+    if (filter !== undefined) asRecord(filter, "canon filter");
+    return canonStore.listFacts(project, (filter ?? {}) as never);
+  });
+  ipcMain.handle("continuation:canon:save", async (_event, rawInput: unknown) => {
+    const input = asRecord(rawInput, "canon fact input");
+    const projectPath = requiredString(input.projectPath, "projectPath");
+    asRecord(input.fact, "fact");
+    return canonStore.saveFact(projectPath, input.fact as never);
+  });
+  ipcMain.handle(
+    "continuation:canon:status",
+    async (_event, projectPath: unknown, factId: unknown, status: unknown) => {
+      const [project, id] = validateProjectPathAndId(projectPath, factId, "factId");
+      const parsed = validateStatus(
+        status,
+        ["candidate", "confirmed", "author_locked", "conflicted", "rejected"],
+        "status"
+      );
+      return canonStore.setFactStatus(project, id, parsed as never);
+    }
+  );
+
+  ipcMain.handle("continuation:threads:list", async (_event, projectPath: unknown, filter?: unknown) => {
+    const project = requiredString(projectPath, "projectPath");
+    if (filter !== undefined) asRecord(filter, "thread filter");
+    return storyThreads.listThreads(project, (filter ?? {}) as never);
+  });
+  ipcMain.handle("continuation:threads:save", async (_event, rawInput: unknown) => {
+    const input = asRecord(rawInput, "story thread input");
+    const projectPath = requiredString(input.projectPath, "projectPath");
+    asRecord(input.thread, "thread");
+    return storyThreads.saveThread(projectPath, input.thread as never);
+  });
+  ipcMain.handle(
+    "continuation:threads:status",
+    async (_event, projectPath: unknown, threadId: unknown, status: unknown) => {
+      const [project, id] = validateProjectPathAndId(projectPath, threadId, "threadId");
+      const parsed = validateStatus(
+        status,
+        ["candidate", "active", "progressing", "due", "resolved", "abandoned"],
+        "status"
+      );
+      return storyThreads.setStatus(project, id, parsed as never);
+    }
+  );
+
+  ipcMain.handle("continuation:style:analyze", async (_event, projectPath: unknown, options?: unknown) => {
+    const project = requiredString(projectPath, "projectPath");
+    if (options !== undefined) asRecord(options, "style options");
+    return styleProfiles.analyzeProject(project, (options ?? {}) as never);
+  });
+  ipcMain.handle("continuation:style:load", async (_event, projectPath: unknown) =>
+    styleProfiles.load(requiredString(projectPath, "projectPath"))
+  );
+  ipcMain.handle(
+    "continuation:style:evaluate",
+    async (_event, projectPath: unknown, text: unknown, tolerance?: unknown) => {
+      const project = requiredString(projectPath, "projectPath");
+      if (typeof text !== "string") throw new Error("text must be a string.");
+      const parsedTolerance = optionalNumber(tolerance, "tolerance");
+      return styleProfiles.evaluateText(project, text, parsedTolerance);
+    }
+  );
+  ipcMain.handle("continuation:context:compile", async (_event, rawInput: unknown) => {
+    const input = asRecord(rawInput, "context input");
+    requiredString(input.projectPath, "projectPath");
+    requiredString(input.chapterId, "chapterId");
+    asRecord(input.contract, "contract");
+    return contextCompiler.compile(input as never);
+  });
+  ipcMain.handle("continuation:run:list", async (_event, projectPath: unknown, chapterId?: unknown) => {
+    const project = requiredString(projectPath, "projectPath");
+    const runs = await continuationRuns.list(project);
+    if (chapterId === undefined) return runs;
+    const chapter = requiredString(chapterId, "chapterId");
+    return runs.filter((run) => run.chapterId === chapter);
+  });
+  ipcMain.handle("continuation:run:start", async (_event, rawInput: unknown) => {
+    const input = asRecord(rawInput, "continuation run input");
+    const projectPath = requiredString(input.projectPath, "projectPath");
+    const chapterId = requiredString(input.chapterId, "chapterId");
+    const contract = ChapterContractSchema.parse(input.contract);
+    if (contract.chapterId && contract.chapterId !== chapterId) {
+      throw new Error("章节契约与续写目标章节不一致。");
+    }
+    return continuationRuns.start({
+      projectPath,
+      chapterId,
+      contract,
+      instruction: optionalString(input.instruction, "instruction"),
+      runId: optionalString(input.runId, "runId"),
+      requestId: optionalString(input.requestId, "requestId"),
+      tokenBudget: optionalNumber(input.tokenBudget, "tokenBudget"),
+      retrievalLimit: optionalNumber(input.retrievalLimit, "retrievalLimit"),
+      maxOutputTokens: optionalNumber(input.maxOutputTokens, "maxOutputTokens"),
+      modelOverride: optionalString(input.modelOverride, "modelOverride"),
+      useEditorModel: input.useEditorModel === true,
+      branchName: optionalString(input.branchName, "branchName"),
+      branchDescription: optionalString(input.branchDescription, "branchDescription")
+    });
+  });
+  ipcMain.handle(
+    "continuation:run:retry",
+    async (_event, projectPath: unknown, runId: unknown, rawOptions?: unknown) => {
+      const [project, id] = validateProjectPathAndId(projectPath, runId, "runId");
+      if (rawOptions === undefined) return continuationRuns.retry(project, id);
+      const options = asRecord(rawOptions, "continuation retry options");
+      return continuationRuns.retry(project, id, {
+        instruction: optionalString(options.instruction, "instruction"),
+        tokenBudget: optionalNumber(options.tokenBudget, "tokenBudget"),
+        retrievalLimit: optionalNumber(options.retrievalLimit, "retrievalLimit"),
+        maxOutputTokens: optionalNumber(options.maxOutputTokens, "maxOutputTokens"),
+        modelOverride: optionalString(options.modelOverride, "modelOverride"),
+        useEditorModel: options.useEditorModel === true,
+        branchName: optionalString(options.branchName, "branchName"),
+        branchDescription: optionalString(options.branchDescription, "branchDescription"),
+        requestId: optionalString(options.requestId, "requestId")
+      });
+    }
+  );
+  ipcMain.handle("continuation:run:cancel", async (_event, projectPath: unknown, runId: unknown) => {
+    const [project, id] = validateProjectPathAndId(projectPath, runId, "runId");
+    return continuationRuns.cancel(project, id);
+  });
 };

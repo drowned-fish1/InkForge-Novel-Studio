@@ -20,6 +20,7 @@ import { SimulationLab } from "@/features/simulation/SimulationLab";
 import { OutlineEditor } from "@/features/outline/OutlineEditor";
 import { FactionLibrary, LocationLibrary } from "@/features/library/WorldSubsetLibrary";
 import { RevisionWorkbench } from "@/features/revision/RevisionWorkbench";
+import { ContinuationWorkbench } from "@/features/continuation/ContinuationWorkbench";
 import { CluePanel } from "@/features/story/CluePanel";
 import { ConflictBoard } from "@/features/story/ConflictBoard";
 import { EventBoard } from "@/features/story/EventBoard";
@@ -58,7 +59,8 @@ const implementedModules = [
   "factions",
   "conflicts",
   "events",
-  "revision"
+  "revision",
+  "continuation"
 ];
 const placeholderModules = ["export"];
 const paneStorageKey = "inkforge:pane-widths:v2";
@@ -395,6 +397,7 @@ export const AppShell = () => {
         {selectedModule === "conflicts" ? <ConflictBoard /> : null}
         {selectedModule === "events" ? <EventBoard /> : null}
         {selectedModule === "revision" ? <RevisionWorkbench /> : null}
+        {selectedModule === "continuation" ? <ContinuationWorkbench /> : null}
         {placeholderModules.includes(selectedModule) || !implementedModules.includes(selectedModule) ? (
           <ModulePlaceholder />
         ) : null}
