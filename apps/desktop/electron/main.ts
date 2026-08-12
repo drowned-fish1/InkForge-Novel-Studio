@@ -79,6 +79,7 @@ import { CorpusImportService } from "./services/CorpusImportService.js";
 import { HybridRetriever } from "./services/HybridRetriever.js";
 import { StoryThreadService } from "./services/StoryThreadService.js";
 import { StyleProfileService } from "./services/StyleProfileService.js";
+import { UpdateService } from "./services/UpdateService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -139,6 +140,7 @@ const continuationRuns = new ContinuationOrchestrator({
   compiler: contextCompiler,
   styles: styleProfiles
 });
+const updates = new UpdateService();
 
 const windowBackgrounds = {
   light: "#f4f2ed",
@@ -260,10 +262,10 @@ const createWindow = async (): Promise<void> => {
     icon: path.join(__dirname, "../build/icon.png"),
     backgroundColor: resolvedWindowBackground(),
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
 
@@ -309,6 +311,9 @@ app.whenReady().then(async () => {
     setWindowBackground(theme);
   });
   await createWindow();
+  void updates.configure().then((status) => {
+    if (status.configured) void updates.check();
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -333,6 +338,10 @@ const registerIpc = (): void => {
   });
 
   ipcMain.handle("project:list", async () => recentProjects.list());
+  ipcMain.handle("updates:status", () => updates.status());
+  ipcMain.handle("updates:check", () => updates.check());
+  ipcMain.handle("updates:download", () => updates.download());
+  ipcMain.handle("updates:install", () => updates.install());
 
   ipcMain.handle("project:create", async (_event, input: CreateProjectInput) => {
     const result = await dialog.showOpenDialog({
@@ -353,6 +362,9 @@ const registerIpc = (): void => {
       if (issues.length) {
         throw new Error(`不是完整的 InkForge 项目文件夹：${issues.join("、")}`);
       }
+      await storyReferences
+        .migrateLegacyReferences(projectPath)
+        .catch((error) => console.error("Stable-ID reference migration skipped:", error));
       const project = await projects.openProject(projectPath);
       await recentProjects.touch(project);
       return project;
@@ -368,6 +380,9 @@ const registerIpc = (): void => {
     if (issues.length) {
       throw new Error(`不是完整的 InkForge 项目文件夹：${issues.join("、")}`);
     }
+    await storyReferences
+      .migrateLegacyReferences(result.filePaths[0])
+      .catch((error) => console.error("Stable-ID reference migration skipped:", error));
     const project = await projects.openProject(result.filePaths[0]);
     await recentProjects.touch(project);
     return project;
@@ -414,9 +429,11 @@ const registerIpc = (): void => {
       if (chapterId) await chunkIndex.removeChapter(input.projectPath, chapterId).catch(() => undefined);
       console.error("Continuation index update failed; stale chapter entry was removed:", error);
     }
-    void workspace
-      .ensureAutomaticBackup(input.projectPath)
-      .catch((error) => console.error("Automatic backup failed:", error));
+    if (process.env.INKFORGE_DISABLE_AUTOMATIC_BACKUP !== "1") {
+      void workspace
+        .ensureAutomaticBackup(input.projectPath)
+        .catch((error) => console.error("Automatic backup failed:", error));
+    }
   });
 
   ipcMain.handle("chapter:history:list", async (_event, projectPath: string, file: string) => {

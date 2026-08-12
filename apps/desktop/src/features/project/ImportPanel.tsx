@@ -1,12 +1,23 @@
 import { ChangeEvent, DragEvent, useMemo, useRef, useState } from "react";
 import { FileText, FolderInput, Upload } from "lucide-react";
+import { parseEpub } from "@/lib/epubImport";
 import { useProjectStore, type ImportedChapterDraft } from "@/stores/useProjectStore";
 
-type ImportFile = {
+type TextImportFile = {
+  kind: "text";
   name: string;
   path: string;
   text: string;
 };
+
+type EpubImportFile = {
+  kind: "epub";
+  name: string;
+  path: string;
+  bytes: Uint8Array;
+};
+
+type ImportFile = TextImportFile | EpubImportFile;
 
 interface FileSystemEntryLike {
   isFile: boolean;
@@ -30,13 +41,14 @@ type DataTransferItemWithEntry = Omit<DataTransferItem, "webkitGetAsEntry"> & {
 
 const chapterHeadingPattern = /^\s*(?:#\s+(.+)|((?:第[\d零一二三四五六七八九十百千万两]+[章节回])[^\r\n]*))\s*$/u;
 
-const fileTitle = (fileName: string): string => fileName.replace(/\.(md|txt)$/iu, "").trim() || "导入文稿";
+const fileTitle = (fileName: string): string => fileName.replace(/\.(md|txt|epub)$/iu, "").trim() || "导入文稿";
 
-const readTextFile = (file: File): Promise<ImportFile> =>
+const readTextFile = (file: File): Promise<TextImportFile> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () =>
       resolve({
+        kind: "text",
         name: file.name,
         path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
         text: String(reader.result ?? "")
@@ -45,9 +57,16 @@ const readTextFile = (file: File): Promise<ImportFile> =>
     reader.readAsText(file, "utf-8");
   });
 
-const isTextManuscript = (file: File): boolean => /\.(md|txt)$/iu.test(file.name);
+const readEpubFile = async (file: File): Promise<EpubImportFile> => ({
+  kind: "epub",
+  name: file.name,
+  path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+  bytes: new Uint8Array(await file.arrayBuffer())
+});
 
-const parseFileChapters = (file: ImportFile): ImportedChapterDraft[] => {
+const isSupportedManuscript = (file: File): boolean => /\.(md|txt|epub)$/iu.test(file.name);
+
+const parseFileChapters = (file: TextImportFile): ImportedChapterDraft[] => {
   const lines = file.text.replace(/\r\n/g, "\n").split("\n");
   const chapters: ImportedChapterDraft[] = [];
   let currentTitle = "";
@@ -130,8 +149,10 @@ const filesFromDrop = async (event: DragEvent<HTMLElement>): Promise<File[]> => 
 };
 
 const normalizeFiles = async (files: File[]): Promise<ImportFile[]> => {
-  const manuscripts = files.filter(isTextManuscript);
-  const imported = await Promise.all(manuscripts.map(readTextFile));
+  const manuscripts = files.filter(isSupportedManuscript);
+  const imported = await Promise.all(
+    manuscripts.map((file) => (/\.epub$/iu.test(file.name) ? readEpubFile(file) : readTextFile(file)))
+  );
   return imported.sort((a, b) => a.path.localeCompare(b.path, "zh-CN", { numeric: true }));
 };
 
@@ -139,6 +160,9 @@ export const ImportPanel = () => {
   const createImportedProject = useProjectStore((state) => state.createImportedProject);
   const [chapters, setChapters] = useState<ImportedChapterDraft[]>([]);
   const [projectTitle, setProjectTitle] = useState("");
+  const [author, setAuthor] = useState("local-user");
+  const [sourceSummary, setSourceSummary] = useState("");
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dragActive, setDragActive] = useState(false);
@@ -148,15 +172,53 @@ export const ImportPanel = () => {
 
   const loadFiles = async (files: File[]) => {
     setError("");
-    const imported = await normalizeFiles(files);
-    const nextChapters = imported.flatMap(parseFileChapters);
-    if (!nextChapters.length) {
+    setWarnings([]);
+    setBusy(true);
+    try {
+      const imported = await normalizeFiles(files);
+      const nextChapters: ImportedChapterDraft[] = [];
+      const importWarnings: string[] = [];
+      let suggestedTitle = imported[0] ? fileTitle(imported[0].name) : "";
+      let suggestedAuthor = "local-user";
+      let epubCount = 0;
+
+      for (const file of imported) {
+        if (file.kind === "text") {
+          nextChapters.push(...parseFileChapters(file));
+          continue;
+        }
+        const epub = parseEpub(file.bytes);
+        epubCount += 1;
+        nextChapters.push(...epub.chapters.map(({ title, body }) => ({ title, body })));
+        if (epubCount === 1) {
+          suggestedTitle = epub.title || suggestedTitle;
+          suggestedAuthor = epub.author || suggestedAuthor;
+        }
+        importWarnings.push(...epub.warnings.map((warning) => `${file.name}：${warning}`));
+      }
+
+      if (!nextChapters.length) {
+        setChapters([]);
+        setSourceSummary("");
+        setError("没有识别到可导入的 .epub、.md 或 .txt 文稿。");
+        return;
+      }
+      setChapters(nextChapters);
+      setProjectTitle(suggestedTitle);
+      setAuthor(suggestedAuthor);
+      setWarnings(importWarnings);
+      setSourceSummary(
+        epubCount
+          ? `已解析 ${epubCount} 本 EPUB，共 ${nextChapters.length} 个正文章节`
+          : `已读取 ${imported.length} 个文稿文件，共 ${nextChapters.length} 个章节`
+      );
+    } catch (caught) {
       setChapters([]);
-      setError("没有识别到可导入的 .md 或 .txt 文稿。");
-      return;
+      setSourceSummary("");
+      setError(caught instanceof Error ? caught.message : "文稿解析失败。");
+    } finally {
+      setBusy(false);
     }
-    setChapters(nextChapters);
-    setProjectTitle((current) => current || fileTitle(imported[0].name));
   };
 
   const onPickFiles = (event: ChangeEvent<HTMLInputElement>) => {
@@ -192,7 +254,7 @@ export const ImportPanel = () => {
       await createImportedProject(
         {
           title,
-          author: "local-user",
+          author: author.trim() || "local-user",
           genre: [],
           targetWords: Math.max(100000, totalWords),
           style: "节奏快，冲突强，少解释，多行动",
@@ -227,21 +289,23 @@ export const ImportPanel = () => {
           </span>
         ) : null}
       </div>
-      {!chapters.length ? <p className="import-helper">支持 .md 和 .txt，可自动按章节标题拆分。</p> : null}
+      {!chapters.length ? (
+        <p className="import-helper">支持 EPUB 2/3、.md 和 .txt；EPUB 会按阅读顺序和目录自动还原章节。</p>
+      ) : null}
 
       <input
         ref={inputRef}
         className="hidden-file-input"
         type="file"
-        accept=".md,.txt,text/markdown,text/plain"
+        accept=".epub,.md,.txt,application/epub+zip,text/markdown,text/plain"
         multiple
         onChange={onPickFiles}
       />
 
       <div className="import-actions">
-        <button className="secondary-button" type="button" onClick={() => inputRef.current?.click()}>
+        <button className="secondary-button" type="button" disabled={busy} onClick={() => inputRef.current?.click()}>
           <Upload size={16} />
-          选择 .md / .txt
+          {busy ? "正在解析…" : "选择 EPUB / 文稿"}
         </button>
         <span>
           <FolderInput size={15} /> 或拖入文件/文件夹
@@ -250,10 +314,17 @@ export const ImportPanel = () => {
 
       {chapters.length ? (
         <>
-          <label className="import-title-field">
-            项目名
-            <input value={projectTitle} onChange={(event) => setProjectTitle(event.target.value)} />
-          </label>
+          {sourceSummary ? <div className="import-source-summary">{sourceSummary}</div> : null}
+          <div className="import-metadata-fields">
+            <label className="import-title-field">
+              项目名
+              <input value={projectTitle} onChange={(event) => setProjectTitle(event.target.value)} />
+            </label>
+            <label className="import-title-field">
+              作者
+              <input value={author} onChange={(event) => setAuthor(event.target.value)} />
+            </label>
+          </div>
           <div className="import-preview-list">
             {chapters.map((chapter, index) => (
               <article key={`${chapter.title}-${index}`}>
@@ -270,6 +341,14 @@ export const ImportPanel = () => {
         </>
       ) : null}
 
+      {warnings.length ? (
+        <div className="import-warning" role="status">
+          {warnings.slice(0, 3).map((warning) => (
+            <span key={warning}>{warning}</span>
+          ))}
+          {warnings.length > 3 ? <span>另有 {warnings.length - 3} 条提示</span> : null}
+        </div>
+      ) : null}
       {error ? <div className="error-banner compact">{error}</div> : null}
     </section>
   );

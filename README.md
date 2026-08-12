@@ -15,8 +15,8 @@
 <p align="center">
   <a href="https://github.com/drowned-fish1/InkForge-Novel-Studio/actions/workflows/ci.yml"><img src="https://github.com/drowned-fish1/InkForge-Novel-Studio/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-0f766e" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/status-v1.0.0--rc.1-c58b3a" alt="v1.0.0 RC 1" />
-  <img src="https://img.shields.io/badge/platform-Windows-2563eb" alt="Windows" />
+  <img src="https://img.shields.io/badge/status-v1.0.0--rc.4-c58b3a" alt="v1.0.0 RC 4" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2563eb" alt="Windows, macOS and Linux" />
 </p>
 
 <p align="center">
@@ -59,13 +59,13 @@ Run deterministic local quality checks, compare chapter baselines, inspect conti
 
 ## What is included
 
-| Area           | Capabilities                                                                                                                                                                        |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Writing        | CodeMirror Markdown editor, chapter tree, focus and typewriter modes, find/replace, headings, annotations, revision marks, bookmarks, session statistics, and crash-recovery drafts |
-| Story planning | Volumes and outlines, characters, worldbuilding, locations, factions, events, timeline, clues, terms, conflicts, and bidirectional relationship views                               |
-| Revision       | Project-wide quality sweep, continuity and reference checks, centralized dispositions, proposal diffs, immutable quality baselines, and story branches                              |
-| Agent control  | OpenAI-compatible providers, multi-role Agent sessions, tool authorization, token and cost estimates, cancellation, trace history, templates, and proposal-only writes              |
-| Delivery       | Automatic snapshots, integrity verification, protected restore, Markdown/TXT/DOCX export, and validated EPUB 3 with cover, metadata, nested TOC, NCX, and typography options        |
+| Area           | Capabilities                                                                                                                                                                 |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Writing        | EPUB 2/3, Markdown, and TXT import; CodeMirror editor, chapter tree, focus/typewriter modes, annotations, bookmarks, session statistics, and crash recovery                  |
+| Story planning | Volumes and outlines, characters, worldbuilding, locations, factions, events, timeline, clues, terms, conflicts, and bidirectional relationship views                        |
+| Revision       | Project-wide quality sweep, continuity and reference checks, centralized dispositions, proposal diffs, immutable quality baselines, and story branches                       |
+| Agent control  | OpenAI-compatible providers, multi-role Agent sessions, tool authorization, token and cost estimates, cancellation, trace history, templates, and proposal-only writes       |
+| Delivery       | Automatic snapshots, integrity verification, protected restore, Markdown/TXT/DOCX export, and validated EPUB 3 with cover, metadata, nested TOC, NCX, and typography options |
 
 The complete walkthrough lives in the [user guide](./docs/user-guide.md).
 
@@ -145,16 +145,16 @@ npm test
 npm run test:desktop-smoke
 ```
 
-The CI workflow runs the same gates on Windows and Ubuntu, then builds an unsigned Windows installer for manual verification.
+The CI workflow runs the same gates on Windows and Ubuntu, then builds Windows, macOS and Linux artifacts on matching native runners for manual verification.
 
 ## Project status
 
-InkForge is at `v1.0.0-rc.1`. Current intentional limitations:
+InkForge is at `v1.0.0-rc.4`. Current intentional limitations:
 
-- Windows is the only packaging target.
 - Public builds are unsigned until a code-signing certificate and update feed are available.
-- Browser preview uses reduced-fidelity backup and EPUB implementations; the Electron app contains the complete implementations.
-- Images referenced inside chapter Markdown are reported during export checks but are not embedded in exported manuscripts.
+- macOS/Linux artifacts are built on matching CI runners and cannot be runtime-verified from a Windows workstation.
+- Browser preview cannot read project-relative images and retains alt text; desktop exports embed project-contained PNG/JPG/GIF images.
+- Browser backup remains an in-memory demonstration; Electron provides checksummed disk snapshots and protected restore.
 
 See the [implementation status](./docs/v1-implementation-status.md) and [post-v1 candidates](./docs/roadmap-next.md) for the detailed record.
 

@@ -15,8 +15,8 @@
 <p align="center">
   <a href="https://github.com/drowned-fish1/InkForge-Novel-Studio/actions/workflows/ci.yml"><img src="https://github.com/drowned-fish1/InkForge-Novel-Studio/actions/workflows/ci.yml/badge.svg" alt="CI 状态" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-0f766e" alt="MIT 许可证" /></a>
-  <img src="https://img.shields.io/badge/status-v1.0.0--rc.1-c58b3a" alt="v1.0.0 RC 1" />
-  <img src="https://img.shields.io/badge/platform-Windows-2563eb" alt="Windows" />
+  <img src="https://img.shields.io/badge/status-v1.0.0--rc.4-c58b3a" alt="v1.0.0 RC 4" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2563eb" alt="Windows、macOS 与 Linux" />
 </p>
 
 <p align="center">
@@ -59,13 +59,13 @@ InkForge 专注于**个人长篇小说创作**，有意不加入账号、云同�
 
 ## 已包含的能力
 
-| 领域       | 能力                                                                                                                |
-| ---------- | ------------------------------------------------------------------------------------------------------------------- |
-| 写作       | CodeMirror Markdown 编辑器、章节树、专注/打字机模式、查找替换、标题跳转、批注、待修改、书签、写作统计与崩溃恢复草稿 |
-| 故事规划   | 分卷与大纲、人物、世界观、地点、势力、事件、时间线、伏笔、术语、冲突和双向关系视图                                  |
-| 修订       | 全项目质量巡检、连续性与引用检查、集中处置、提案差异、不可变质量基线与剧情分支                                      |
-| Agent 控制 | OpenAI 兼容 Provider、多角色 Agent、工具授权、Token/费用估算、取消、追踪记录、模板与仅提案写入                      |
-| 交付       | 自动快照、完整性校验、保护性恢复，以及 Markdown/TXT/DOCX 和带封面、元数据、分卷目录、NCX、排版配置的 EPUB 3 导出    |
+| 领域       | 能力                                                                                                             |
+| ---------- | ---------------------------------------------------------------------------------------------------------------- |
+| 写作       | EPUB 2/3、Markdown、TXT 文稿导入，CodeMirror 编辑器、章节树、专注/打字机模式、批注、书签、写作统计与崩溃恢复草稿 |
+| 故事规划   | 分卷与大纲、人物、世界观、地点、势力、事件、时间线、伏笔、术语、冲突和双向关系视图                               |
+| 修订       | 全项目质量巡检、连续性与引用检查、集中处置、提案差异、不可变质量基线与剧情分支                                   |
+| Agent 控制 | OpenAI 兼容 Provider、多角色 Agent、工具授权、Token/费用估算、取消、追踪记录、模板与仅提案写入                   |
+| 交付       | 自动快照、完整性校验、保护性恢复，以及 Markdown/TXT/DOCX 和带封面、元数据、分卷目录、NCX、排版配置的 EPUB 3 导出 |
 
 完整操作说明见[用户指南](./docs/user-guide.md)。
 
@@ -75,7 +75,7 @@ InkForge 专注于**个人长篇小说创作**，有意不加入账号、云同�
 
 - Node.js 22
 - npm 10 或更高版本
-- 打包桌面版需要 Windows；浏览器开发预览可在其他平台运行
+- 打包需在目标原生平台运行：Windows 生成 NSIS、macOS 生成 DMG/ZIP、Linux 生成 AppImage/DEB
 
 ### 从源码运行桌面应用
 
@@ -145,16 +145,16 @@ npm test
 npm run test:desktop-smoke
 ```
 
-CI 会在 Windows 与 Ubuntu 上运行相同门禁，并额外构建未签名 Windows 安装包供人工验证。
+CI 会在 Windows 与 Ubuntu 上运行相同门禁，并在各原生 runner 生成 Windows、macOS 与 Linux 工件供人工验证。
 
 ## 项目状态
 
-InkForge 当前版本为 `v1.0.0-rc.1`，有以下已知且有意保留的限制：
+InkForge 当前版本为 `v1.0.0-rc.4`，有以下已知且有意保留的限制：
 
-- 当前只有 Windows 打包目标。
 - 在获得代码签名证书与更新源前，公开构建均为未签名版本。
-- 浏览器预览中的备份和 EPUB 是降级演示实现；Electron 桌面版提供完整实现。
-- 章节 Markdown 引用的图片会在导出检查中提示，但暂不会嵌入导出稿件。
+- macOS/Linux 产物由对应平台的 CI runner 构建，本机 Windows 不能验证其实际启动。
+- 浏览器预览无法读取项目相对图片，导出时保留替代文本；桌面版会嵌入项目内 PNG/JPG/GIF。
+- 浏览器预览的备份仍是内存演示实现；Electron 桌面版提供磁盘快照、校验和保护性恢复。
 
 详细记录见[实施状态](./docs/v1-implementation-status.md)和 [v1 后候选方向](./docs/roadmap-next.md)。
 

@@ -4,6 +4,7 @@ import {
   ConflictSchema,
   detachStoryReferences,
   findStoryReferences,
+  migrateStoryReferencesToIds,
   renameStoryReferences,
   inkforgeSchemaVersion,
   OutlineSchema,
@@ -50,6 +51,7 @@ const chapterFile = (volumeNumber: number, chapterNumber: number): string =>
 
 export const browserLibraryService = {
   async listCharacters(projectPath: string): Promise<Character[]> {
+    migrateBrowserReferences(projectPath);
     return structuredClone(getProjectRecord(projectPath).characters.map(normalizeCharacter));
   },
   async saveCharacter(input: SaveCharacterInput): Promise<Character[]> {
@@ -1265,6 +1267,31 @@ const browserReferenceData = (projectPath: string): StoryReferenceData => {
     conflicts: (record.conflicts ?? []).map(normalizeConflict),
     chapters: record.summary.outline.volumes.flatMap((volume) => volume.chapters)
   };
+};
+
+const migrateBrowserReferences = (projectPath: string): void => {
+  const result = migrateStoryReferencesToIds(browserReferenceData(projectPath));
+  if (!result.migratedReferenceCount) return;
+  const record = getProjectRecord(projectPath);
+  record.characters = result.characters;
+  record.worldEntries = result.worldEntries;
+  record.timeline = result.timeline;
+  record.clues = result.clues;
+  record.conflicts = result.conflicts;
+  if (result.chaptersChanged) {
+    const chapterById = new Map(result.chapters.map((chapter) => [chapter.id, chapter]));
+    record.summary = {
+      ...record.summary,
+      outline: {
+        ...record.summary.outline,
+        volumes: record.summary.outline.volumes.map((volume) => ({
+          ...volume,
+          chapters: volume.chapters.map((chapter) => chapterById.get(chapter.id) ?? chapter)
+        }))
+      }
+    };
+  }
+  saveProjectRecord(record);
 };
 
 const applyBrowserRenameSync = (

@@ -322,6 +322,23 @@ export const browserBridge: InkforgeApi = {
   async setTheme(): Promise<void> {
     return undefined;
   },
+  async getUpdateStatus() {
+    return {
+      phase: "disabled",
+      configured: false,
+      currentVersion: "browser-preview",
+      message: "Automatic updates are only available in packaged desktop builds."
+    };
+  },
+  async checkForUpdates() {
+    return this.getUpdateStatus();
+  },
+  async downloadUpdate() {
+    return this.getUpdateStatus();
+  },
+  async installUpdate() {
+    return false;
+  },
   ...browserProjectService,
   ...browserLibraryService,
   async exportManuscript(input: ExportInput): Promise<string> {

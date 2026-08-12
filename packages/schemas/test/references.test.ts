@@ -8,6 +8,7 @@ import {
   WorldEntrySchema,
   detachStoryReferences,
   findStoryReferences,
+  migrateStoryReferencesToIds,
   type StoryReferenceData
 } from "../src/index";
 
@@ -93,6 +94,27 @@ describe("findStoryReferences", () => {
     data.conflicts.push(ConflictSchema.parse({ id: "conf-lonely", title: "孤立冲突" }));
     expect(findStoryReferences(data, { kind: "conflict", id: "conf-lonely" })).toEqual([]);
   });
+
+  it("finds ID-only references without creating duplicate hits across conflict fields", () => {
+    const data = buildData();
+    data.timeline[0] = { ...data.timeline[0], participants: [], participantIds: ["char-lin"] };
+    data.chapters[0] = { ...data.chapters[0], characters: [], characterIds: ["char-lin"] };
+    data.conflicts[0] = {
+      ...data.conflicts[0],
+      parties: [],
+      relatedCharacters: [],
+      relatedFactions: [],
+      partyEntityIds: ["char-lin"],
+      relatedCharacterIds: ["char-lin"],
+      relatedFactionIds: []
+    };
+    const hits = findStoryReferences(data, { kind: "character", id: "char-lin" });
+    expect(hits.filter((hit) => hit.sourceKind === "timeline" && hit.matched === "char-lin")).toHaveLength(1);
+    expect(hits.filter((hit) => hit.sourceKind === "chapter" && hit.matched === "char-lin")).toHaveLength(1);
+    expect(hits.filter((hit) => hit.sourceKind === "conflict" && hit.field === "冲突各方")).toHaveLength(1);
+    expect(hits.filter((hit) => hit.sourceKind === "conflict" && hit.field === "涉及人物")).toHaveLength(1);
+    expect(hits.filter((hit) => hit.sourceKind === "conflict" && hit.field === "涉及势力")).toHaveLength(0);
+  });
 });
 
 describe("detachStoryReferences", () => {
@@ -133,6 +155,37 @@ describe("ConflictSchema", () => {
     expect(conflict.status).toBe("planned");
     expect(conflict.parties).toEqual([]);
     expect(conflict.chapterIds).toEqual([]);
+  });
+});
+
+describe("migrateStoryReferencesToIds", () => {
+  it("adds stable ids while preserving all legacy display-name fields", () => {
+    const data = buildData();
+    const result = migrateStoryReferencesToIds(data);
+    expect(result.migratedReferenceCount).toBeGreaterThan(0);
+    expect(result.timeline[0].participantIds).toEqual(["char-lin", "char-su"]);
+    expect(result.timeline[0].locationId).toBe("loc-station");
+    expect(result.chapters[0].characterIds).toEqual(["char-lin"]);
+    expect(result.chapters[0].worldRefIds).toEqual(["loc-station"]);
+    expect(result.timeline[0].participants).toEqual(data.timeline[0].participants);
+    expect(result.chapters[0].characters).toEqual(data.chapters[0].characters);
+  });
+
+  it("is idempotent and skips ambiguous names", () => {
+    const data = buildData();
+    data.characters.push(CharacterSchema.parse({ id: "char-duplicate", name: data.characters[0].name }));
+    const first = migrateStoryReferencesToIds(data);
+    expect(first.chapters[0].characterIds).toEqual([]);
+    const second = migrateStoryReferencesToIds(first);
+    expect(second.migratedReferenceCount).toBe(0);
+  });
+
+  it("removes stable ids together with legacy names during unlink", () => {
+    const migrated = migrateStoryReferencesToIds(buildData());
+    const result = detachStoryReferences(migrated, { kind: "character", id: "char-lin" }, "unlink");
+    expect(result.timeline[0].participantIds).toEqual(["char-su"]);
+    expect(result.chapters[0].characterIds).toEqual([]);
+    expect(result.conflicts[0].relatedCharacterIds).toEqual([]);
   });
 });
 

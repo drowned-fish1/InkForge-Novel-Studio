@@ -131,6 +131,12 @@ export interface ExportInput {
     language: string;
     description: string;
     cssTheme: "classic" | "modern";
+    publisher?: string;
+    copyright?: string;
+    coverImagePath?: string;
+    lineHeight?: number;
+    paragraphIndent?: boolean;
+    volumeTitlePages?: boolean;
   };
 }
 

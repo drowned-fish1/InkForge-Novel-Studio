@@ -47,7 +47,13 @@ export interface ExportPreflightIssue {
 export interface ExportPreflightInput {
   volumes: Array<{
     title: string;
-    chapters: Array<{ id: string; title: string; content: string; archived?: boolean }>;
+    chapters: Array<{
+      id: string;
+      title: string;
+      content: string;
+      archived?: boolean;
+      imageAvailability?: Record<string, boolean>;
+    }>;
   }>;
   epub: Pick<EpubExportConfig, "title" | "author" | "coverImagePath">;
   coverExists?: boolean;
@@ -56,10 +62,13 @@ export interface ExportPreflightInput {
 const markdownLinkPattern = /\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/gu;
 const markdownImagePattern = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/gu;
 
+export const extractMarkdownImageSources = (markdown: string): string[] =>
+  [...markdown.matchAll(markdownImagePattern)].map((match) => match[2].trim());
+
 /**
  * Local pre-export checks shared by the desktop service and the browser
  * mirror: empty chapters, duplicate titles, links that the EPUB renderer
- * drops, and image references that exports cannot embed.
+ * drops, and image references that cannot be resolved safely for embedding.
  */
 export const runExportPreflight = (input: ExportPreflightInput): ExportPreflightIssue[] => {
   const issues: ExportPreflightIssue[] = [];
@@ -86,12 +95,20 @@ export const runExportPreflight = (input: ExportPreflightInput): ExportPreflight
       chapterTitleCounts.set(chapter.title.trim(), (chapterTitleCounts.get(chapter.title.trim()) ?? 0) + 1);
 
       for (const match of chapter.content.matchAll(markdownImagePattern)) {
+        const source = match[2].trim();
+        const availability = chapter.imageAvailability?.[source];
+        if (availability === true) {
+          continue;
+        }
         issues.push({
           id: `image-${chapter.id}-${match.index}`,
           severity: "warning",
           kind: "missing-resource",
-          title: "正文引用了图片",
-          detail: `《${chapter.title}》引用图片 ${match[2]}。导出格式不嵌入正文图片，EPUB 中会退化为替代文字。`,
+          title: availability === false ? "正文图片无法嵌入" : "正文图片需要桌面端确认",
+          detail:
+            availability === false
+              ? `《${chapter.title}》引用的图片 ${source} 不存在、格式不支持或超出项目目录，导出时会保留替代文字。`
+              : `《${chapter.title}》引用图片 ${source}。桌面端会嵌入可读取的 PNG/JPG/GIF；浏览器预览无法读取项目相对文件。`,
           chapterId: chapter.id
         });
       }

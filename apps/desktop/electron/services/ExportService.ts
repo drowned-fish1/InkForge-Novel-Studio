@@ -1,11 +1,12 @@
 import path from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import { dialog, type FileFilter } from "electron";
-import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
+import { AlignmentType, Document, HeadingLevel, ImageRun, Packer, Paragraph, TextRun } from "docx";
 import { strToU8, strFromU8, unzipSync, zipSync, type Zippable } from "fflate";
 import { marked, Renderer } from "marked";
 import {
   ExportConfigSchema,
+  extractMarkdownImageSources,
   runExportPreflight,
   type EpubExportConfig,
   type ExportConfig,
@@ -19,11 +20,24 @@ type ExportBlock = {
   kind: "volume" | "chapter";
   title?: string;
   body?: string;
+  images?: Record<string, BodyImageResource>;
 };
+
+type BodyImageMediaType = "image/png" | "image/jpeg" | "image/gif";
+
+interface BodyImageResource {
+  id: string;
+  fileName: string;
+  data: Uint8Array;
+  mediaType: BodyImageMediaType;
+  docxType: "png" | "jpg" | "gif";
+  width: number;
+  height: number;
+}
 
 export interface EpubVolumeInput {
   title: string;
-  chapters: Array<{ title?: string; body: string }>;
+  chapters: Array<{ title?: string; body: string; imageHrefs?: Record<string, string> }>;
 }
 
 export interface EpubBuildInput {
@@ -34,6 +48,7 @@ export interface EpubBuildInput {
   fallbackDescription: string;
   volumes: EpubVolumeInput[];
   cover?: { data: Uint8Array; mediaType: "image/jpeg" | "image/png" };
+  images?: BodyImageResource[];
   modifiedAt?: string;
 }
 
@@ -73,10 +88,23 @@ export class ExportService {
     for (const volume of project.outline.volumes) {
       const chapters = [];
       for (const chapter of volume.chapters) {
-        const content = chapter.archived
-          ? ""
-          : await this.files.readText(this.files.assertInsideProject(projectPath, chapter.file)).catch(() => "");
-        chapters.push({ id: chapter.id, title: chapter.title, content, archived: chapter.archived });
+        const chapterPath = this.files.assertInsideProject(projectPath, chapter.file);
+        const content = chapter.archived ? "" : await this.files.readText(chapterPath).catch(() => "");
+        const imageAvailability = Object.fromEntries(
+          await Promise.all(
+            extractMarkdownImageSources(content).map(async (source, index) => [
+              source,
+              Boolean(await this.loadBodyImage(projectPath, chapterPath, source, `preflight-${index + 1}`))
+            ])
+          )
+        );
+        chapters.push({
+          id: chapter.id,
+          title: chapter.title,
+          content,
+          archived: chapter.archived,
+          imageAvailability
+        });
       }
       volumes.push({ title: volume.title, chapters });
     }
@@ -117,6 +145,7 @@ export class ExportService {
 
     const blocks: ExportBlock[] = [];
     const epubVolumes: EpubVolumeInput[] = [];
+    const bodyImagesByPath = new Map<string, BodyImageResource>();
     for (const volume of project.outline.volumes) {
       if (includeVolumeTitles) {
         blocks.push({ kind: "volume", title: volume.title });
@@ -125,12 +154,18 @@ export class ExportService {
       for (const chapter of volume.chapters.filter((item) => !item.archived)) {
         const absolutePath = this.files.assertInsideProject(input.projectPath, chapter.file);
         const body = this.stripLeadingMarkdownTitle(await this.files.readText(absolutePath));
+        const images = await this.collectBodyImages(input.projectPath, absolutePath, body, bodyImagesByPath);
         blocks.push({
           kind: "chapter",
           title: includeChapterTitles ? chapter.title : undefined,
-          body
+          body,
+          images: images.resourcesBySource
         });
-        epubChapters.push({ title: includeChapterTitles ? chapter.title : undefined, body });
+        epubChapters.push({
+          title: includeChapterTitles ? chapter.title : undefined,
+          body,
+          imageHrefs: images.epubHrefsBySource
+        });
       }
       epubVolumes.push({ title: volume.title, chapters: epubChapters });
     }
@@ -152,7 +187,8 @@ export class ExportService {
         fallbackAuthor: project.meta.author,
         fallbackDescription: project.outline.premise,
         volumes: epubVolumes,
-        cover
+        cover,
+        images: [...bodyImagesByPath.values()]
       });
       const validation = validateEpubArchive(archive);
       if (validation.length) {
@@ -233,7 +269,7 @@ export class ExportService {
             })
           );
         }
-        children.push(...this.markdownToParagraphs(block.body ?? ""));
+        children.push(...this.markdownToParagraphs(block.body ?? "", block.images));
       }
     }
 
@@ -264,7 +300,88 @@ export class ExportService {
     return markdown.replace(/^\s*#\s+.+?(?:\r?\n)+(?:\r?\n)*/u, "").trim();
   }
 
-  private markdownToParagraphs(markdown: string): Paragraph[] {
+  private resolveBodyImagePath(
+    projectPath: string,
+    chapterPath: string,
+    source: string
+  ): { absolutePath: string; mediaType: BodyImageMediaType; docxType: BodyImageResource["docxType"] } | undefined {
+    const trimmed = source.trim();
+    if (!trimmed || /^(?:https?:|data:|file:|mailto:|#)/iu.test(trimmed)) {
+      return undefined;
+    }
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(trimmed.split(/[?#]/u, 1)[0]);
+    } catch {
+      return undefined;
+    }
+    try {
+      const candidate = path.isAbsolute(decoded) ? decoded : path.resolve(path.dirname(chapterPath), decoded);
+      const absolutePath = this.files.assertInsideProject(projectPath, candidate);
+      const { mediaType, docxType } = bodyImageType(absolutePath);
+      return { absolutePath, mediaType, docxType };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async loadBodyImage(
+    projectPath: string,
+    chapterPath: string,
+    source: string,
+    id: string
+  ): Promise<BodyImageResource | undefined> {
+    const resolved = this.resolveBodyImagePath(projectPath, chapterPath, source);
+    if (!resolved) {
+      return undefined;
+    }
+    try {
+      const data = new Uint8Array(await readFile(resolved.absolutePath));
+      if (!data.byteLength || data.byteLength > 20 * 1024 * 1024) {
+        return undefined;
+      }
+      const dimensions = imageDimensions(data, resolved.mediaType);
+      return {
+        id,
+        fileName: `${id}.${resolved.docxType === "jpg" ? "jpg" : resolved.docxType}`,
+        data,
+        mediaType: resolved.mediaType,
+        docxType: resolved.docxType,
+        ...dimensions
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async collectBodyImages(
+    projectPath: string,
+    chapterPath: string,
+    markdown: string,
+    resourcesByPath: Map<string, BodyImageResource>
+  ): Promise<{ resourcesBySource: Record<string, BodyImageResource>; epubHrefsBySource: Record<string, string> }> {
+    const resourcesBySource: Record<string, BodyImageResource> = {};
+    const epubHrefsBySource: Record<string, string> = {};
+    for (const source of extractMarkdownImageSources(markdown)) {
+      const resolved = this.resolveBodyImagePath(projectPath, chapterPath, source);
+      if (!resolved) {
+        continue;
+      }
+      let resource = resourcesByPath.get(resolved.absolutePath);
+      if (!resource) {
+        resource = await this.loadBodyImage(projectPath, chapterPath, source, `body-image-${resourcesByPath.size + 1}`);
+        if (!resource) {
+          continue;
+        }
+        resourcesByPath.set(resolved.absolutePath, resource);
+      }
+      resourcesBySource[source] = resource;
+      epubHrefsBySource[source] = `../images/${resource.fileName}`;
+    }
+    return { resourcesBySource, epubHrefsBySource };
+  }
+
+  private markdownToParagraphs(markdown: string, images: Record<string, BodyImageResource> = {}): Paragraph[] {
     const lines = markdown.replace(/\r\n/g, "\n").split("\n");
     const paragraphs: Paragraph[] = [];
     let buffer: string[] = [];
@@ -287,6 +404,40 @@ export class ExportService {
       const line = rawLine.trim();
       if (!line) {
         flush();
+        continue;
+      }
+
+      const image = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)$/u.exec(line);
+      if (image) {
+        flush();
+        const resource = images[image[2].trim()];
+        if (resource) {
+          const transformation = fitImage(resource.width, resource.height, 560, 720);
+          paragraphs.push(
+            new Paragraph({
+              children: [
+                new ImageRun({
+                  type: resource.docxType,
+                  data: resource.data,
+                  transformation
+                })
+              ],
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 120, after: image[1].trim() ? 60 : 160 }
+            })
+          );
+          if (image[1].trim()) {
+            paragraphs.push(
+              new Paragraph({
+                text: image[1].trim(),
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 160 }
+              })
+            );
+          }
+        } else if (image[1].trim()) {
+          paragraphs.push(new Paragraph({ text: image[1].trim(), spacing: { after: 160 } }));
+        }
         continue;
       }
 
@@ -377,6 +528,67 @@ export class ExportService {
   }
 }
 
+const bodyImageType = (
+  filePath: string
+): { mediaType: BodyImageMediaType; docxType: BodyImageResource["docxType"] } => {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith(".png")) {
+    return { mediaType: "image/png", docxType: "png" };
+  }
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+    return { mediaType: "image/jpeg", docxType: "jpg" };
+  }
+  if (lower.endsWith(".gif")) {
+    return { mediaType: "image/gif", docxType: "gif" };
+  }
+  throw new Error("正文图片仅支持 PNG、JPG 或 GIF。");
+};
+
+const imageDimensions = (data: Uint8Array, mediaType: BodyImageMediaType): { width: number; height: number } => {
+  if (mediaType === "image/png" && data.length >= 24) {
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    return { width: view.getUint32(16), height: view.getUint32(20) };
+  }
+  if (mediaType === "image/gif" && data.length >= 10) {
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    return { width: view.getUint16(6, true), height: view.getUint16(8, true) };
+  }
+  if (mediaType === "image/jpeg") {
+    let offset = 2;
+    while (offset + 9 < data.length) {
+      if (data[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      const marker = data[offset + 1];
+      const segmentLength = (data[offset + 2] << 8) | data[offset + 3];
+      if (marker >= 0xc0 && marker <= 0xc3 && segmentLength >= 7) {
+        return {
+          width: (data[offset + 7] << 8) | data[offset + 8],
+          height: (data[offset + 5] << 8) | data[offset + 6]
+        };
+      }
+      if (segmentLength < 2) {
+        break;
+      }
+      offset += segmentLength + 2;
+    }
+  }
+  return { width: 1200, height: 800 };
+};
+
+const fitImage = (
+  width: number,
+  height: number,
+  maxWidth: number,
+  maxHeight: number
+): { width: number; height: number } => {
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+  const scale = Math.min(1, maxWidth / safeWidth, maxHeight / safeHeight);
+  return { width: Math.round(safeWidth * scale), height: Math.round(safeHeight * scale) };
+};
+
 const coverMediaType = (filePath: string): "image/jpeg" | "image/png" => {
   const lower = filePath.toLowerCase();
   if (lower.endsWith(".png")) {
@@ -396,24 +608,35 @@ const escapeXml = (value: string): string =>
     .replace(/"/gu, "&quot;")
     .replace(/'/gu, "&apos;");
 
-const epubRenderer = new Renderer();
-epubRenderer.html = ({ text }) => escapeXml(text);
-epubRenderer.hr = () => "<hr />\n";
-epubRenderer.br = () => "<br />\n";
-epubRenderer.checkbox = ({ checked }) => (checked ? "☒ " : "☐ ");
-epubRenderer.image = ({ text }) => `<span class="image-alt">${escapeXml(text)}</span>`;
-epubRenderer.link = function ({ href, title, tokens }) {
-  const label = this.parser.parseInline(tokens);
-  const normalizedHref = href.trim();
-  if (!/^(?:https?:|mailto:|#)/iu.test(normalizedHref)) {
-    return label;
-  }
-  const titleAttribute = title ? ` title="${escapeXml(title)}"` : "";
-  return `<a href="${escapeXml(normalizedHref)}"${titleAttribute}>${label}</a>`;
+const createEpubRenderer = (imageHrefs: Record<string, string>): Renderer => {
+  const renderer = new Renderer();
+  renderer.html = ({ text }) => escapeXml(text);
+  renderer.hr = () => "<hr />\n";
+  renderer.br = () => "<br />\n";
+  renderer.checkbox = ({ checked }) => (checked ? "☒ " : "☐ ");
+  renderer.image = ({ href, text, title }) => {
+    const embeddedHref = imageHrefs[href.trim()];
+    if (!embeddedHref) {
+      return `<span class="image-alt">${escapeXml(text)}</span>`;
+    }
+    const caption = text.trim() ? `<figcaption>${escapeXml(text.trim())}</figcaption>` : "";
+    const titleAttribute = title ? ` title="${escapeXml(title)}"` : "";
+    return `<figure class="body-figure"><img class="body-image" src="${escapeXml(embeddedHref)}" alt="${escapeXml(text)}"${titleAttribute}/>${caption}</figure>`;
+  };
+  renderer.link = function ({ href, title, tokens }) {
+    const label = this.parser.parseInline(tokens);
+    const normalizedHref = href.trim();
+    if (!/^(?:https?:|mailto:|#)/iu.test(normalizedHref)) {
+      return label;
+    }
+    const titleAttribute = title ? ` title="${escapeXml(title)}"` : "";
+    return `<a href="${escapeXml(normalizedHref)}"${titleAttribute}>${label}</a>`;
+  };
+  return renderer;
 };
 
-export const renderMarkdownAsXhtml = (markdown: string): string =>
-  String(marked.parse(markdown, { async: false, renderer: epubRenderer })).replace(
+export const renderMarkdownAsXhtml = (markdown: string, imageHrefs: Record<string, string> = {}): string =>
+  String(marked.parse(markdown, { async: false, renderer: createEpubRenderer(imageHrefs) })).replace(
     /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);)/giu,
     "&amp;"
   );
@@ -434,6 +657,9 @@ const buildCss = (config: EpubExportConfig): string => {
     `p{${indent}margin:.55em 0;}`,
     ".volume-title{display:flex;align-items:center;justify-content:center;min-height:70vh;text-align:center;}",
     ".cover-image{display:block;width:100%;height:auto;margin:0 auto;}",
+    ".body-figure{margin:1.2em auto;text-align:center;}",
+    ".body-image{display:block;max-width:100%;height:auto;margin:0 auto;}",
+    ".body-figure figcaption{margin-top:.45em;color:#666;font-size:.85em;text-indent:0;}",
     ".copyright-page{margin-top:35vh;text-align:center;color:#555;font-size:.9em;}"
   ].join("\n");
 };
@@ -521,7 +747,11 @@ export const buildEpubArchive = (input: EpubBuildInput): Uint8Array => {
         file,
         label,
         inToc: !volumeEntry,
-        content: xhtmlDocument(language, label, `${headingMarkup}${renderMarkdownAsXhtml(chapter.body)}`)
+        content: xhtmlDocument(
+          language,
+          label,
+          `${headingMarkup}${renderMarkdownAsXhtml(chapter.body, chapter.imageHrefs)}`
+        )
       });
       chapterRefs.push({ file, label });
     });
@@ -562,6 +792,12 @@ export const buildEpubArchive = (input: EpubBuildInput): Uint8Array => {
   const coverManifest = input.cover
     ? `<item id="cover-image" href="images/cover${input.cover.mediaType === "image/png" ? ".png" : ".jpg"}" media-type="${input.cover.mediaType}" properties="cover-image"/>`
     : "";
+  const bodyImageManifest = (input.images ?? [])
+    .map(
+      (image) =>
+        `<item id="${escapeXml(image.id)}" href="images/${escapeXml(image.fileName)}" media-type="${image.mediaType}"/>`
+    )
+    .join("\n    ");
 
   const firstContent = entries.find((entry) => entry.id !== "cover-page" && entry.id !== "copyright-page");
   const landmarks = [
@@ -615,6 +851,7 @@ export const buildEpubArchive = (input: EpubBuildInput): Uint8Array => {
     <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
     <item id="css" href="styles/book.css" media-type="text/css"/>
     ${coverManifest}
+    ${bodyImageManifest}
     ${manifestItems}
   </manifest>
   <spine toc="ncx">${spineItems}</spine>
@@ -626,6 +863,9 @@ export const buildEpubArchive = (input: EpubBuildInput): Uint8Array => {
       input.cover.data,
       { level: 0 }
     ];
+  }
+  for (const image of input.images ?? []) {
+    archive[`OEBPS/images/${image.fileName}`] = [image.data, { level: 0 }];
   }
   for (const entry of entries) {
     archive[`OEBPS/text/${entry.file}`] = strToU8(entry.content);

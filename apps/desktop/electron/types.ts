@@ -187,6 +187,12 @@ export interface ExportInput {
     language: string;
     description: string;
     cssTheme: "classic" | "modern";
+    publisher?: string;
+    copyright?: string;
+    coverImagePath?: string;
+    lineHeight?: number;
+    paragraphIndent?: boolean;
+    volumeTitlePages?: boolean;
   };
 }
 
@@ -593,6 +599,15 @@ export interface ReleaseReadiness {
   items: ReleaseReadinessItem[];
 }
 
+export interface UpdateStatus {
+  phase: "disabled" | "idle" | "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error";
+  configured: boolean;
+  currentVersion: string;
+  availableVersion?: string;
+  downloadPercent?: number;
+  message: string;
+}
+
 export type CorpusImportStartInput = CorpusImportRequest;
 export type AnalysisJobStartInput = AnalysisJobRequest;
 
@@ -751,6 +766,10 @@ export interface InkforgeApi {
   listProviderPresets: () => Promise<ProviderPreset[]>;
   probeProvider: () => Promise<ProviderProbeResult>;
   getReleaseReadiness: (projectPath: string) => Promise<ReleaseReadiness>;
+  getUpdateStatus: () => Promise<UpdateStatus>;
+  checkForUpdates: () => Promise<UpdateStatus>;
+  downloadUpdate: () => Promise<UpdateStatus>;
+  installUpdate: () => Promise<boolean>;
   loadBeatBoard: (projectPath: string) => Promise<BeatBoard>;
   saveBeatBoard: (projectPath: string, board: BeatBoard) => Promise<BeatBoard>;
   exportPlayable: (input: PlayableExportInput) => Promise<string | undefined>;

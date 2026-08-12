@@ -1,4 +1,4 @@
-# InkForge v1.0 RC 实施状态（接力文档）
+# InkForge v1.0 RC4 实施状态（接力文档）
 
 > 本文档是 v1.0 Release Candidate 推进的唯一进度事实来源。每完成一个阶段立即更新。
 > 基线提交：`87ff6cf`（typecheck 通过，29 个测试文件 / 233 个测试全部通过）。
@@ -133,16 +133,16 @@ npm run test:desktop-smoke
 
 验证：typecheck ✅ / 277 tests ✅ / lint ✅ / 浏览器实测（导出预览结构树、导出前检查 2 项提示、配置面板齐全）✅。
 
-已知限制：浏览器预览的 EPUB 生成仍为降级实现（无封面/NCX，用于界面演示；桌面版为完整实现）；正文图片不嵌入（预检查会提示）。
+RC3 后续状态：浏览器 EPUB 已补 NCX、版权/出版元数据、分卷目录与安全 Markdown；浏览器仍无法读取项目相对图片。桌面 DOCX/EPUB 已支持项目内 PNG/JPG/GIF 正文图片嵌入。
 
 ## 阶段七：已完成内容（2026-07-27）
 
 - **死代码与过时文案**：删除未挂载的 AiCockpit.tsx 与 PlanningPanel.tsx（Esc 关闭设置事件改由 AgentChatPanel 监听，恢复了此前失效的快捷键路径）；roadmap-next 重写为"已完成 + v1 后候选方向"；dev-log 补 v1 条目；project-format.md 更新为真实 v1 布局（含全部 .inkforge/\* 文件与版本策略）；README 全面刷新（移除 placeholder 文案）；新增 docs/user-guide.md 与 docs/release-windows.md；dev-guide 补质量门禁与镜像/注册表规则。
-- **安全加固**：`theme:set` 输入校验；`project:reveal` 仅允许最近项目列表内路径（阻断任意路径 shell.openPath）；`session.setPermissionRequestHandler` 默认拒绝全部权限请求；FileRepository.assertInsideProject 新增穿越/绝对路径/同前缀兄弟目录攻击测试与原子写测试。sandbox 保持关闭（ESM preload 限制，见已知限制）。
+- **安全加固**：`theme:set` 输入校验；`project:reveal` 仅允许最近项目列表内路径（阻断任意路径 shell.openPath）；`session.setPermissionRequestHandler` 默认拒绝全部权限请求；FileRepository.assertInsideProject 新增穿越/绝对路径/同前缀兄弟目录攻击测试与原子写测试。RC3 已将 preload 独立打为 CJS 并开启 sandbox。
 - **测试补齐（本轮累计新增）**：ChapterService、ExportService（EPUB 构建/校验/渲染）、StoryStateService、references 引擎、RevisionService、AgentControl（注册表/估算/压缩/逐工具拒绝）、WorkspaceService 扩展、FileRepository、textDiffLines、schemas（workspace/conflict/export）。
 - **desktop-smoke 扩展**：mock loader 补 session/openExternal；smoke 现覆盖 15 项真实构建主进程端到端检查（建项目→写作+历史→四格式导出（EPUB 结构断言）→备份创建/校验/差异/快照读取/保护性恢复→备份设置→冲突 CRUD+引用保护替换删除→修订聚合与处置→无 Provider 发送前估算→导出配置+preflight→项目完整性检查→密钥不落项目目录）。
 - **真实桌面启动**：以构建产物直接启动 Electron，12 秒存活无任何错误输出后正常退出。
-- **版本策略**：root 与 apps/desktop 升至 `1.0.0-rc.1`；packages/\* 保持内部 0.1.0；项目数据 schemaVersion 冻结 0.1.0（新增字段一律带 zod 默认值，旧项目直接可开——由全部 schema 测试与 smoke 的 reopen 流程验证）。
+- **版本策略**：root 与 apps/desktop 升至 `1.0.0-rc.2`；packages/\* 保持内部 0.1.0；项目数据 schemaVersion 冻结 0.1.0（新增字段一律带 zod 默认值，旧项目直接可开——由全部 schema 测试与 smoke 的 reopen 流程验证）。
 - **Windows 发布**：`docs/release-windows.md` 记录构建命令、安装包验证清单、签名接入（certificateFile / signtoolOptions / azure）与 electron-updater 更新源接入步骤；证书与更新源为外部阻塞，不影响本地打包（`npm run dist:windows` 可用）。
 
 ---
@@ -180,30 +180,37 @@ npm run test:desktop-smoke
 - 新增测试：evaluateAll（双章排序、警告计数、指纹去重不重复写历史）、inspect 三类新检查（含已知名字/条目不误报）——293 total。
 - 验证：typecheck ✅ / 293 tests ✅ / lint ✅ / smoke（重建后）✅ / perf probe（quality:evaluate ×20 = 335ms，revision:overview 43ms 无回退）✅ / 浏览器实测（巡检面板 3 章排序渲染、点击行打开第 3 章、"幽灵旅人"+"不存在的城"触发两条 warning 且库内名字"晏北"无误报、清理后回到"本地检查通过"）✅。
 
-# 最终交付摘要（v1.0-rc.1）
+# 最终交付摘要（v1.0-rc.2）
 
 ## 提交列表（基线 87ff6cf 之后）
 
-| 提交    | 阶段   | 内容                                                                       |
-| ------- | ------ | -------------------------------------------------------------------------- |
-| b945891 | 阶段一 | 章节写作台（标题跳转/快捷键/打字机/待修改标记/统计/Agent 面板收起）        |
-| 5c93998 | 阶段二 | 备份设置/校验/差异/损坏恢复 + 草稿批量/聚合历史/灵感片段 + Agent 读取门控  |
-| dd5ad18 | 阶段三 | 地点/势力/冲突/事件页面 + 引用引擎与删除保护 + 关系中心双向引用 + 实体工具 |
-| c648352 | 阶段四 | 集中修订工作台（聚合/批量处置/差异/质量分变化）                            |
-| 6bb2dae | 阶段五 | 工具注册表/发送前估算/逐工具授权/取消修复/会话压缩/模板导入导出            |
-| 2682136 | 阶段六 | EPUB 3 完整交付（封面/版权/嵌套目录/NCX/检查/校验/预览/持久化配置）        |
-| befdf84 | 阶段七 | 安全加固/死代码清理/测试与 smoke 扩展/文档刷新/版本 1.0.0-rc.1             |
-| db546e6 | 拓展一 | CI、400 章规模压测与修订聚合性能优化                                       |
-| 46af41f | 拓展二 | 实体改名同步与批注锚点重定位                                               |
-| 26a98fb | 拓展三 | CodeMirror 6 编辑器与全项目搜索                                            |
-| aaac61e | 拓展四 | 全项目质量巡检与引用一致性检查                                             |
+| 提交    | 阶段       | 内容                                                                       |
+| ------- | ---------- | -------------------------------------------------------------------------- |
+| b945891 | 阶段一     | 章节写作台（标题跳转/快捷键/打字机/待修改标记/统计/Agent 面板收起）        |
+| 5c93998 | 阶段二     | 备份设置/校验/差异/损坏恢复 + 草稿批量/聚合历史/灵感片段 + Agent 读取门控  |
+| dd5ad18 | 阶段三     | 地点/势力/冲突/事件页面 + 引用引擎与删除保护 + 关系中心双向引用 + 实体工具 |
+| c648352 | 阶段四     | 集中修订工作台（聚合/批量处置/差异/质量分变化）                            |
+| 6bb2dae | 阶段五     | 工具注册表/发送前估算/逐工具授权/取消修复/会话压缩/模板导入导出            |
+| 2682136 | 阶段六     | EPUB 3 完整交付（封面/版权/嵌套目录/NCX/检查/校验/预览/持久化配置）        |
+| befdf84 | 阶段七     | 安全加固/死代码清理/测试与 smoke 扩展/文档刷新/版本 1.0.0-rc.1             |
+| db546e6 | 拓展一     | CI、400 章规模压测与修订聚合性能优化                                       |
+| 46af41f | 拓展二     | 实体改名同步与批注锚点重定位                                               |
+| 26a98fb | 拓展三     | CodeMirror 6 编辑器与全项目搜索                                            |
+| aaac61e | 拓展四     | 全项目质量巡检与引用一致性检查                                             |
+| a69ab34 | RC 加固    | 独立复核后的并发、原子写、质量刷新与 CI 修复                               |
+| 65f5f09 | 体验修复   | 工作区导航、Agent 作用域与修订流程打磨                                     |
+| 4cf0004 | 续写工作流 | 长篇语料导入、Canon、检索、风格分析、续写编排与验证                        |
+| 866017f | 开源准备   | 仓库元数据、贡献与安全文档整理                                             |
+| 2862c99 | 发布准备   | 双语 README、产品截图与 Windows 打包 CI 修复                               |
 
 ## 最终验证结果
 
 - `npm run format:check` ✅ · `npm run typecheck` ✅ · `npm run lint` ✅
-- `npm test` ✅（39 文件 / 294 用例）· `npm audit --omit=dev` ✅（0 漏洞）
+- `npm test` ✅（52 文件 / 340 用例）· `npm audit --omit=dev` ✅（0 漏洞）
 - `npm run build` ✅ · `npm run test:desktop-smoke` ✅（15 项端到端检查）
+- `promo-video` 格式、lint/typecheck、生产依赖审计与 Remotion bundle ✅
 - `npm run perf:probe` ✅（400 章 / 约 280 万字）· Windows unpacked/NSIS 安装包构建 ✅
+- RC2 NSIS 静默安装、已安装应用启动存活、静默卸载与目录清理 ✅
 - 打包后 `InkForge.exe` 启动存活检查 ✅ · Playwright 浏览器真实流程回归 ✅
 
 ## 最终完成标准对照
@@ -214,19 +221,31 @@ npm run test:desktop-smoke
 - 旧项目安全打开：schemaVersion 冻结 + 全部新增字段带默认值 + 损坏项目备份恢复入口 ✅
 - 质量门禁全绿、每阶段独立提交 ✅
 
+## RC3 技术收口（2026-08-12）
+
+- Electron preload 改为独立 CJS bundle，renderer sandbox 已开启；页面级 lazy import 将主入口从约 1.06 MB 降至约 310 KB，最大编辑器 chunk 约 463 KB。
+- 桌面 DOCX/EPUB 可嵌入章节 Markdown 引用的项目内 PNG/JPG/GIF，并在 smoke 中检查真实压缩包媒体条目。
+- 名称引用增加可选 ID 镜像并自动幂等迁移；旧字段保留用于旧版本回滚，重名引用不猜测，解除/替换同时更新 ID。
+- 浏览器 EPUB 具备元数据、版权页、按卷目录、NCX、排版选项和安全 Markdown 渲染；相对图片因浏览器权限限制保留 alt 文本。
+
+## RC4 EPUB 导入（2026-08-12）
+
+- 启动页导入入口支持 EPUB 2/3、Markdown 和 TXT；桌面与浏览器模式共用纯函数 EPUB 解析器。
+- 解析 OPF 元数据、spine 阅读顺序、EPUB 3 NAV 和 EPUB 2 NCX，单 XHTML 多章节可按 H1/H2 拆分。
+- XHTML 安全转换为 Markdown，过滤脚本、导航、封面与空页面；外部 HTTP(S) 链接保留，包内失效链接移除，图片降级为替代文本。
+- 输入增加 128 MB 压缩包、512 MB 解压总量、10,000 条目和 16 MB 单文档上限。
+- `electron-updater` 接入可选 generic HTTPS feed，未配置时不联网；macOS/Linux 构建配置和 CI 工件任务已加入。
+
 ## 已知限制（有意决策，非缺陷）
 
-1. 跨实体引用为名字字符串（有引用检查/解除/替换保护；ID 化需数据迁移，列入 v1 后）。
-2. Electron sandbox 关闭（ESM preload 限制；已用 contextIsolation/导航锁定/权限默认拒绝/reveal 白名单补偿）。
-3. 浏览器预览的备份、EPUB 为降级演示实现（桌面版完整）。
-4. 正文图片不嵌入导出（导出前检查会提示）。
-5. 费用估算依赖用户填写单价，输出费用为上界估算。
-6. Agent 提案生成与推演需要真实 Provider（应用/撤销链路已用 mock AI 测试覆盖）。
-7. 完整 `npm audit` 仍报告 electron-builder 构建工具链的 16 个 high；它们不进入应用运行包，
-   `npm audit --omit=dev` 为 0。npm 当前只提供强制降级主版本的自动修复，因此暂不冒险降级。
-8. 主渲染 chunk 约 1.02 MB（gzip 约 327 KB），构建会给出非阻塞的拆包建议。
+1. ID 引用迁移采用双写兼容阶段，界面编辑仍保留人类可读名称；重名旧引用需人工消歧。
+2. 浏览器预览的备份为内存演示实现，且不能读取项目相对图片；桌面版提供完整磁盘实现。
+3. macOS/Linux 构建需在对应原生 CI runner 验证，本机 Windows 不能执行跨平台启动检查。
+4. 费用估算依赖用户填写单价，输出费用为上界估算。
+5. Agent 提案生成与推演需要真实 Provider（应用/撤销链路已用 mock AI 测试覆盖）。
+6. 自动更新代码已接入，但公开更新仍依赖代码签名和实际 HTTPS feed。
 
-## 唯一剩余外部阻塞
+## 剩余外部阻塞
 
 **Windows 代码签名证书与更新源**：本地 NSIS 打包可用；公开分发所需的证书获取与更新源部署为外部条件，接入步骤已写入 docs/release-windows.md。
 
@@ -287,8 +306,17 @@ npm run test:desktop-smoke
 
 ## 下一步
 
-1. 获取 Windows 代码签名证书与更新源后完成公开分发配置。
-2. v1.0 正式版前可继续做页面级动态导入，并跟进 electron-builder 上游依赖修复。
+1. 完成 RC3 unsigned Windows 安装包的可视安装界面与第三方 EPUB 阅读器人工验证。
+2. 获取 Windows 代码签名证书与更新源后完成公开分发配置。
+3. RC3 稳定后创建 `v1.0.0` tag 与正式 Release。
+
+## RC2 发布收口（2026-08-12）
+
+- 长篇续写工作流纳入发布基线：语料导入、Canon、分块索引、混合检索、风格画像、故事线程、续写编排与验证均有服务测试覆盖。
+- 根应用和桌面应用版本同步升至 `1.0.0-rc.2`，项目 schemaVersion 继续冻结为 `0.1.0`。
+- 修复新披露的 `nanoid` 生产依赖审计问题，锁定到安全版本 `3.3.18` 与 `5.1.16`。
+- `promo-video` 作为独立工程接入：根工具链显式隔离，CI 独立执行安装、审计、格式、lint/typecheck 与 bundle；可再生 WAV、bundle 和成片不进入 Git。
+- 新增根 CHANGELOG 与 RC2 发布说明，路线图和验证数字同步到当前基线。
 
 ## Codex 独立复核（2026-07-29）
 

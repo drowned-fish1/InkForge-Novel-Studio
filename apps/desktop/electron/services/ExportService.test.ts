@@ -93,6 +93,43 @@ describe("buildEpubArchive", () => {
     expect(opf).toContain("回退书名");
     expect(opf).not.toContain("cover-image");
   });
+
+  it("embeds project body images and declares them in the manifest", () => {
+    const archive = buildEpubArchive(
+      buildInput({
+        volumes: [
+          {
+            title: "图像卷",
+            chapters: [
+              {
+                title: "插图章",
+                body: "正文。\n\n![雨夜地图](../assets/map.png)",
+                imageHrefs: { "../assets/map.png": "../images/body-image-1.png" }
+              }
+            ]
+          }
+        ],
+        images: [
+          {
+            id: "body-image-1",
+            fileName: "body-image-1.png",
+            data: pngBytes,
+            mediaType: "image/png",
+            docxType: "png",
+            width: 1,
+            height: 1
+          }
+        ]
+      })
+    );
+    expect(validateEpubArchive(archive)).toEqual([]);
+    const files = unzipSync(archive);
+    expect(files["OEBPS/images/body-image-1.png"]).toEqual(pngBytes);
+    expect(strFromU8(files["OEBPS/content.opf"])).toContain('href="images/body-image-1.png" media-type="image/png"');
+    const chapter = strFromU8(files["OEBPS/text/v1-c1.xhtml"]);
+    expect(chapter).toContain('src="../images/body-image-1.png"');
+    expect(chapter).toContain("<figcaption>雨夜地图</figcaption>");
+  });
 });
 
 describe("validateEpubArchive / findXmlWellFormednessError", () => {
@@ -122,6 +159,15 @@ describe("renderMarkdownAsXhtml", () => {
     expect(output).toContain('class="image-alt"');
     expect(findXmlWellFormednessError(`<body>${output}</body>`)).toBeUndefined();
   });
+
+  it("renders a resolved local image while retaining alt text for unresolved images", () => {
+    const output = renderMarkdownAsXhtml("![已嵌入](map.png) ![缺失](missing.png)", {
+      "map.png": "../images/body-image-1.png"
+    });
+    expect(output).toContain('src="../images/body-image-1.png"');
+    expect(output).toContain("<figcaption>已嵌入</figcaption>");
+    expect(output).toContain('<span class="image-alt">缺失</span>');
+  });
 });
 
 describe("runExportPreflight", () => {
@@ -150,5 +196,25 @@ describe("runExportPreflight", () => {
     expect(kinds).toContain("missing-resource");
     expect(issues.find((issue) => issue.id === "cover-missing")?.severity).toBe("error");
     expect(kinds.filter((kind) => kind === "metadata")).toHaveLength(2);
+  });
+
+  it("accepts local images that the desktop service resolved safely", () => {
+    const issues = runExportPreflight({
+      volumes: [
+        {
+          title: "第一卷",
+          chapters: [
+            {
+              id: "c1",
+              title: "图像章",
+              content: "这是一个包含本地插图并且长度足够的章节。![图](../assets/a.png)",
+              imageAvailability: { "../assets/a.png": true }
+            }
+          ]
+        }
+      ],
+      epub: { title: "书", author: "作者", coverImagePath: "" }
+    });
+    expect(issues.some((issue) => issue.id.startsWith("image-"))).toBe(false);
   });
 });

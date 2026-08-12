@@ -131,6 +131,10 @@ const api: InkforgeApi = {
   setTheme: async (theme: "light" | "dark", manual = false): Promise<void> => {
     ipcRenderer.send("theme:set", theme, manual);
   },
+  getUpdateStatus: () => ipcRenderer.invoke("updates:status"),
+  checkForUpdates: () => ipcRenderer.invoke("updates:check"),
+  downloadUpdate: () => ipcRenderer.invoke("updates:download"),
+  installUpdate: () => ipcRenderer.invoke("updates:install"),
   listProjects: () => ipcRenderer.invoke("project:list"),
   createProject: (input: CreateProjectInput): Promise<ProjectSummary | undefined> =>
     ipcRenderer.invoke("project:create", input),

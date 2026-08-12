@@ -13,7 +13,7 @@ asar 打包、NSIS x64 安装器、图标与 `dist-electron`/`dist` 产物（测
 
 ## 安装包验证清单
 
-1. `npm run test:desktop-smoke` 全绿（构建 + 真实主进程 15 项端到端检查）。
+1. `npm run test:desktop-smoke` 全绿（构建 + 真实主进程 16 项端到端检查）。
 2. 安装 NSIS 包 → 启动 → 创建项目 → 写作/保存 → 关闭 → 重新打开项目内容完整。
 3. 无 API Key 时验证：写作台、批注/待修改、资料页、修订工作台、备份/恢复、四格式导出全部可用。
 4. 配置真实 Provider 后验证：Agent 提案生成→确认→写入→撤销、推演、发送前估算。
@@ -30,18 +30,15 @@ asar 打包、NSIS x64 安装器、图标与 `dist-electron`/`dist` 产物（测
    - 云签名/HSM：`signtoolOptions` 或 `azureSignOptions`（electron-builder ≥ 26）。
 3. CI 中通过安全变量注入证书，本地不落盘。
 
-## 自动更新（外部阻塞：更新源）
+## 自动更新（代码已接入，更新源仍为外部条件）
 
-1. 依赖：`electron-updater`；配置 `build.publish`（generic HTTPS 目录或 GitHub Releases）。
-2. 主进程启动后调用 `autoUpdater.checkForUpdatesAndNotify()`（建议放在 `app.whenReady` 之后，
-   并将下载/安装确认交给用户）。
-3. 更新源必须与签名配套：未签名的差量更新会被 Windows 拦截。
-4. 版本号策略：应用版本已在 v1.0 RC 统一为 `1.0.0-rc.1`（root 与 `apps/desktop`）；
+1. 设置 `INKFORGE_UPDATE_URL=https://updates.example.com/inkforge/` 后，正式包会使用 generic feed；未设置时完全禁用且不联网。
+2. preload 已暴露状态、检查、下载和安装 IPC；下载不会自动开始，安装必须由调用方确认。
+3. 更新源只接受 HTTPS（测试时允许 localhost/127.0.0.1 HTTP），并必须与签名配套。
+4. 版本号策略：应用版本已在 v1.0 RC4 统一为 `1.0.0-rc.4`（root 与 `apps/desktop`）；
    `packages/*` 保持内部 `0.1.0`，项目数据 schemaVersion 独立冻结为 `0.1.0`。
 
-## 已知限制
+## 安全与平台说明
 
-- `sandbox: false`：preload 以 ESM 产出，Electron 沙箱要求 CJS preload；
-  已启用 contextIsolation、禁用 nodeIntegration、锁定导航/window.open、
-  默认拒绝所有权限请求、`project:reveal` 仅允许最近项目路径。
-- 仅 Windows 打包目标。
+- preload 由 esbuild 独立打包成 `preload.cjs`，renderer 已启用 sandbox、contextIsolation，禁用 nodeIntegration。
+- `npm run dist:mac` 与 `npm run dist:linux` 必须在对应原生平台执行；CI 已配置原生 runner。

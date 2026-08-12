@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -7,27 +9,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent
 } from "react";
-import { AgentChatPanel } from "@/features/agent/AgentChatPanel";
-import { ChapterEditor } from "@/features/chapters/ChapterEditor";
-import { CharacterLibrary } from "@/features/library/CharacterLibrary";
-import { WorldLibrary } from "@/features/library/WorldLibrary";
-import { ModulePlaceholder } from "@/features/project/ModulePlaceholder";
-import { BackupCenter } from "@/features/project/BackupCenter";
-import { DraftCenter } from "@/features/project/DraftCenter";
 import { ProjectNav } from "@/features/project/ProjectNav";
-import { NarrativeBoard } from "@/features/narrative/NarrativeBoard";
-import { SimulationLab } from "@/features/simulation/SimulationLab";
-import { OutlineEditor } from "@/features/outline/OutlineEditor";
-import { FactionLibrary, LocationLibrary } from "@/features/library/WorldSubsetLibrary";
-import { RevisionWorkbench } from "@/features/revision/RevisionWorkbench";
-import { ContinuationWorkbench } from "@/features/continuation/ContinuationWorkbench";
-import { CluePanel } from "@/features/story/CluePanel";
-import { ConflictBoard } from "@/features/story/ConflictBoard";
-import { EventBoard } from "@/features/story/EventBoard";
-import { ProductionWorkbench } from "@/features/production/ProductionWorkbench";
-import { TermPanel } from "@/features/story/TermPanel";
-import { TimelinePanel } from "@/features/story/TimelinePanel";
-import { RelationshipCenter } from "@/features/story/RelationshipCenter";
 import { StatusBar } from "@/components/StatusBar";
 import { TopBar } from "@/components/TopBar";
 import { createKeybindingHandler } from "@/lib/keybindings";
@@ -40,6 +22,70 @@ import {
   type ResizablePane
 } from "@/lib/paneLayout";
 import { useProjectStore } from "@/stores/useProjectStore";
+
+const AgentChatPanel = lazy(() =>
+  import("@/features/agent/AgentChatPanel").then((module) => ({ default: module.AgentChatPanel }))
+);
+const ChapterEditor = lazy(() =>
+  import("@/features/chapters/ChapterEditor").then((module) => ({ default: module.ChapterEditor }))
+);
+const CharacterLibrary = lazy(() =>
+  import("@/features/library/CharacterLibrary").then((module) => ({ default: module.CharacterLibrary }))
+);
+const WorldLibrary = lazy(() =>
+  import("@/features/library/WorldLibrary").then((module) => ({ default: module.WorldLibrary }))
+);
+const ModulePlaceholder = lazy(() =>
+  import("@/features/project/ModulePlaceholder").then((module) => ({ default: module.ModulePlaceholder }))
+);
+const BackupCenter = lazy(() =>
+  import("@/features/project/BackupCenter").then((module) => ({ default: module.BackupCenter }))
+);
+const DraftCenter = lazy(() =>
+  import("@/features/project/DraftCenter").then((module) => ({ default: module.DraftCenter }))
+);
+const NarrativeBoard = lazy(() =>
+  import("@/features/narrative/NarrativeBoard").then((module) => ({ default: module.NarrativeBoard }))
+);
+const SimulationLab = lazy(() =>
+  import("@/features/simulation/SimulationLab").then((module) => ({ default: module.SimulationLab }))
+);
+const OutlineEditor = lazy(() =>
+  import("@/features/outline/OutlineEditor").then((module) => ({ default: module.OutlineEditor }))
+);
+const LocationLibrary = lazy(() =>
+  import("@/features/library/WorldSubsetLibrary").then((module) => ({ default: module.LocationLibrary }))
+);
+const FactionLibrary = lazy(() =>
+  import("@/features/library/WorldSubsetLibrary").then((module) => ({ default: module.FactionLibrary }))
+);
+const RevisionWorkbench = lazy(() =>
+  import("@/features/revision/RevisionWorkbench").then((module) => ({ default: module.RevisionWorkbench }))
+);
+const ContinuationWorkbench = lazy(() =>
+  import("@/features/continuation/ContinuationWorkbench").then((module) => ({ default: module.ContinuationWorkbench }))
+);
+const CluePanel = lazy(() => import("@/features/story/CluePanel").then((module) => ({ default: module.CluePanel })));
+const ConflictBoard = lazy(() =>
+  import("@/features/story/ConflictBoard").then((module) => ({ default: module.ConflictBoard }))
+);
+const EventBoard = lazy(() => import("@/features/story/EventBoard").then((module) => ({ default: module.EventBoard })));
+const ProductionWorkbench = lazy(() =>
+  import("@/features/production/ProductionWorkbench").then((module) => ({ default: module.ProductionWorkbench }))
+);
+const TermPanel = lazy(() => import("@/features/story/TermPanel").then((module) => ({ default: module.TermPanel })));
+const TimelinePanel = lazy(() =>
+  import("@/features/story/TimelinePanel").then((module) => ({ default: module.TimelinePanel }))
+);
+const RelationshipCenter = lazy(() =>
+  import("@/features/story/RelationshipCenter").then((module) => ({ default: module.RelationshipCenter }))
+);
+
+const ModuleLoading = () => (
+  <section className="module-empty-state module-loading" aria-busy="true" aria-live="polite">
+    正在加载模块…
+  </section>
+);
 
 const implementedModules = [
   "chapters",
@@ -379,28 +425,30 @@ export const AppShell = () => {
           <ProjectNav />
         )}
         {focusMode || compactLayout ? null : renderResizeHandle("navigation")}
-        {selectedModule === "chapters" ? <ChapterEditor /> : null}
-        {selectedModule === "characters" ? <CharacterLibrary /> : null}
-        {selectedModule === "world" ? <WorldLibrary /> : null}
-        {selectedModule === "overview" ? <ProductionWorkbench /> : null}
-        {selectedModule === "timeline" ? <TimelinePanel /> : null}
-        {selectedModule === "clues" ? <CluePanel /> : null}
-        {selectedModule === "terms" ? <TermPanel /> : null}
-        {selectedModule === "outline" ? <OutlineEditor /> : null}
-        {selectedModule === "narrative" ? <NarrativeBoard /> : null}
-        {selectedModule === "simulation" ? <SimulationLab /> : null}
-        {selectedModule === "drafts" ? <DraftCenter /> : null}
-        {selectedModule === "backup" ? <BackupCenter /> : null}
-        {selectedModule === "relationships" ? <RelationshipCenter /> : null}
-        {selectedModule === "locations" ? <LocationLibrary /> : null}
-        {selectedModule === "factions" ? <FactionLibrary /> : null}
-        {selectedModule === "conflicts" ? <ConflictBoard /> : null}
-        {selectedModule === "events" ? <EventBoard /> : null}
-        {selectedModule === "revision" ? <RevisionWorkbench /> : null}
-        {selectedModule === "continuation" ? <ContinuationWorkbench /> : null}
-        {placeholderModules.includes(selectedModule) || !implementedModules.includes(selectedModule) ? (
-          <ModulePlaceholder />
-        ) : null}
+        <Suspense fallback={<ModuleLoading />}>
+          {selectedModule === "chapters" ? <ChapterEditor /> : null}
+          {selectedModule === "characters" ? <CharacterLibrary /> : null}
+          {selectedModule === "world" ? <WorldLibrary /> : null}
+          {selectedModule === "overview" ? <ProductionWorkbench /> : null}
+          {selectedModule === "timeline" ? <TimelinePanel /> : null}
+          {selectedModule === "clues" ? <CluePanel /> : null}
+          {selectedModule === "terms" ? <TermPanel /> : null}
+          {selectedModule === "outline" ? <OutlineEditor /> : null}
+          {selectedModule === "narrative" ? <NarrativeBoard /> : null}
+          {selectedModule === "simulation" ? <SimulationLab /> : null}
+          {selectedModule === "drafts" ? <DraftCenter /> : null}
+          {selectedModule === "backup" ? <BackupCenter /> : null}
+          {selectedModule === "relationships" ? <RelationshipCenter /> : null}
+          {selectedModule === "locations" ? <LocationLibrary /> : null}
+          {selectedModule === "factions" ? <FactionLibrary /> : null}
+          {selectedModule === "conflicts" ? <ConflictBoard /> : null}
+          {selectedModule === "events" ? <EventBoard /> : null}
+          {selectedModule === "revision" ? <RevisionWorkbench /> : null}
+          {selectedModule === "continuation" ? <ContinuationWorkbench /> : null}
+          {placeholderModules.includes(selectedModule) || !implementedModules.includes(selectedModule) ? (
+            <ModulePlaceholder />
+          ) : null}
+        </Suspense>
         {focusMode || compactLayout || agentCollapsed ? null : renderResizeHandle("agent")}
         {focusMode ? null : compactLayout ? (
           <div
@@ -408,10 +456,14 @@ export const AppShell = () => {
             aria-hidden={compactPane !== "agent"}
             inert={compactPane !== "agent"}
           >
-            <AgentChatPanel />
+            <Suspense fallback={<ModuleLoading />}>
+              <AgentChatPanel />
+            </Suspense>
           </div>
         ) : agentCollapsed ? null : (
-          <AgentChatPanel />
+          <Suspense fallback={<ModuleLoading />}>
+            <AgentChatPanel />
+          </Suspense>
         )}
       </main>
       {focusMode ? null : <StatusBar />}
