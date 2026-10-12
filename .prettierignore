@@ -4,5 +4,6 @@ dist-electron/
 *.tsbuildinfo
 *.log
 output/
+promo-video/
 .playwright-cli/
 test-results/

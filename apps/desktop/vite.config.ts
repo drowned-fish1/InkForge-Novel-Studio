@@ -51,6 +51,21 @@ export default defineConfig({
             return "vendor-icons";
           }
           if (
+            normalized.includes("/node_modules/@codemirror/lang-markdown/") ||
+            normalized.includes("/node_modules/@lezer/markdown/")
+          ) {
+            return "vendor-editor-markdown";
+          }
+          if (
+            normalized.includes("/node_modules/@codemirror/") ||
+            normalized.includes("/node_modules/@lezer/") ||
+            normalized.includes("/node_modules/crelt/") ||
+            normalized.includes("/node_modules/style-mod/") ||
+            normalized.includes("/node_modules/w3c-keyname/")
+          ) {
+            return "vendor-editor";
+          }
+          if (
             normalized.includes("/node_modules/react/") ||
             normalized.includes("/node_modules/react-dom/") ||
             normalized.includes("/node_modules/scheduler/") ||

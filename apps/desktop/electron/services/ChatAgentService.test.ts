@@ -8,7 +8,6 @@ import {
   ChatAgentService,
   applyAgentPatchBlocks,
   agentCollaborationInstruction,
-  chooseUsableEditedDraft,
   collaborationRequestsRework,
   conversationBudgetForMessage,
   formatOutlineMemory,
@@ -54,13 +53,6 @@ describe("agent group routing", () => {
       false
     );
     expect(isLongFormGroupWritingRequest("@全体 完成第二章", defaultAgentMembers, "plan", "stable")).toBe(false);
-  });
-
-  it("keeps the complete writer draft when the editor output is empty or heavily truncated", () => {
-    const writerDraft = "正文".repeat(1_000);
-    expect(chooseUsableEditedDraft(writerDraft, "")).toBe(writerDraft);
-    expect(chooseUsableEditedDraft(writerDraft, "过短")).toBe(writerDraft);
-    expect(chooseUsableEditedDraft(writerDraft, "修订".repeat(800))).toBe("修订".repeat(800));
   });
 
   it("parses strict director scene headings and blocks fact-losing edits", () => {
@@ -339,7 +331,8 @@ describe("agent group routing", () => {
         "初编".repeat(400),
         "VERDICT: REWORK\n主角的关键选择缺乏动作支撑。",
         "返工".repeat(450),
-        "终编".repeat(400)
+        "终编".repeat(400),
+        "VERDICT: APPROVE\n返工后通过独立复核。"
       ];
       const ai = {
         runAgentCompletion: async () => ({

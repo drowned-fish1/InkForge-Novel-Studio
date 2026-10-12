@@ -1,6 +1,7 @@
 import {
   AlignVerticalSpaceAround,
   BarChart3,
+  BookOpen,
   Bold,
   Bookmark,
   CheckCircle2,
@@ -24,18 +25,25 @@ import {
   Wand2
 } from "lucide-react";
 import { marked } from "marked";
-import type { Character, Term, WritingWorkspace } from "@inkforge/schemas";
+import type { WritingWorkspace } from "@inkforge/schemas";
 import type { MouseEvent } from "react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ScenePlanner } from "@/features/agent/ScenePlanner";
 import { MarkdownCodeEditor, type MarkdownCodeEditorHandle } from "@/features/chapters/MarkdownCodeEditor";
+import { WritingReferencePanel, type WritingReferenceTarget } from "@/features/chapters/WritingReferencePanel";
+import { PinnedWritingReferences } from "./PinnedWritingReferences";
+import { useWritingReferenceStore } from "@/stores/useWritingReferenceStore";
+import { previewReferenceEntries } from "@/lib/writingReferences";
+import "./pinnedWritingReferences.css";
 import { rebaseChapterAnnotations } from "@inkforge/schemas";
-import { bridge } from "@/lib/browserBridge";
 import { listMarkdownHeadings } from "@/lib/chapterContent";
 import { countCjkAwareWords } from "@/lib/textMetrics";
-import { mutateWritingWorkspace } from "@/lib/writingWorkspaceStore";
+import { dailyTemplates, localDayKey } from "@/lib/dailyWriting";
+import { handleTabNavigation } from "@/lib/tabNavigation";
+import { loadLatestWritingWorkspace, mutateWritingWorkspace } from "@/lib/writingWorkspaceStore";
 import { useLibraryStore } from "@/stores/useLibraryStore";
 import { useProjectStore } from "@/stores/useProjectStore";
+import { useAgentSelectionStore } from "@/stores/useAgentSelectionStore";
 
 const chapterStatusLabels = {
   unplanned: "未规划",
@@ -73,33 +81,6 @@ const slugifyHeading = (value: string, fallback: number) => {
     .replace(/\s+/g, "-")
     .slice(0, 60);
   return slug || `heading-${fallback}`;
-};
-
-const buildReferenceEntries = (characters: Character[], terms: Term[]): ReferenceEntry[] => {
-  const seen = new Set<string>();
-  const entries: ReferenceEntry[] = [];
-  const push = (id: string, name: string, title: string) => {
-    const normalized = name.trim();
-    const key = normalized.toLocaleLowerCase("zh-CN");
-    if (normalized.length < 2 || seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    entries.push({ id, name: normalized, title });
-  };
-
-  characters.forEach((character) => {
-    const title = `人物：${character.name}`;
-    push(`character-${character.id}`, character.name, title);
-    character.aliases.forEach((alias) => push(`character-${character.id}`, alias, title));
-  });
-  terms.forEach((term) => {
-    const title = term.definition ? `术语：${term.name} - ${term.definition}` : `术语：${term.name}`;
-    push(`term-${term.id}`, term.name, title);
-    term.aliases.forEach((alias) => push(`term-${term.id}`, alias, title));
-  });
-
-  return entries.sort((left, right) => right.name.length - left.name.length);
 };
 
 const enhancePreviewHtml = (markdown: string, references: ReferenceEntry[]) => {
@@ -218,10 +199,17 @@ export const ChapterEditor = () => {
   const restoreChapterHistory = useProjectStore((state) => state.restoreChapterHistory);
   const characters = useLibraryStore((state) => state.characters);
   const terms = useLibraryStore((state) => state.terms);
+  const libraryProjectPath = useLibraryStore((state) => state.libraryProjectPath);
+  const pinnedReferences = useWritingReferenceStore((state) => state.projects[project?.projectPath ?? ""]);
+  const hydrateReferences = useWritingReferenceStore((state) => state.hydrate);
+  useEffect(() => {
+    if (project) hydrateReferences(project.projectPath);
+  }, [project?.projectPath, hydrateReferences]);
   const cmRef = useRef<MarkdownCodeEditorHandle>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const chapterWordCountsRef = useRef(new Map<string, number>());
   const [editorTab, setEditorTab] = useState<EditorTab>("write");
+  const [referenceLookup, setReferenceLookup] = useState<{ target?: WritingReferenceTarget; query?: string }>();
   const [supportTab, setSupportTab] = useState<SupportTab>("scenes");
   const [selectionStart, setSelectionStart] = useState(0);
   const [selectionEnd, setSelectionEnd] = useState(0);
@@ -246,6 +234,15 @@ export const ChapterEditor = () => {
     conflictPoints: "",
     targetWords: "3000"
   });
+  const continueWriting = () => {
+    setReferenceLookup(undefined);
+    setEditorTab("write");
+    window.setTimeout(() => cmRef.current?.focus(), 0);
+  };
+
+  useEffect(() => {
+    setReferenceLookup(undefined);
+  }, [project?.projectPath, current?.plan.id]);
 
   useEffect(() => {
     if (!current) {
@@ -258,7 +255,6 @@ export const ChapterEditor = () => {
       conflictPoints: current.plan.conflictPoints,
       targetWords: String(current.plan.targetWords)
     });
-    setSelectionStart(0);
   }, [
     current?.plan.id,
     current?.plan.title,
@@ -270,7 +266,18 @@ export const ChapterEditor = () => {
 
   useEffect(() => {
     if (!project) return;
-    void bridge.loadWritingWorkspace(project.projectPath).then(setWritingWorkspace);
+    let cancelled = false;
+    void loadLatestWritingWorkspace(project.projectPath)
+      .then((workspace) => {
+        if (!cancelled) setWritingWorkspace(workspace);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled)
+          useProjectStore.setState({ error: cause instanceof Error ? cause.message : "读取写作记录失败" });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [project?.projectPath]);
 
   useEffect(() => {
@@ -350,8 +357,11 @@ export const ChapterEditor = () => {
   const previewSource = editorTab === "preview" ? (current?.content ?? "") : "";
   const deferredPreviewSource = useDeferredValue(previewSource);
   const references = useMemo(
-    () => (editorTab === "preview" ? buildReferenceEntries(characters, terms) : []),
-    [characters, editorTab, terms]
+    () =>
+      editorTab === "preview" && libraryProjectPath === project?.projectPath
+        ? previewReferenceEntries(characters, terms)
+        : [],
+    [characters, editorTab, terms, libraryProjectPath, project?.projectPath]
   );
   const previewHtml = useMemo(
     () => (editorTab === "preview" ? enhancePreviewHtml(deferredPreviewSource, references) : ""),
@@ -455,6 +465,28 @@ export const ChapterEditor = () => {
       : { start: Math.min(selectionStart, selectionEnd), end: Math.max(selectionStart, selectionEnd) };
   };
 
+  const addSelectionToChat = () => {
+    if (!project || !current) return;
+    const { start, end } = readLiveSelection();
+    if (end <= start) return;
+    try {
+      useAgentSelectionStore.getState().addReference({
+        projectPath: project.projectPath,
+        chapterId: current.plan.id,
+        chapterTitle: current.plan.title,
+        start,
+        end,
+        quote: current.content.slice(start, end)
+      });
+      setFocusMode(false);
+      window.dispatchEvent(
+        new CustomEvent("inkforge:agent-task", { detail: { selectionAdded: true, scope: "chapter" } })
+      );
+    } catch (reason) {
+      useProjectStore.setState({ error: reason instanceof Error ? reason.message : "无法添加正文引用。" });
+    }
+  };
+
   const applyMarkdown = (before: string, after = before) => {
     cmRef.current?.wrapSelection(before, after);
   };
@@ -552,6 +584,13 @@ export const ChapterEditor = () => {
   }
   const sessionWords = words - sessionStartedRef.current.initialWords;
   const todayWords = todaySessions.reduce((total, item) => total + item.wordsAdded, 0) + sessionWords;
+  const dailyWordGoal = writingWorkspace.dailyWriting
+    ? (writingWorkspace.dailyWriting.plans.find((plan) => plan.date === localDayKey())?.wordGoal ??
+      [...dailyTemplates, ...writingWorkspace.dailyWriting.templates].find(
+        (template) => template.id === writingWorkspace.dailyWriting?.activeTemplateId
+      )?.wordGoal ??
+      dailyTemplates[0].wordGoal)
+    : undefined;
   const todayMinutes = Math.round(todaySessions.reduce((total, item) => total + item.durationSeconds, 0) / 60);
   const volume = project?.outline.volumes.find((item) =>
     item.chapters.some((chapter) => chapter.id === current.plan.id)
@@ -572,6 +611,22 @@ export const ChapterEditor = () => {
 
   const handlePreviewClick = (event: MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
+    const reference = target.closest<HTMLAnchorElement>("a.preview-reference");
+    if (reference) {
+      event.preventDefault();
+      const hash = reference.getAttribute("href") ?? "";
+      if (hash.startsWith("#lookup-")) {
+        try {
+          setReferenceLookup({ query: decodeURIComponent(hash.slice(8)) });
+        } catch {
+          setReferenceLookup({ query: reference.textContent ?? "" });
+        }
+        return;
+      }
+      const kind = hash.startsWith("#character-") ? "character" : "term";
+      setReferenceLookup({ target: { kind, id: hash.slice(kind === "character" ? 11 : 6) } });
+      return;
+    }
     if (target.closest("a")) {
       return;
     }
@@ -592,6 +647,7 @@ export const ChapterEditor = () => {
               <div className="crumb">{volume?.title ?? "未归属分卷"}</div>
               <input
                 className="chapter-title-input"
+                aria-label="章节标题"
                 value={draftMeta.title}
                 onChange={(event) => setDraftMeta((draft) => ({ ...draft, title: event.target.value }))}
                 onBlur={persistDraftMeta}
@@ -647,11 +703,19 @@ export const ChapterEditor = () => {
             <ChevronDown size={16} className="chapter-support-chevron" />
           </summary>
 
-          <div className="chapter-support-tabs" role="tablist" aria-label="章节辅助内容">
+          <div
+            className="chapter-support-tabs"
+            role="tablist"
+            aria-label="章节辅助内容"
+            onKeyDown={handleTabNavigation}
+          >
             <button
               className={supportTab === "scenes" ? "active" : ""}
               type="button"
               onClick={() => setSupportTab("scenes")}
+              role="tab"
+              aria-selected={supportTab === "scenes"}
+              tabIndex={supportTab === "scenes" ? 0 : -1}
             >
               场景规划
             </button>
@@ -659,6 +723,9 @@ export const ChapterEditor = () => {
               className={supportTab === "details" ? "active" : ""}
               type="button"
               onClick={() => setSupportTab("details")}
+              role="tab"
+              aria-selected={supportTab === "details"}
+              tabIndex={supportTab === "details" ? 0 : -1}
             >
               章节资料
             </button>
@@ -666,6 +733,9 @@ export const ChapterEditor = () => {
               className={supportTab === "history" ? "active" : ""}
               type="button"
               onClick={() => setSupportTab("history")}
+              role="tab"
+              aria-selected={supportTab === "history"}
+              tabIndex={supportTab === "history" ? 0 : -1}
             >
               历史版本
             </button>
@@ -673,6 +743,9 @@ export const ChapterEditor = () => {
               className={supportTab === "notes" ? "active" : ""}
               type="button"
               onClick={() => setSupportTab("notes")}
+              role="tab"
+              aria-selected={supportTab === "notes"}
+              tabIndex={supportTab === "notes" ? 0 : -1}
             >
               批注书签
             </button>
@@ -680,6 +753,9 @@ export const ChapterEditor = () => {
               className={supportTab === "stats" ? "active" : ""}
               type="button"
               onClick={() => setSupportTab("stats")}
+              role="tab"
+              aria-selected={supportTab === "stats"}
+              tabIndex={supportTab === "stats" ? 0 : -1}
             >
               写作统计
             </button>
@@ -953,6 +1029,15 @@ export const ChapterEditor = () => {
                     <strong>{completion}%</strong>
                     <span>本章进度</span>
                   </div>
+                  {dailyWordGoal ? (
+                    <div className="writing-stats-card">
+                      <strong>{Math.min(100, Math.round((Math.max(0, todayWords) / dailyWordGoal) * 100))}%</strong>
+                      <span>
+                        日目标 {dailyWordGoal.toLocaleString("zh-CN")} 字 · 还差{" "}
+                        {Math.max(0, dailyWordGoal - Math.max(0, todayWords)).toLocaleString("zh-CN")}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="writing-stats-card">
                     <strong>{dailyStats.totalWords.toLocaleString("zh-CN")}</strong>
                     <span>累计人工字数</span>
@@ -996,14 +1081,19 @@ export const ChapterEditor = () => {
 
       <div className="editor-workspace">
         <div className="editor-toolbar">
-          <div className="editor-tabs editor-view-tabs" role="tablist" aria-label="章节编辑视图">
+          <div
+            className="editor-tabs editor-view-tabs"
+            role="tablist"
+            aria-label="章节编辑视图"
+            onKeyDown={handleTabNavigation}
+          >
             <button
               className={editorTab === "write" ? "active" : ""}
               type="button"
               role="tab"
               aria-selected={editorTab === "write"}
               aria-controls="chapter-write-panel"
-              onClick={() => setEditorTab("write")}
+              onClick={continueWriting}
             >
               <PencilLine size={15} />
               正文写作
@@ -1021,6 +1111,23 @@ export const ChapterEditor = () => {
             </button>
           </div>
           <div className="editor-format-actions" role="toolbar" aria-label="正文格式与标记">
+            <button
+              type="button"
+              aria-expanded={Boolean(referenceLookup)}
+              onClick={() => {
+                if (referenceLookup) {
+                  continueWriting();
+                  return;
+                }
+                const selection = readLiveSelection();
+                setReferenceLookup({
+                  query: current.content.slice(selection.start, selection.end).trim().slice(0, 40)
+                });
+              }}
+            >
+              <BookOpen size={14} />
+              查资料
+            </button>
             <button type="button" className={findOpen ? "active" : ""} onClick={() => setFindOpen((value) => !value)}>
               <Search size={14} />
               查找替换
@@ -1093,6 +1200,17 @@ export const ChapterEditor = () => {
             </button>
             <button
               type="button"
+              className="editor-add-to-chat"
+              disabled={selectionEnd <= selectionStart || editorTab !== "write"}
+              title="将选中文字作为引用加入 Agent 对话"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={addSelectionToChat}
+            >
+              <MessageSquareText size={14} />
+              加入对话
+            </button>
+            <button
+              type="button"
               className="revision-mark-button"
               disabled={selectionEnd <= selectionStart}
               title={selectionEnd <= selectionStart ? "请先选择需要标记的文字" : "标记为待修改"}
@@ -1108,12 +1226,26 @@ export const ChapterEditor = () => {
           </div>
         </div>
 
+        {referenceLookup ? (
+          <WritingReferencePanel
+            key={`${referenceLookup.target?.kind ?? "search"}:${referenceLookup.target?.id ?? ""}`}
+            target={referenceLookup.target}
+            initialQuery={referenceLookup.query}
+            onClose={continueWriting}
+            onPinned={() => {
+              setReferenceLookup(undefined);
+              if (editorTab === "write") window.setTimeout(() => cmRef.current?.focus(), 0);
+            }}
+          />
+        ) : null}
+
         {findOpen ? (
           <div className="editor-findbar">
             <label>
               <Search size={14} />
               <input
                 autoFocus
+                aria-label="查找正文"
                 value={findText}
                 placeholder="查找"
                 onChange={(event) => {
@@ -1133,6 +1265,7 @@ export const ChapterEditor = () => {
               <Replace size={14} />
               <input
                 value={replaceText}
+                aria-label="替换正文为"
                 placeholder="替换为"
                 onChange={(event) => setReplaceText(event.target.value)}
               />
@@ -1146,42 +1279,48 @@ export const ChapterEditor = () => {
           </div>
         ) : null}
 
-        {editorTab === "write" ? (
-          <div className="markdown-editor-shell" id="chapter-write-panel" role="tabpanel">
-            <MarkdownCodeEditor
-              ref={cmRef}
-              chapterKey={current.plan.id}
-              value={current.content}
-              placeholder="从这里开始写正文……"
-              marks={editorMarks}
-              find={
-                findOpen && findText.trim()
-                  ? {
-                      ranges: findMatches.map((start) => ({ from: start, to: start + findText.trim().length })),
-                      activeIndex: matchIndex
-                    }
-                  : undefined
-              }
-              typewriter={typewriterScroll || focusMode}
-              paragraphFocus={focusMode}
-              onChange={updateContent}
-              onSelectionChange={(from, to) => {
-                setSelectionStart(from);
-                setSelectionEnd(to);
-              }}
-              onOpenFind={() => setFindOpen(true)}
+        <div
+          className={`writing-editor-body ${pinnedReferences?.cards.length ? "has-pinned-reference" : ""} ${pinnedReferences?.collapsed ? "reference-collapsed" : ""}`}
+        >
+          {editorTab === "write" ? (
+            <div className="markdown-editor-shell" id="chapter-write-panel" role="tabpanel">
+              <MarkdownCodeEditor
+                ref={cmRef}
+                projectPath={project?.projectPath ?? ""}
+                chapterKey={current.plan.id}
+                value={current.content}
+                placeholder="从这里开始写正文……"
+                marks={editorMarks}
+                find={
+                  findOpen && findText.trim()
+                    ? {
+                        ranges: findMatches.map((start) => ({ from: start, to: start + findText.trim().length })),
+                        activeIndex: matchIndex
+                      }
+                    : undefined
+                }
+                typewriter={typewriterScroll || focusMode}
+                paragraphFocus={focusMode}
+                onChange={updateContent}
+                onSelectionChange={(from, to) => {
+                  setSelectionStart(from);
+                  setSelectionEnd(to);
+                }}
+                onOpenFind={() => setFindOpen(true)}
+              />
+            </div>
+          ) : (
+            <div
+              className="markdown-preview"
+              id="chapter-preview-panel"
+              role="tabpanel"
+              dangerouslySetInnerHTML={{ __html: previewHtml }}
+              onClick={handlePreviewClick}
+              ref={previewRef}
             />
-          </div>
-        ) : (
-          <div
-            className="markdown-preview"
-            id="chapter-preview-panel"
-            role="tabpanel"
-            dangerouslySetInnerHTML={{ __html: previewHtml }}
-            onClick={handlePreviewClick}
-            ref={previewRef}
-          />
-        )}
+          )}
+          <PinnedWritingReferences key={project?.projectPath} />
+        </div>
       </div>
     </section>
   );

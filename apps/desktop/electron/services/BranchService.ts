@@ -1,3 +1,4 @@
+import { ContinuationRunStore } from "./ContinuationRunStore.js";
 import { randomUUID } from "node:crypto";
 import { StoryBranchSchema, type BranchDiffLine, type StoryBranch } from "@inkforge/schemas";
 import type { CreateStoryBranchInput, SaveStoryBranchInput } from "../types.js";
@@ -5,12 +6,19 @@ import { ChapterService } from "./ChapterService.js";
 import { FileRepository } from "./FileRepository.js";
 import { fingerprint } from "./QualityService.js";
 import { ProjectService } from "./ProjectService.js";
+import { ChunkIndexService } from "./ChunkIndexService.js";
 
 export class BranchService {
   constructor(
     private readonly files = new FileRepository(),
     private readonly projects = new ProjectService(files),
-    private readonly chapters = new ChapterService(files)
+    private readonly chapters = new ChapterService(files),
+    private readonly onAccepted?: (
+      projectPath: string,
+      chapterId: string,
+      content: string,
+      yolo: boolean
+    ) => Promise<void>
   ) {}
 
   async list(projectPath: string, chapterId?: string): Promise<StoryBranch[]> {
@@ -23,6 +31,8 @@ export class BranchService {
   async create(input: CreateStoryBranchInput): Promise<StoryBranch> {
     const chapter = await this.findChapter(input.projectPath, input.chapterId);
     const baseContent = await this.files.readText(this.files.assertInsideProject(input.projectPath, chapter.file));
+    if (input.expectedBaseContent !== undefined && input.expectedBaseContent !== baseContent)
+      throw new Error("生成过程中正文已变化，请保存新正文后重新生成。");
     const now = new Date().toISOString();
     const branch = StoryBranchSchema.parse({
       id: randomUUID(),
@@ -34,6 +44,7 @@ export class BranchService {
       content: input.content ?? baseContent,
       status: "draft",
       source: input.source ?? "manual",
+      updateProjectData: input.updateProjectData,
       createdAt: now,
       updatedAt: now
     });
@@ -71,7 +82,7 @@ export class BranchService {
     return diffLines(current, branch.content);
   }
 
-  async apply(projectPath: string, branchId: string): Promise<StoryBranch> {
+  async apply(projectPath: string, branchId: string, yolo = false): Promise<StoryBranch> {
     const branches = await this.read(projectPath);
     const branch = branches.find((item) => item.id === branchId);
     if (!branch) {
@@ -79,12 +90,45 @@ export class BranchService {
     }
     await this.assertContinuationBranchCanApply(projectPath, branchId);
     const chapter = await this.findChapter(projectPath, branch.chapterId);
+    const current = await this.files.readText(this.files.assertInsideProject(projectPath, chapter.file));
+    if (branch.status === "applied" && current === branch.content) return branch;
+    if (current !== branch.baseContent) throw new Error("正文在分支生成后已变化，请重新生成或合并后再应用。");
     await this.chapters.saveChapter({ projectPath, file: chapter.file, content: branch.content });
-    const updated = StoryBranchSchema.parse({ ...branch, status: "applied", updatedAt: new Date().toISOString() });
+    let indexingError: string | undefined;
+    try {
+      await new ChunkIndexService(this.files).indexChapter(projectPath, {
+        chapterId: chapter.id,
+        title: chapter.title,
+        chapterNumber: chapter.number,
+        content: branch.content
+      });
+    } catch (error) {
+      indexingError = error instanceof Error ? error.message : String(error);
+    }
+    let updated = StoryBranchSchema.parse({
+      ...branch,
+      status: "applied",
+      indexingError,
+      updatedAt: new Date().toISOString()
+    });
     await this.write(
       projectPath,
       branches.map((item) => (item.id === updated.id ? updated : item))
     );
+    if (branch.updateProjectData) {
+      try {
+        await this.onAccepted?.(projectPath, branch.chapterId, branch.content, yolo);
+      } catch (error) {
+        updated = StoryBranchSchema.parse({
+          ...updated,
+          dataUpdateError: error instanceof Error ? error.message : String(error)
+        });
+        await this.write(
+          projectPath,
+          branches.map((item) => (item.id === updated.id ? updated : item))
+        );
+      }
+    }
     return updated;
   }
 
@@ -133,11 +177,9 @@ export class BranchService {
 
   private async assertContinuationBranchCanApply(projectPath: string, branchId: string): Promise<void> {
     try {
-      const runs = await this.files.readJson<
-        Array<{ branchId?: string; status?: string; validation?: { hardFailures?: number } }>
-      >(this.files.assertInsideProject(projectPath, ".inkforge/continuation/runs.json"));
+      const runs = await new ContinuationRunStore(this.files, (raw) => raw as never).summaries(projectPath);
       const run = runs.find((item) => item.branchId === branchId);
-      if (run && (run.status === "blocked" || (run.validation?.hardFailures ?? 0) > 0)) {
+      if (run && (run.status !== "completed" || (run.validation?.hardFailures ?? 0) > 0)) {
         throw new Error("该续写分支存在未解决的硬冲突，不能写入正文。请修订并重新生成。");
       }
     } catch (error) {

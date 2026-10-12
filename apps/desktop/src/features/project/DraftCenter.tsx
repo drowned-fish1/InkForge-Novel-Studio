@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { handleTabNavigation } from "@/lib/tabNavigation";
+import { useEditorGuard } from "@/lib/useEditorGuard";
+import { requestEditorLeave } from "@/lib/editorActions";
+import { DailyWritingPanel } from "./DailyWritingPanel";
+import { ManuscriptStockPanel } from "./ManuscriptStockPanel";
+import "./writingManagement.css";
 import {
   Archive,
   FileClock,
@@ -28,7 +34,7 @@ const statusLabels: Record<ChapterPlan["status"], string> = {
   done: "已完成"
 };
 
-type DraftTab = "chapters" | "history" | "fragments";
+type DraftTab = "chapters" | "history" | "fragments" | "daily" | "stock";
 
 interface HistoryRow {
   file: string;
@@ -48,6 +54,12 @@ export const DraftCenter = () => {
   const updateContent = useProjectStore((state) => state.updateContent);
   const saveCurrentChapter = useProjectStore((state) => state.saveCurrentChapter);
   const [tab, setTab] = useState<DraftTab>("chapters");
+  const chooseTab = (next: DraftTab) => {
+    if (next !== tab && requestEditorLeave()) {
+      if (tab === "fragments") setFragmentDraft({ title: "", content: "", tags: "" });
+      setTab(next);
+    }
+  };
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<ChapterPlan["status"] | "all" | "archived">("all");
   const [historyCounts, setHistoryCounts] = useState<Record<string, number>>({});
@@ -58,6 +70,7 @@ export const DraftCenter = () => {
   const [batchVolume, setBatchVolume] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [preview, setPreview] = useState<
     { row: HistoryRow; lines: TextDiffLine[]; added: number; removed: number } | undefined
   >();
@@ -146,7 +159,6 @@ export const DraftCenter = () => {
 
   const open = async (chapter: ChapterPlan) => {
     await selectChapter(chapter);
-    setSelectedModule("chapters");
   };
 
   const showHistoryPreview = async (row: HistoryRow) => {
@@ -192,7 +204,7 @@ export const DraftCenter = () => {
   };
 
   const saveFragment = async () => {
-    if (!project) return;
+    if (!project || busy) return;
     const now = new Date().toISOString();
     const draft = fragmentDraft;
     if (!draft.content.trim() && !draft.title.trim()) return;
@@ -200,52 +212,66 @@ export const DraftCenter = () => {
       .split(/[,，]/u)
       .map((item) => item.trim())
       .filter(Boolean);
-    const workspace = await mutateWritingWorkspace(project.projectPath, (state) => {
-      if (draft.id) {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const workspace = await mutateWritingWorkspace(project.projectPath, (state) => {
+        if (draft.id) {
+          return {
+            ...state,
+            fragments: state.fragments.map((item) =>
+              item.id === draft.id
+                ? { ...item, title: draft.title.trim(), content: draft.content, tags, updatedAt: now }
+                : item
+            )
+          };
+        }
         return {
           ...state,
-          fragments: state.fragments.map((item) =>
-            item.id === draft.id
-              ? { ...item, title: draft.title.trim(), content: draft.content, tags, updatedAt: now }
-              : item
-          )
+          fragments: [
+            {
+              id: `fragment-${Date.now()}`,
+              title: draft.title.trim(),
+              content: draft.content,
+              tags,
+              archived: false,
+              createdAt: now,
+              updatedAt: now
+            },
+            ...state.fragments
+          ]
         };
-      }
-      return {
-        ...state,
-        fragments: [
-          {
-            id: `fragment-${Date.now()}`,
-            title: draft.title.trim(),
-            content: draft.content,
-            tags,
-            archived: false,
-            createdAt: now,
-            updatedAt: now
-          },
-          ...state.fragments
-        ]
-      };
-    });
-    setFragments(workspace.fragments);
-    setFragmentDraft({ title: "", content: "", tags: "" });
+      });
+      setFragments(workspace.fragments);
+      setFragmentDraft({ title: "", content: "", tags: "" });
+      setNotice("灵感片段已保存。");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "保存片段失败，内容仍保留在编辑框中。");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const mutateFragment = async (update: (fragments: InspirationFragment[]) => InspirationFragment[]) => {
     if (!project) return;
-    const workspace = await mutateWritingWorkspace(project.projectPath, (state) => ({
-      ...state,
-      fragments: update(state.fragments)
-    }));
-    setFragments(workspace.fragments);
+    await runBatch(async () => {
+      const workspace = await mutateWritingWorkspace(project.projectPath, (state) => ({
+        ...state,
+        fragments: update(state.fragments)
+      }));
+      setFragments(workspace.fragments);
+    });
   };
 
   const fragmentToChapter = async (fragment: InspirationFragment) => {
     if (!project) return;
-    setBusy(true);
     setError("");
     try {
+      const previousChapterId = useProjectStore.getState().current?.plan.id;
       await createChapter();
+      if (useProjectStore.getState().current?.plan.id === previousChapterId) return;
+      setBusy(true);
       updateContent(fragment.content);
       await saveCurrentChapter();
       const created = useProjectStore.getState().current;
@@ -262,6 +288,26 @@ export const DraftCenter = () => {
 
   const totalWords = chapters.reduce((sum, item) => sum + item.chapter.actualWords, 0);
   const selectedCount = selectedIds.size;
+  const originalFragment = fragments.find((item) => item.id === fragmentDraft.id);
+  const fragmentDirty = originalFragment
+    ? fragmentDraft.title !== originalFragment.title ||
+      fragmentDraft.content !== originalFragment.content ||
+      JSON.stringify(
+        fragmentDraft.tags
+          .split(/[,，]/u)
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+      ) !== JSON.stringify(originalFragment.tags)
+    : Boolean(fragmentDraft.title.trim() || fragmentDraft.content.trim() || fragmentDraft.tags.trim());
+  const canLeaveFragment = useEditorGuard(
+    fragmentDirty,
+    busy,
+    tab === "fragments" ? () => void saveFragment() : undefined
+  );
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [query, status]);
 
   return (
     <section className="library-screen draft-center">
@@ -269,26 +315,67 @@ export const DraftCenter = () => {
         <div>
           <div className="crumb">写作</div>
           <h2>草稿与版本</h2>
-          <p>集中管理章节草稿、聚合历史版本和不属于章节树的灵感片段。</p>
+          <p>管理每日写作计划、存稿发布记录、章节版本与灵感片段。</p>
         </div>
         <div className="draft-total">
           {chapters.length} 章 · {totalWords.toLocaleString("zh-CN")} 字
         </div>
       </header>
 
-      <div className="draft-tabs" role="tablist" aria-label="草稿视图">
-        <button className={tab === "chapters" ? "active" : ""} type="button" onClick={() => setTab("chapters")}>
+      <div className="draft-tabs" role="tablist" aria-label="草稿视图" onKeyDown={handleTabNavigation}>
+        <button
+          role="tab"
+          aria-selected={tab === "chapters"}
+          tabIndex={tab === "chapters" ? 0 : -1}
+          className={tab === "chapters" ? "active" : ""}
+          type="button"
+          onClick={() => chooseTab("chapters")}
+        >
           章节草稿
         </button>
-        <button className={tab === "history" ? "active" : ""} type="button" onClick={() => setTab("history")}>
+        <button
+          role="tab"
+          aria-selected={tab === "history"}
+          tabIndex={tab === "history" ? 0 : -1}
+          className={tab === "history" ? "active" : ""}
+          type="button"
+          onClick={() => chooseTab("history")}
+        >
           历史版本（{historyRows.length}）
         </button>
-        <button className={tab === "fragments" ? "active" : ""} type="button" onClick={() => setTab("fragments")}>
+        <button
+          role="tab"
+          aria-selected={tab === "fragments"}
+          tabIndex={tab === "fragments" ? 0 : -1}
+          className={tab === "fragments" ? "active" : ""}
+          type="button"
+          onClick={() => chooseTab("fragments")}
+        >
           灵感片段（{fragments.filter((item) => !item.archived).length}）
         </button>
+        {(["daily", "stock"] as const).map((item) => (
+          <button
+            key={item}
+            role="tab"
+            aria-selected={tab === item}
+            tabIndex={tab === item ? 0 : -1}
+            className={tab === item ? "active" : ""}
+            type="button"
+            onClick={() => chooseTab(item)}
+          >
+            {item === "daily" ? "每日模板" : "存稿管理"}
+          </button>
+        ))}
       </div>
 
-      {error ? <div className="error-banner">{error}</div> : null}
+      {tab === "daily" && project ? <DailyWritingPanel key={project.projectPath} /> : null}
+      {tab === "stock" && project ? <ManuscriptStockPanel key={project.projectPath} /> : null}
+
+      {error ? (
+        <div className="error-banner" role="alert">
+          {error}
+        </div>
+      ) : null}
 
       {tab === "chapters" ? (
         <>
@@ -297,11 +384,16 @@ export const DraftCenter = () => {
               <Search size={15} />
               <input
                 value={query}
+                aria-label="搜索草稿"
                 placeholder="搜索标题、目标或备注"
                 onChange={(event) => setQuery(event.target.value)}
               />
             </label>
-            <select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
+            <select
+              aria-label="按草稿状态筛选"
+              value={status}
+              onChange={(event) => setStatus(event.target.value as typeof status)}
+            >
               <option value="all">全部进行中</option>
               {Object.entries(statusLabels).map(([value, label]) => (
                 <option key={value} value={value}>
@@ -315,6 +407,9 @@ export const DraftCenter = () => {
           {selectedCount ? (
             <div className="draft-batch-bar">
               <strong>已选 {selectedCount} 章</strong>
+              <button type="button" disabled={busy} onClick={() => setSelectedIds(new Set())}>
+                取消选择
+              </button>
               <button
                 type="button"
                 disabled={busy}
@@ -396,6 +491,7 @@ export const DraftCenter = () => {
               <article className={`draft-row ${chapter.id === current?.plan.id ? "active" : ""}`} key={chapter.id}>
                 <input
                   type="checkbox"
+                  disabled={busy}
                   aria-label={`选择 ${chapter.title}`}
                   checked={selectedIds.has(chapter.id)}
                   onChange={() => toggleSelected(chapter.id)}
@@ -417,7 +513,7 @@ export const DraftCenter = () => {
                   <FileClock size={14} />
                   {historyCounts[chapter.id] ?? 0}
                 </span>
-                <button type="button" onClick={() => void open(chapter)}>
+                <button type="button" disabled={busy} onClick={() => void open(chapter)}>
                   <FilePenLine size={15} />
                   编辑
                 </button>
@@ -426,7 +522,8 @@ export const DraftCenter = () => {
                   type="button"
                   title={chapter.archived ? "移出归档" : "归档章节"}
                   aria-label={chapter.archived ? "移出归档" : "归档章节"}
-                  onClick={() => void updateChapterPlan(chapter.id, { archived: !chapter.archived })}
+                  disabled={busy}
+                  onClick={() => void runBatch(() => updateChapterPlan(chapter.id, { archived: !chapter.archived }))}
                 >
                   {chapter.archived ? <Undo2 size={15} /> : <Archive size={15} />}
                 </button>
@@ -525,21 +622,29 @@ export const DraftCenter = () => {
             </strong>
             <input
               placeholder="片段标题（可选）"
+              aria-label="灵感片段标题"
               value={fragmentDraft.title}
               onChange={(event) => setFragmentDraft((draft) => ({ ...draft, title: event.target.value }))}
             />
             <textarea
               placeholder="灵感、桥段、对话草稿……这些内容独立于章节树保存。"
+              aria-label="灵感片段内容"
               value={fragmentDraft.content}
               onChange={(event) => setFragmentDraft((draft) => ({ ...draft, content: event.target.value }))}
             />
             <input
               placeholder="标签，用逗号分隔（可选）"
+              aria-label="灵感片段标签"
               value={fragmentDraft.tags}
               onChange={(event) => setFragmentDraft((draft) => ({ ...draft, tags: event.target.value }))}
             />
             <div className="inline-actions">
-              <button className="primary-button compact" type="button" onClick={() => void saveFragment()}>
+              <button
+                className="primary-button compact"
+                type="button"
+                disabled={busy || (!fragmentDraft.content.trim() && !fragmentDraft.title.trim())}
+                onClick={() => void saveFragment()}
+              >
                 <Plus size={14} />
                 {fragmentDraft.id ? "保存修改" : "保存片段"}
               </button>
@@ -547,12 +652,18 @@ export const DraftCenter = () => {
                 <button
                   className="secondary-button compact"
                   type="button"
-                  onClick={() => setFragmentDraft({ title: "", content: "", tags: "" })}
+                  disabled={busy}
+                  onClick={() => {
+                    if (canLeaveFragment()) setFragmentDraft({ title: "", content: "", tags: "" });
+                  }}
                 >
                   取消编辑
                 </button>
               ) : null}
             </div>
+            <span className="editor-feedback" role="status">
+              {busy ? "正在保存…" : fragmentDirty ? "有未保存的修改 · Ctrl+S 保存片段" : notice}
+            </span>
           </div>
           <div className="fragment-list">
             {fragments.map((fragment) => (
@@ -575,14 +686,16 @@ export const DraftCenter = () => {
                 <footer>
                   <button
                     type="button"
-                    onClick={() =>
-                      setFragmentDraft({
-                        id: fragment.id,
-                        title: fragment.title,
-                        content: fragment.content,
-                        tags: fragment.tags.join(", ")
-                      })
-                    }
+                    disabled={busy}
+                    onClick={() => {
+                      if (fragmentDraft.id !== fragment.id && canLeaveFragment())
+                        setFragmentDraft({
+                          id: fragment.id,
+                          title: fragment.title,
+                          content: fragment.content,
+                          tags: fragment.tags.join(", ")
+                        });
+                    }}
                   >
                     编辑
                   </button>
@@ -591,6 +704,7 @@ export const DraftCenter = () => {
                   </button>
                   <button
                     type="button"
+                    disabled={busy}
                     onClick={() =>
                       void mutateFragment((items) =>
                         items.map((item) => (item.id === fragment.id ? { ...item, archived: !item.archived } : item))
@@ -602,6 +716,8 @@ export const DraftCenter = () => {
                   <button
                     className="danger"
                     type="button"
+                    aria-label={`删除片段 ${fragment.title || "未命名片段"}`}
+                    disabled={busy}
                     onClick={() => {
                       if (window.confirm("删除这个灵感片段？")) {
                         void mutateFragment((items) => items.filter((item) => item.id !== fragment.id));

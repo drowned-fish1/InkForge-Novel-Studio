@@ -3,6 +3,7 @@ import { renderTemplate, stringifyTemplateValue, type TemplatePartials, type Tem
 import { defaultPromptPartials, getDefaultPromptTemplate, taskInstructions, type PromptTask } from "./templates.js";
 
 export * from "./template.js";
+export * from "./writer.js";
 export { defaultPromptPartials, defaultPromptTemplates, promptTasks, taskInstructions } from "./templates.js";
 export type { PromptTask } from "./templates.js";
 

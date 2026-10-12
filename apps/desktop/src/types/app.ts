@@ -131,6 +131,12 @@ export interface ExportInput {
     language: string;
     description: string;
     cssTheme: "classic" | "modern";
+    publisher?: string;
+    copyright?: string;
+    coverImagePath?: string;
+    lineHeight?: number;
+    paragraphIndent?: boolean;
+    volumeTitlePages?: boolean;
   };
 }
 
@@ -160,38 +166,12 @@ export interface SimulationRunEvent {
   timestamp: string;
 }
 
-export interface ProviderStatus {
-  configured: boolean;
-  providerId: string;
-  displayName: string;
-  baseUrl: string;
-  model: string;
-  editorModel?: string;
-  authMode: ProviderAuthMode;
-  maskedKey?: string;
-  updatedAt?: string;
-  maxTokens?: number;
-  inputPricePerMillion?: number;
-  outputPricePerMillion?: number;
-}
-
-export type ProviderAuthMode = "bearer" | "x-api-key" | "raw-authorization" | "none";
-
-export interface ProviderConfigInput {
-  providerId: string;
-  displayName: string;
-  baseUrl: string;
-  model: string;
-  editorModel?: string;
-  authMode: ProviderAuthMode;
-  apiKey?: string;
-  temperature: number;
-  maxTokens: number;
-  inputPricePerMillion?: number;
-  outputPricePerMillion?: number;
-}
+export type { ProviderStatus, ProviderConfigInput, ProviderAuthMode } from "@inkforge/ai-provider";
+import type { ProviderRole } from "@inkforge/ai-provider";
 
 export interface AiTaskInput {
+  chapterId?: string;
+  providerRole?: ProviderRole;
   useEditorModel?: boolean;
   projectPath: string;
   task:
@@ -204,6 +184,8 @@ export interface AiTaskInput {
     | "next-goal"
     | "pacing"
     | "character-state"
+    | "character-generate"
+    | "character-names"
     | "clue-check"
     | "term-check"
     | "polish"
@@ -347,6 +329,8 @@ export interface WritingSessionCommandInput {
 }
 
 export interface AgentChatInput {
+  yolo?: boolean;
+  updateProjectData?: boolean;
   requestId?: string;
   projectPath: string;
   chapterId: string;

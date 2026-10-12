@@ -131,6 +131,10 @@ const api: InkforgeApi = {
   setTheme: async (theme: "light" | "dark", manual = false): Promise<void> => {
     ipcRenderer.send("theme:set", theme, manual);
   },
+  getUpdateStatus: () => ipcRenderer.invoke("updates:status"),
+  checkForUpdates: () => ipcRenderer.invoke("updates:check"),
+  downloadUpdate: () => ipcRenderer.invoke("updates:download"),
+  installUpdate: () => ipcRenderer.invoke("updates:install"),
   listProjects: () => ipcRenderer.invoke("project:list"),
   createProject: (input: CreateProjectInput): Promise<ProjectSummary | undefined> =>
     ipcRenderer.invoke("project:create", input),
@@ -274,7 +278,7 @@ const api: InkforgeApi = {
   resumeBatchRun: (projectPath, runId) => ipcRenderer.invoke("batch:resume", projectPath, runId),
   cancelBatchRun: (projectPath, runId) => ipcRenderer.invoke("batch:cancel", projectPath, runId),
   listProviderPresets: () => ipcRenderer.invoke("provider:presets"),
-  probeProvider: () => ipcRenderer.invoke("provider:probe"),
+  probeProvider: (role) => ipcRenderer.invoke("provider:probe", role),
   getReleaseReadiness: (projectPath) => ipcRenderer.invoke("release:readiness", projectPath),
   loadBeatBoard: (projectPath) => ipcRenderer.invoke("narrative:board:load", projectPath),
   saveBeatBoard: (projectPath, board) => ipcRenderer.invoke("narrative:board:save", projectPath, board),

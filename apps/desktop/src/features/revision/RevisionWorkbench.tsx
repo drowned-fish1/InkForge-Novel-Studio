@@ -38,6 +38,7 @@ interface RevisionItem {
   createdAt: string;
   status: ItemStatus;
   annotationId?: string;
+  selection?: { start: number; end: number; quote: string };
   proposal?: RevisionProposalSummary;
   suggestion?: string;
 }
@@ -74,7 +75,7 @@ export const RevisionWorkbench = () => {
   const saveState = useProjectStore((state) => state.saveState);
   const saveCurrentChapter = useProjectStore((state) => state.saveCurrentChapter);
   const reloadCurrentChapterFromDisk = useProjectStore((state) => state.reloadCurrentChapterFromDisk);
-  const setSelectedModule = useProjectStore((state) => state.setSelectedModule);
+  const jumpToChapterOffset = useProjectStore((state) => state.jumpToChapterOffset);
   const [overview, setOverview] = useState<RevisionOverview | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -91,6 +92,9 @@ export const RevisionWorkbench = () => {
   >();
   const [sweep, setSweep] = useState<QualitySweepResult | undefined>();
   const [sweeping, setSweeping] = useState(false);
+  useEffect(() => {
+    setSelectedKeys(new Set());
+  }, [query, sourceFilter, statusFilter, chapterFilter]);
 
   const runQualitySweep = async () => {
     if (!project) return;
@@ -146,7 +150,8 @@ export const RevisionWorkbench = () => {
         chapterTitle: annotation.chapterTitle,
         createdAt: annotation.createdAt,
         status: annotation.status === "resolved" ? "accepted" : annotation.status === "deferred" ? "deferred" : "open",
-        annotationId: annotation.id
+        annotationId: annotation.id,
+        selection: { start: annotation.start, end: annotation.end, quote: annotation.quote }
       });
     }
     for (const report of overview.qualityReports) {
@@ -222,6 +227,9 @@ export const RevisionWorkbench = () => {
       return (left.chapterTitle ?? "").localeCompare(right.chapterTitle ?? "", "zh-CN");
     });
   }, [items, sourceFilter, statusFilter, chapterFilter, query, sortMode]);
+  const selectedVisibleItems = visible.filter((item) => selectedKeys.has(item.key));
+  const selectedProposalCount = selectedVisibleItems.filter((item) => item.proposal).length;
+  const selectedNoteCount = selectedVisibleItems.length - selectedProposalCount;
 
   const setAnnotationStatus = async (annotationId: string, status: "open" | "resolved" | "deferred") => {
     if (!project) return;
@@ -316,6 +324,7 @@ export const RevisionWorkbench = () => {
   };
 
   const runAction = async (item: RevisionItem, action: ItemStatus) => {
+    if (busyKey) return;
     setBusyKey(item.key);
     setError("");
     try {
@@ -339,24 +348,33 @@ export const RevisionWorkbench = () => {
     }
   };
 
-  const runBatch = async (action: ItemStatus) => {
-    if (!selectedKeys.size) return;
+  const runBatch = async (action: ItemStatus, kind: "all" | "notes" | "proposals" = "all") => {
+    const selected = visible.filter(
+      (item) => selectedKeys.has(item.key) && (kind === "all" || Boolean(item.proposal) === (kind === "proposals"))
+    );
+    if (!selected.length || busyKey) return;
     setBusyKey("__batch__");
     setError("");
     let failures = 0;
-    for (const key of selectedKeys) {
-      const item = items.find((candidate) => candidate.key === key);
-      if (!item) continue;
+    for (const item of selected) {
       try {
         await applyItemAction(item, action);
       } catch {
         failures += 1;
       }
     }
-    setSelectedKeys(new Set());
+    setSelectedKeys((keys) => new Set([...keys].filter((key) => !selected.some((item) => item.key === key))));
     await refresh();
     if (failures) {
       setError(`${failures} 个条目处理失败（批注不支持忽略）。`);
+    } else {
+      setNotice(
+        kind === "notes"
+          ? `已标记 ${selected.length} 条问题为已处理，正文保持不变。`
+          : kind === "proposals"
+            ? `已应用 ${selected.length} 个提案。`
+            : `已处理 ${selected.length} 个条目。`
+      );
     }
     setBusyKey("");
   };
@@ -388,10 +406,14 @@ export const RevisionWorkbench = () => {
     }
   };
 
-  const openChapter = (chapterId?: string) => {
+  const openChapter = (chapterId?: string, selection?: RevisionItem["selection"]) => {
     const chapter = chapters.find((item) => item.id === chapterId);
     if (chapter) {
-      void selectChapter(chapter).then(() => setSelectedModule("chapters"));
+      const action =
+        selection && selection.quote
+          ? jumpToChapterOffset(chapter, selection.start, selection.end, selection.quote)
+          : selectChapter(chapter);
+      void action.catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "打开原文失败。"));
     }
   };
 
@@ -511,15 +533,28 @@ export const RevisionWorkbench = () => {
         </div>
       ) : null}
 
-      {error ? <div className="error-banner">{error}</div> : null}
+      {error ? (
+        <div className="error-banner" role="alert">
+          {error}
+        </div>
+      ) : null}
       {notice ? <div className="notice-banner">{notice}</div> : null}
 
       <div className="draft-toolbar revision-toolbar">
         <label>
           <Search size={15} />
-          <input value={query} placeholder="搜索标题或说明" onChange={(event) => setQuery(event.target.value)} />
+          <input
+            aria-label="搜索修订内容"
+            value={query}
+            placeholder="搜索标题或说明"
+            onChange={(event) => setQuery(event.target.value)}
+          />
         </label>
-        <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as SourceFilter)}>
+        <select
+          aria-label="按修订来源筛选"
+          value={sourceFilter}
+          onChange={(event) => setSourceFilter(event.target.value as SourceFilter)}
+        >
           <option value="all">全部来源</option>
           {Object.entries(sourceLabels).map(([value, label]) => (
             <option key={value} value={value}>
@@ -527,7 +562,11 @@ export const RevisionWorkbench = () => {
             </option>
           ))}
         </select>
-        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
+        <select
+          aria-label="按修订状态筛选"
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+        >
           <option value="all">全部状态</option>
           {Object.entries(statusLabels).map(([value, label]) => (
             <option key={value} value={value}>
@@ -535,7 +574,11 @@ export const RevisionWorkbench = () => {
             </option>
           ))}
         </select>
-        <select value={chapterFilter} onChange={(event) => setChapterFilter(event.target.value)}>
+        <select
+          aria-label="按修订章节筛选"
+          value={chapterFilter}
+          onChange={(event) => setChapterFilter(event.target.value)}
+        >
           <option value="all">全部章节</option>
           {chapters.map((chapter) => (
             <option key={chapter.id} value={chapter.id}>
@@ -543,27 +586,42 @@ export const RevisionWorkbench = () => {
             </option>
           ))}
         </select>
-        <select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)}>
+        <select
+          aria-label="修订排序方式"
+          value={sortMode}
+          onChange={(event) => setSortMode(event.target.value as SortMode)}
+        >
           <option value="severity">按严重度</option>
           <option value="time">按时间</option>
           <option value="chapter">按章节</option>
         </select>
       </div>
 
-      {selectedKeys.size ? (
+      {selectedVisibleItems.length ? (
         <div className="draft-batch-bar">
-          <strong>已选 {selectedKeys.size} 项</strong>
-          <button type="button" disabled={busyKey === "__batch__"} onClick={() => void runBatch("accepted")}>
-            <CheckCircle2 size={14} />
-            批量标记 / 应用
-          </button>
-          <button type="button" disabled={busyKey === "__batch__"} onClick={() => void runBatch("ignored")}>
+          <strong>已选 {selectedVisibleItems.length} 项</strong>
+          {selectedNoteCount ? (
+            <button type="button" disabled={Boolean(busyKey)} onClick={() => void runBatch("accepted", "notes")}>
+              <CheckCircle2 size={14} />
+              标记 {selectedNoteCount} 条问题已处理
+            </button>
+          ) : null}
+          {selectedProposalCount ? (
+            <button type="button" disabled={Boolean(busyKey)} onClick={() => void runBatch("accepted", "proposals")}>
+              <Wrench size={14} />
+              应用 {selectedProposalCount} 个提案
+            </button>
+          ) : null}
+          <button type="button" disabled={Boolean(busyKey)} onClick={() => void runBatch("ignored")}>
             <EyeOff size={14} />
             批量忽略
           </button>
-          <button type="button" disabled={busyKey === "__batch__"} onClick={() => void runBatch("deferred")}>
+          <button type="button" disabled={Boolean(busyKey)} onClick={() => void runBatch("deferred")}>
             <Clock3 size={14} />
             批量延期
+          </button>
+          <button type="button" disabled={Boolean(busyKey)} onClick={() => setSelectedKeys(new Set())}>
+            取消选择
           </button>
           {busyKey === "__batch__" ? <Loader2 className="spinning" size={15} /> : null}
         </div>
@@ -609,6 +667,7 @@ export const RevisionWorkbench = () => {
                 type="checkbox"
                 aria-label={`选择 ${item.title}`}
                 checked={selectedKeys.has(item.key)}
+                disabled={Boolean(busyKey)}
                 onChange={() =>
                   setSelectedKeys((state) => {
                     const next = new Set(state);
@@ -631,7 +690,12 @@ export const RevisionWorkbench = () => {
                 {item.suggestion ? <small className="revision-suggestion">建议：{item.suggestion}</small> : null}
               </div>
               {item.chapterTitle ? (
-                <button className="revision-chapter" type="button" onClick={() => openChapter(item.chapterId)}>
+                <button
+                  className="revision-chapter"
+                  type="button"
+                  title={item.selection ? "定位这条批注的原文" : "打开章节"}
+                  onClick={() => openChapter(item.chapterId, item.selection)}
+                >
                   {item.chapterTitle}
                 </button>
               ) : (
@@ -654,7 +718,7 @@ export const RevisionWorkbench = () => {
                     <button
                       type="button"
                       title={item.proposal ? "应用提案并更新正文" : "标记为已处理"}
-                      disabled={busyKey === item.key}
+                      disabled={Boolean(busyKey)}
                       onClick={() => void runAction(item, "accepted")}
                     >
                       {busyKey === item.key ? <Loader2 className="spinning" size={14} /> : <CheckCircle2 size={14} />}
@@ -663,7 +727,7 @@ export const RevisionWorkbench = () => {
                       <button
                         type="button"
                         title={item.proposal ? "拒绝提案" : "忽略"}
-                        disabled={busyKey === item.key}
+                        disabled={Boolean(busyKey)}
                         onClick={() => void runAction(item, "ignored")}
                       >
                         <EyeOff size={14} />
@@ -672,7 +736,7 @@ export const RevisionWorkbench = () => {
                     <button
                       type="button"
                       title="延期处理"
-                      disabled={busyKey === item.key}
+                      disabled={Boolean(busyKey)}
                       onClick={() => void runAction(item, "deferred")}
                     >
                       <Clock3 size={14} />
@@ -682,7 +746,7 @@ export const RevisionWorkbench = () => {
                   <button
                     type="button"
                     title="恢复为待处理"
-                    disabled={busyKey === item.key || Boolean(item.proposal)}
+                    disabled={Boolean(busyKey) || Boolean(item.proposal)}
                     onClick={() => void runAction(item, "open")}
                   >
                     <Undo2 size={14} />

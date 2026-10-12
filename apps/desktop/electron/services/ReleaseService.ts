@@ -29,6 +29,9 @@ export class ReleaseService {
       await Promise.all(chapters.map((chapter) => this.quality.listReports(projectPath, chapter.id)))
     ).flat();
     const latestReportCount = new Set(reports.map((report) => report.chapterId)).size;
+    const configuredProviders = [provider, ...Object.values(provider.taskProviders ?? {})].filter(
+      (endpoint) => endpoint.configured
+    );
     const items: ReleaseReadinessItem[] = [
       {
         id: "project-shape",
@@ -39,9 +42,9 @@ export class ReleaseService {
       {
         id: "provider",
         label: "模型配置",
-        status: provider.configured ? "ready" : "warning",
-        detail: provider.configured
-          ? `${provider.displayName} · ${provider.model}`
+        status: configuredProviders.length ? "ready" : "warning",
+        detail: configuredProviders.length
+          ? configuredProviders.map((endpoint) => `${endpoint.displayName} · ${endpoint.model}`).join("；")
           : "尚未配置可用模型；离线编辑不受影响。"
       },
       {

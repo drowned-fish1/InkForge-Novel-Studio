@@ -223,7 +223,7 @@ describe("agent streaming completion", () => {
 
     const result = await service.runAgentCompletion({
       messages: [{ role: "user", content: "编辑整章" }],
-      useEditorModel: true,
+      providerRole: "reviewer",
       maxOutputTokens: 12_000
     });
 
@@ -233,5 +233,119 @@ describe("agent streaming completion", () => {
     expect(body.model).toBe("editor-model");
     expect(body.tool_choice).toBe("none");
     expect(result.model).toBe("editor-model");
+  });
+});
+
+describe("task provider transport", () => {
+  const make = (overrides = {}) => {
+    const getProvider = vi.fn(async () => ({
+      providerId: "writer",
+      displayName: "9B",
+      baseUrl: "http://127.0.0.1:8000/v1",
+      model: "novelist",
+      authMode: "none",
+      temperature: 0.6,
+      maxTokens: 1024,
+      supportsTools: false,
+      roleConfigured: true,
+      updatedAt: "",
+      ...overrides
+    }));
+    const service = new AiProviderService({ getProvider } as never, {} as never);
+    return { service, getProvider };
+  };
+  it("routes prose without authentication or tool parameters and respects the role output limit", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _request: RequestInit) =>
+        new Response(JSON.stringify({ choices: [{ message: { content: "正文" } }] }))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { service, getProvider } = make();
+    await service.runAgentCompletion({
+      providerRole: "writer",
+      messages: [{ role: "user", content: "续写" }],
+      maxOutputTokens: 6000,
+      toolChoice: "none"
+    });
+    expect(getProvider).toHaveBeenCalledWith("writer");
+    expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:8000/v1/chat/completions");
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(request.body));
+    expect(body).toMatchObject({ model: "novelist", max_tokens: 1024, temperature: 0.6 });
+    expect(body).not.toHaveProperty("tools");
+    expect(body).not.toHaveProperty("tool_choice");
+    expect(request.headers).not.toHaveProperty("authorization");
+  });
+  it("does not silently send an Agent request to a prose-only endpoint", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { service } = make();
+    await expect(
+      service.runAgentCompletion({
+        messages: [],
+        tools: [{ type: "function", function: { name: "search", description: "Search", parameters: {} } }]
+      })
+    ).rejects.toThrow("未启用工具调用");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("keeps text connectivity successful when tools are unsupported and leaves streaming unverified", async () => {
+    const fetchMock = vi.fn(async (_url: string, _request: RequestInit) =>
+      fetchMock.mock.calls.length === 1
+        ? new Response(JSON.stringify({ choices: [{ message: { content: "OK" } }] }))
+        : new Response(JSON.stringify({ error: { message: "tools unsupported" } }), { status: 400 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { service } = make({ supportsTools: true });
+    const result = await service.probeProvider("writer");
+    expect(result).toMatchObject({ ok: true, modelReachable: true, capabilities: { tools: false } });
+    expect(result.capabilities.streaming).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).not.toHaveProperty("tools");
+  });
+  it("probes a prose-only endpoint without sending a tool request", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "OK" } }] })));
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await make().service.probeProvider("writer")).ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("sends configured stop strings, records protocol/cost, and blocks an oversized final message", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "正文" } }],
+            usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 }
+          })
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { service } = make({
+      contextWindow: 4096,
+      stop: ["<end>"],
+      modelRevision: "sft-v1",
+      tokenizerRevision: "base-v2",
+      chatTemplateRevision: "chat-v3",
+      inputPricePerMillion: 1,
+      outputPricePerMillion: 2
+    });
+    const result = await service.runAgentCompletion({
+      providerRole: "writer",
+      messages: [{ role: "user", content: "继续" }]
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).stop).toEqual(["<end>"]);
+    expect(result.telemetry).toMatchObject({
+      modelRevision: "sft-v1",
+      tokenizerRevision: "base-v2",
+      chatTemplateRevision: "chat-v3",
+      maxOutputTokens: 1024
+    });
+    expect(result.telemetry?.estimatedCost).toBeCloseTo(0.00014);
+    await expect(
+      service.runAgentCompletion({
+        providerRole: "writer",
+        messages: [{ role: "user", content: "正文".repeat(10000) }]
+      })
+    ).rejects.toThrow("超过上下文窗口");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

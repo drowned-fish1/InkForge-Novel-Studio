@@ -1,26 +1,29 @@
 import { app, safeStorage } from "electron";
 import { defaultProviderConfig } from "@inkforge/schemas";
 import path from "node:path";
-import type { ProviderAuthMode, ProviderConfigInput, ProviderStatus } from "../types.js";
+import {
+  normalizeProviderEndpoint,
+  providerRoles,
+  assertProviderRole,
+  type ProviderEndpointConfig,
+  type ProviderEndpointStatus,
+  type ProviderConfigInput,
+  type ProviderStatus,
+  type ProviderRole
+} from "@inkforge/ai-provider";
 import { FileRepository } from "./FileRepository.js";
 
-interface StoredProviderConfig {
-  providerId: string;
-  displayName: string;
-  baseUrl: string;
-  model: string;
-  editorModel?: string;
-  authMode: ProviderAuthMode;
+interface StoredEndpoint extends Omit<ProviderEndpointConfig, "apiKey"> {
   encryptedApiKey?: string;
-  temperature: number;
-  maxTokens: number;
-  inputPricePerMillion?: number;
-  outputPricePerMillion?: number;
+}
+interface StoredProviderConfig extends StoredEndpoint {
+  editorModel?: string;
+  taskProviders?: Partial<Record<ProviderRole, StoredEndpoint>>;
   updatedAt: string;
 }
-
-export interface DecryptedProviderConfig extends Omit<StoredProviderConfig, "encryptedApiKey"> {
-  apiKey?: string;
+export interface DecryptedProviderConfig extends ProviderConfigInput {
+  updatedAt: string;
+  roleConfigured?: boolean;
 }
 
 const defaultProvider: StoredProviderConfig = {
@@ -41,6 +44,7 @@ const maskSecret = (value?: string): string | undefined => {
 export class SecureConfigService {
   private readonly filePath: string;
   private readonly legacyFilePaths: string[];
+  private saveQueue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly files = new FileRepository()) {
     this.filePath = path.join(app.getPath("userData"), "provider-config.secure.json");
@@ -52,71 +56,92 @@ export class SecureConfigService {
 
   async getStatus(): Promise<ProviderStatus> {
     const stored = await this.readStored();
-    const apiKey = this.decrypt(stored.encryptedApiKey);
-    return {
-      configured: stored.authMode === "none" || Boolean(apiKey),
-      providerId: stored.providerId,
-      displayName: stored.displayName,
-      baseUrl: stored.baseUrl,
-      model: stored.model,
-      editorModel: stored.editorModel,
-      authMode: stored.authMode,
-      maskedKey: maskSecret(apiKey),
-      updatedAt: stored.updatedAt || undefined,
-      maxTokens: stored.maxTokens,
-      inputPricePerMillion: stored.inputPricePerMillion,
-      outputPricePerMillion: stored.outputPricePerMillion
+    const status = (endpoint: StoredEndpoint): ProviderEndpointStatus => {
+      const { encryptedApiKey, ...publicFields } = endpoint;
+      const apiKey = this.decrypt(encryptedApiKey);
+      return {
+        ...publicFields,
+        configured: endpoint.authMode === "none" || Boolean(apiKey),
+        maskedKey: maskSecret(apiKey)
+      };
     };
-  }
-
-  async getProvider(): Promise<DecryptedProviderConfig> {
-    const stored = await this.readStored();
-    const { encryptedApiKey: _encryptedApiKey, ...rest } = stored;
-    return {
-      ...rest,
-      apiKey: this.decrypt(stored.encryptedApiKey)
-    };
-  }
-
-  async saveProvider(input: ProviderConfigInput): Promise<ProviderStatus> {
-    const trimmedKey = input.apiKey?.trim();
-    const existing = await this.readStored();
-    const encryptedApiKey =
-      input.authMode === "none" ? undefined : trimmedKey ? this.encrypt(trimmedKey) : existing.encryptedApiKey;
-
-    if (input.authMode !== "none" && !encryptedApiKey) {
-      throw new Error("请填写 API Key，或将认证方式改为“无 Key”。");
+    const { taskProviders, updatedAt, editorModel, ...endpoint } = stored;
+    const roleStatuses: ProviderStatus["taskProviders"] = {};
+    for (const role of providerRoles) {
+      if (taskProviders?.[role]) roleStatuses[role] = status(taskProviders[role]);
     }
+    return { ...status(endpoint), editorModel, updatedAt: updatedAt || undefined, taskProviders: roleStatuses };
+  }
 
-    const stored: StoredProviderConfig = {
-      providerId: input.providerId.trim() || defaultProviderConfig.providerId,
-      displayName: input.displayName.trim() || defaultProviderConfig.displayName,
-      baseUrl: input.baseUrl.trim().replace(/\/+$/, ""),
-      model: input.model.trim(),
-      editorModel: input.editorModel?.trim() || undefined,
-      authMode: input.authMode,
-      encryptedApiKey,
-      temperature: input.temperature,
-      maxTokens: input.maxTokens,
-      inputPricePerMillion:
-        typeof input.inputPricePerMillion === "number" && input.inputPricePerMillion >= 0
-          ? input.inputPricePerMillion
-          : undefined,
-      outputPricePerMillion:
-        typeof input.outputPricePerMillion === "number" && input.outputPricePerMillion >= 0
-          ? input.outputPricePerMillion
-          : undefined,
-      updatedAt: new Date().toISOString()
+  async getProvider(role?: ProviderRole): Promise<DecryptedProviderConfig> {
+    assertProviderRole(role);
+    const stored = await this.readStored();
+    // Decrypt only the selected endpoint, never unrelated credentials.
+    const endpoint = role ? stored.taskProviders?.[role] : undefined;
+    const selected = {
+      ...(endpoint ?? stored),
+      updatedAt: stored.updatedAt,
+      editorModel: endpoint ? undefined : stored.editorModel,
+      taskProviders: undefined,
+      roleConfigured: Boolean(endpoint)
     };
+    const { encryptedApiKey, taskProviders: _taskProviders, ...rest } = selected;
+    return { ...rest, apiKey: this.decrypt(encryptedApiKey) };
+  }
 
-    await this.files.writeJsonAtomic(this.filePath, stored);
+  saveProvider(input: ProviderConfigInput): Promise<ProviderStatus> {
+    const next = this.saveQueue.then(() => this.save(input));
+    this.saveQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  private async save(input: ProviderConfigInput): Promise<ProviderStatus> {
+    const existing = await this.readStored();
+    const store = (
+      raw: ProviderEndpointConfig,
+      previous?: StoredEndpoint,
+      allowUnconfigured = false
+    ): StoredEndpoint => {
+      const { apiKey, ...endpoint } = normalizeProviderEndpoint(raw);
+      const canRetain =
+        previous?.baseUrl?.trim().replace(/\/+$/, "") === endpoint.baseUrl && previous.authMode === endpoint.authMode;
+      const encryptedApiKey =
+        endpoint.authMode === "none"
+          ? undefined
+          : apiKey
+            ? this.encrypt(apiKey)
+            : canRetain
+              ? previous?.encryptedApiKey
+              : undefined;
+      if (endpoint.authMode !== "none" && !encryptedApiKey && (!allowUnconfigured || previous?.encryptedApiKey)) {
+        throw new Error(`${endpoint.displayName}：请填写 API Key；更换地址或鉴权方式后需重新填写。`);
+      }
+      return { ...endpoint, encryptedApiKey };
+    };
+    const endpoint = store(input, existing, true);
+    let taskProviders = existing.taskProviders;
+    if (input.taskProviders !== undefined) {
+      for (const role of Object.keys(input.taskProviders)) assertProviderRole(role);
+      taskProviders = {};
+      for (const role of providerRoles) {
+        const override = input.taskProviders[role];
+        if (override) taskProviders[role] = store(override, existing.taskProviders?.[role]);
+      }
+    }
+    await this.files.writeJsonAtomic(this.filePath, {
+      ...endpoint,
+      editorModel: input.editorModel?.trim() || undefined,
+      taskProviders,
+      updatedAt: new Date().toISOString()
+    } satisfies StoredProviderConfig);
     return this.getStatus();
   }
 
   private async readStored(): Promise<StoredProviderConfig> {
     try {
       return { ...defaultProvider, ...(await this.files.readJson<StoredProviderConfig>(this.filePath)) };
-    } catch {
+    } catch (error) {
+      if (!isMissingFile(error)) throw new Error("模型配置读取失败，请检查配置文件；原配置已保留。");
       for (const legacyFilePath of this.legacyFilePaths) {
         try {
           const stored = {
@@ -125,8 +150,8 @@ export class SecureConfigService {
           };
           await this.files.writeJsonAtomic(this.filePath, stored);
           return stored;
-        } catch {
-          // Try the next known pre-rename configuration location.
+        } catch (legacyError) {
+          if (!isMissingFile(legacyError)) throw legacyError;
         }
       }
       return defaultProvider;
@@ -150,3 +175,6 @@ export class SecureConfigService {
     return safeStorage.decryptString(Buffer.from(value, "base64"));
   }
 }
+
+const isMissingFile = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "ENOENT";

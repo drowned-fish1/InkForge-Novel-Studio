@@ -1,0 +1,159 @@
+{
+  "fps": 30,
+  "transitionDurationInFrames": 12,
+  "playbackRate": 1,
+  "totalDurationInFrames": 6603,
+  "durationSeconds": 220.1,
+  "scenes": [
+    {
+      "id": "discovery",
+      "text": "我最近在 GitHub 上翻项目。本来只是想找个能在本地写小说的工具。结果翻着翻着……看到一个设计，有点不太对劲。",
+      "src": "voiceover/manbo-longform/scene-01-discovery.mp3",
+      "durationSeconds": 9.432,
+      "sceneDurationInFrames": 346,
+      "sceneStartFrame": 0,
+      "voiceStartFrame": 17,
+      "voiceEndFrame": 300
+    },
+    {
+      "id": "problem",
+      "text": "现在很多 AI 写作软件，点一下生成，它就直接往你的正文里塞。写得好不好先不说。写到最后，到底哪些是你写的，哪些是它改的，有时候自己都分不清。",
+      "src": "voiceover/manbo-longform/scene-02-problem.mp3",
+      "durationSeconds": 13.488000000000001,
+      "sceneDurationInFrames": 468,
+      "sceneStartFrame": 334,
+      "voiceStartFrame": 351,
+      "voiceEndFrame": 756
+    },
+    {
+      "id": "proposal-discovery",
+      "text": "但这个项目不一样。它居然不允许 AI 直接动正文。AI 想改一个字，都得先给作者提交提案。哎？看到这里，我才认真点进去。",
+      "src": "voiceover/manbo-longform/scene-03-proposal-discovery.mp3",
+      "durationSeconds": 10.872,
+      "sceneDurationInFrames": 389,
+      "sceneStartFrame": 790,
+      "voiceStartFrame": 807,
+      "voiceEndFrame": 1134
+    },
+    {
+      "id": "meet-inkforge",
+      "text": "项目叫 InkForge。简单说，就是一个专门给长篇小说作者做的，本地 AI 写作工作台。不是让 AI 替你写一本书。更像是把 AI 放在旁边，当一个没有最终决定权的实习编辑。",
+      "src": "voiceover/manbo-longform/scene-04-meet-inkforge.mp3",
+      "durationSeconds": 14.904000000000002,
+      "sceneDurationInFrames": 510,
+      "sceneStartFrame": 1167,
+      "voiceStartFrame": 1184,
+      "voiceEndFrame": 1632
+    },
+    {
+      "id": "approval-flow",
+      "text": "它可以读取你批准的章节、人物和世界观。可以帮你续写、检查冲突、分析节奏。但它不能偷偷改稿。它先交作业，你看完差异，再决定接受、拒绝，或者直接回滚。",
+      "src": "voiceover/manbo-longform/scene-05-approval-flow.mp3",
+      "durationSeconds": 13.344000000000001,
+      "sceneDurationInFrames": 463,
+      "sceneStartFrame": 1665,
+      "voiceStartFrame": 1682,
+      "voiceEndFrame": 2083
+    },
+    {
+      "id": "permission-principle",
+      "text": "这个逻辑听起来好像很普通。但你仔细想一下，现在愿意主动限制 AI 权限的软件，其实并不多。大部分产品都在强调，它能替你做多少事。这个项目反而一直在强调，它不能替你决定什么。",
+      "src": "voiceover/manbo-longform/scene-06-permission-principle.mp3",
+      "durationSeconds": 15.936000000000002,
+      "sceneDurationInFrames": 541,
+      "sceneStartFrame": 2116,
+      "voiceStartFrame": 2133,
+      "voiceEndFrame": 2612
+    },
+    {
+      "id": "whole-novel",
+      "text": "另外，它也不是只管当前这一页。大纲、分卷、章节、人物、地点、势力、时间线、伏笔和冲突，基本都能放在同一个项目里。写长篇最烦的那堆资料，不需要再散落在十几个文档里。",
+      "src": "voiceover/manbo-longform/scene-07-whole-novel.mp3",
+      "durationSeconds": 14.4,
+      "sceneDurationInFrames": 495,
+      "sceneStartFrame": 2645,
+      "voiceStartFrame": 2662,
+      "voiceEndFrame": 3094
+    },
+    {
+      "id": "quality-review",
+      "text": "它甚至还有整部小说的质量检查。不是让 AI 随便说一句写得很好。它会把连续性、角色、节奏、文风、重复和伏笔分开检查，还能把某次结果保存成基线，之后再看有没有写崩。",
+      "src": "voiceover/manbo-longform/scene-08-quality-review.mp3",
+      "durationSeconds": 14.064,
+      "sceneDurationInFrames": 485,
+      "sceneStartFrame": 3128,
+      "voiceStartFrame": 3145,
+      "voiceEndFrame": 3567
+    },
+    {
+      "id": "local-first",
+      "text": "我本来以为，这种项目最后肯定又要注册账号、开会员、把稿子传到云端。结果它核心工作流不需要账号。章节、设定、历史记录和备份，都放在你自己选择的文件夹里。",
+      "src": "voiceover/manbo-longform/scene-09-local-first.mp3",
+      "durationSeconds": 13.392000000000001,
+      "sceneDurationInFrames": 465,
+      "sceneStartFrame": 3601,
+      "voiceStartFrame": 3618,
+      "voiceEndFrame": 4020
+    },
+    {
+      "id": "ai-optional",
+      "text": "AI 也不是强制的。不开模型的时候，写作、规划、检查、备份和导出照样能用。需要 AI 时，再接 OpenAI 兼容接口或者本地模型。这个边界，我个人还挺喜欢。",
+      "src": "voiceover/manbo-longform/scene-10-ai-optional.mp3",
+      "durationSeconds": 13.680000000000001,
+      "sceneDurationInFrames": 473,
+      "sceneStartFrame": 4054,
+      "voiceStartFrame": 4071,
+      "voiceEndFrame": 4482
+    },
+    {
+      "id": "delivery",
+      "text": "写完以后，可以导出 Markdown、TXT、DOCX，还有带目录和封面的 EPUB。它连备份恢复和文件完整性检查都做了。怎么说呢……这个作者，明显真的被长篇写作折磨过。",
+      "src": "voiceover/manbo-longform/scene-11-delivery.mp3",
+      "durationSeconds": 14.472000000000001,
+      "sceneDurationInFrames": 497,
+      "sceneStartFrame": 4515,
+      "voiceStartFrame": 4532,
+      "voiceEndFrame": 4967
+    },
+    {
+      "id": "limitations",
+      "text": "不过先说缺点。它现在还是发布候选版本，主要支持 Windows。公开安装包没有签名，第一次运行可能会被系统拦一下。界面也不是那种打开就会用的极简软件，需要花点时间熟悉。",
+      "src": "voiceover/manbo-longform/scene-12-limitations.mp3",
+      "durationSeconds": 15.144,
+      "sceneDurationInFrames": 517,
+      "sceneStartFrame": 5000,
+      "voiceStartFrame": 5017,
+      "voiceEndFrame": 5472
+    },
+    {
+      "id": "fit",
+      "text": "所以，如果你只是偶尔让 AI 写几百字，这个东西可能有点重。但如果你真的在写长篇，又在意稿件放在哪里、AI 改了什么、出了问题能不能回去，那它确实挺少见。",
+      "src": "voiceover/manbo-longform/scene-13-fit.mp3",
+      "durationSeconds": 13.632000000000001,
+      "sceneDurationInFrames": 472,
+      "sceneStartFrame": 5505,
+      "voiceStartFrame": 5522,
+      "voiceEndFrame": 5931
+    },
+    {
+      "id": "soft-cta",
+      "text": "项目是开源的，名字叫 InkForge。我把 GitHub 地址放在画面上。感兴趣可以自己进去看看。先不用急着 Star……真觉得好用，再点也不迟。",
+      "src": "voiceover/manbo-longform/scene-14-soft-cta.mp3",
+      "durationSeconds": 11.808,
+      "sceneDurationInFrames": 417,
+      "sceneStartFrame": 5965,
+      "voiceStartFrame": 5982,
+      "voiceEndFrame": 6337
+    },
+    {
+      "id": "final-thought",
+      "text": "至少这个项目，让 AI 先问一句再动笔。我觉得，这个方向挺对。",
+      "src": "voiceover/manbo-longform/scene-15-final-thought.mp3",
+      "durationSeconds": 5.664000000000001,
+      "sceneDurationInFrames": 233,
+      "sceneStartFrame": 6370,
+      "voiceStartFrame": 6387,
+      "voiceEndFrame": 6557
+    }
+  ]
+}

@@ -240,9 +240,18 @@ export const RelationshipCenter = () => {
       <div className="relationship-toolbar">
         <label>
           <Search size={15} />
-          <input value={query} placeholder="搜索节点" onChange={(event) => setQuery(event.target.value)} />
+          <input
+            aria-label="搜索关系节点"
+            value={query}
+            placeholder="搜索节点"
+            onChange={(event) => setQuery(event.target.value)}
+          />
         </label>
-        <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}>
+        <select
+          aria-label="按关系节点类型筛选"
+          value={kindFilter}
+          onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}
+        >
           <option value="all">全部类别</option>
           {Object.entries(kindLabels).map(([value, label]) => (
             <option key={value} value={value}>

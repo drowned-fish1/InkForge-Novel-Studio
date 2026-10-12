@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link2, Loader2, Replace, Trash2, Unlink, X } from "lucide-react";
 import type { StoryEntityRef, StoryReferenceHit } from "@inkforge/schemas";
 import { useLibraryStore } from "@/stores/useLibraryStore";
@@ -26,10 +26,18 @@ export const EntityDeleteDialog = ({ target, title, onClose, onDeleted }: Entity
   const [replacement, setReplacement] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setReferences(undefined);
+    setError("");
     void findEntityReferences(target)
       .then((hits) => {
         if (!cancelled) setReferences(hits);
@@ -57,24 +65,41 @@ export const EntityDeleteDialog = ({ target, title, onClose, onDeleted }: Entity
   };
 
   return (
-    <div className="entity-delete-backdrop" role="dialog" aria-modal="true" aria-label={`删除 ${title}`}>
+    <dialog
+      ref={dialogRef}
+      className="entity-delete-backdrop"
+      aria-label={`删除 ${title}`}
+      onKeyDown={(event) => event.stopPropagation()}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onClose();
+      }}
+    >
       <section className="entity-delete-dialog">
         <header>
           <strong>
             <Trash2 size={15} />
             删除「{title}」
           </strong>
-          <button className="icon-button" type="button" aria-label="取消删除" onClick={onClose}>
+          <button className="icon-button" type="button" aria-label="取消删除" disabled={busy} onClick={onClose}>
             <X size={15} />
           </button>
         </header>
 
-        {error ? <div className="error-banner">{error}</div> : null}
+        {error ? (
+          <div className="error-banner" role="alert">
+            {error}
+          </div>
+        ) : null}
 
         {references === undefined ? (
-          <p className="muted">
-            <Loader2 className="spinning" size={14} /> 正在检查引用…
-          </p>
+          error ? (
+            <p className="muted">引用检查未完成，请关闭后重试。</p>
+          ) : (
+            <p className="muted">
+              <Loader2 className="spinning" size={14} /> 正在检查引用…
+            </p>
+          )
         ) : references.length ? (
           <>
             <p className="entity-delete-warning">
@@ -105,6 +130,7 @@ export const EntityDeleteDialog = ({ target, title, onClose, onDeleted }: Entity
               </button>
               <div className="entity-replace-row">
                 <input
+                  aria-label="替换引用名称"
                   placeholder="替换为其他名称…"
                   value={replacement}
                   onChange={(event) => setReplacement(event.target.value)}
@@ -144,6 +170,6 @@ export const EntityDeleteDialog = ({ target, title, onClose, onDeleted }: Entity
           </>
         )}
       </section>
-    </div>
+    </dialog>
   );
 };

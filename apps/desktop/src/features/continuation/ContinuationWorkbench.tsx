@@ -23,6 +23,8 @@ import {
   type StyleProfile
 } from "@inkforge/schemas";
 import { bridge } from "@/lib/browserBridge";
+import { requireSavedChapter } from "@/lib/requireSavedChapter";
+import { useProjectAutomation } from "@/lib/useProjectAutomation";
 import { useProjectStore } from "@/stores/useProjectStore";
 
 type Tab = "setup" | "canon" | "threads" | "style" | "write";
@@ -55,12 +57,14 @@ export const ContinuationWorkbench = () => {
   const [instruction, setInstruction] = useState("");
   const [mustHappen, setMustHappen] = useState("");
   const [mustNotHappen, setMustNotHappen] = useState("");
-  const [targetWords, setTargetWords] = useState(3000);
+  const [targetWords, setTargetWords] = useState("3000");
+  const [allowCompression, setAllowCompression] = useState(false);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
   const projectPath = project?.projectPath;
+  const { settings: automation, update: updateAutomation } = useProjectAutomation(projectPath);
   const chapterId = current?.plan.id;
 
   const refresh = useCallback(async () => {
@@ -102,13 +106,15 @@ export const ContinuationWorkbench = () => {
     }
   };
 
+  const targetWordsValue = Number(targetWords);
+  const validTargetWords = Number.isInteger(targetWordsValue) && targetWordsValue >= 200 && targetWordsValue <= 10000;
   const contract = useMemo(
     () =>
-      chapterId
+      chapterId && validTargetWords
         ? ChapterContractSchema.parse({
             chapterId,
             title: current?.plan.title ?? "",
-            targetWords,
+            targetWords: targetWordsValue,
             mustHappen: splitLines(mustHappen),
             mustNotHappen: splitLines(mustNotHappen),
             requiredEntityIds: current?.plan.characters ?? [],
@@ -116,7 +122,16 @@ export const ContinuationWorkbench = () => {
             dueThreadIds: threads.filter((thread) => thread.status === "due").map((thread) => thread.id)
           })
         : undefined,
-    [chapterId, current?.plan.characters, current?.plan.title, mustHappen, mustNotHappen, targetWords, threads]
+    [
+      chapterId,
+      current?.plan.characters,
+      current?.plan.title,
+      mustHappen,
+      mustNotHappen,
+      targetWordsValue,
+      validTargetWords,
+      threads
+    ]
   );
 
   if (!project || !projectPath) return null;
@@ -209,6 +224,7 @@ export const ContinuationWorkbench = () => {
                 value={sourcePath}
                 onChange={(event) => setSourcePath(event.target.value)}
                 placeholder="文稿文件或目录路径"
+                aria-label="续写语料路径"
               />
               <button
                 className="secondary-button"
@@ -329,6 +345,7 @@ export const ContinuationWorkbench = () => {
             <div className="continuation-search">
               <input
                 value={searchQuery}
+                aria-label="检索续写证据"
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="测试人物、设定或伏笔召回"
               />
@@ -555,10 +572,18 @@ export const ContinuationWorkbench = () => {
               <input
                 type="number"
                 min={200}
+                aria-label="目标字数"
                 max={10000}
                 value={targetWords}
-                onChange={(event) => setTargetWords(Number(event.target.value))}
+                onChange={(event) => setTargetWords(event.target.value)}
+                aria-invalid={!validTargetWords}
+                aria-describedby={!validTargetWords ? "continuation-target-words-error" : undefined}
               />
+              {!validTargetWords ? (
+                <small id="continuation-target-words-error" className="provider-error" role="alert">
+                  请输入 200 至 10000 之间的整数字数。
+                </small>
+              ) : null}
             </label>
             <div className="continuation-inline">
               <button
@@ -592,13 +617,63 @@ export const ContinuationWorkbench = () => {
                   contract &&
                   void runAction(
                     "generate",
-                    () => bridge.startContinuationRun({ projectPath, chapterId: chapterId!, contract, instruction }),
-                    "续写分支已生成，请先检查硬/软门禁。"
+                    async () => {
+                      await requireSavedChapter(projectPath, chapterId!, useProjectStore.getState);
+                      const result = await bridge.startContinuationRun({
+                        projectPath,
+                        chapterId: chapterId!,
+                        contract,
+                        instruction,
+                        logicReview: automation.logicReview,
+                        allowCompression,
+                        updateProjectData: automation.updateProjectData,
+                        yolo: automation.yolo
+                      });
+                      if (result.run.appliedAt)
+                        await useProjectStore.getState().reloadCurrentChapterFromDisk(chapterId!);
+                      if (result.error) throw new Error(result.error);
+                      if (result.status === "blocked") setError("复核未通过，结果已保留，未写入正文。");
+                    },
+                    "续写结果已保存。"
                   )
                 }
               >
                 <Sparkles size={15} /> 生成续写分支
               </button>
+            </div>
+            <div className="continuation-automation">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={allowCompression}
+                  onChange={(event) => setAllowCompression(event.target.checked)}
+                />
+                允许编辑压缩正文
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={automation.logicReview}
+                  onChange={(event) => updateAutomation({ logicReview: event.target.checked })}
+                />
+                逻辑编辑与独立复核
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={automation.updateProjectData}
+                  onChange={(event) => updateAutomation({ updateProjectData: event.target.checked })}
+                />
+                接受正文后更新本书资料
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={automation.yolo}
+                  onChange={(event) => updateAutomation({ yolo: event.target.checked })}
+                />
+                YOLO：免工具审批，通过检查后直接写入
+              </label>
             </div>
           </article>
           <article className="continuation-card evidence-preview">
@@ -625,6 +700,119 @@ export const ContinuationWorkbench = () => {
                     : "等待检查"}
                 </small>
                 {run.branchId ? <span>分支 {run.branchId.slice(0, 8)}</span> : null}
+                {run.error ? <p className="error-banner compact">{run.error}</p> : null}
+                {run.evidencePack?.sourceWarnings.length ? (
+                  <details>
+                    <summary>资料来源提醒（{run.evidencePack.sourceWarnings.length}）</summary>
+                    <pre>{run.evidencePack.sourceWarnings.join("\n")}</pre>
+                  </details>
+                ) : null}
+                {run.postAcceptWarning ? (
+                  <p className="error-banner compact">正文已保存；{run.postAcceptWarning}</p>
+                ) : null}
+                <small>
+                  {run.model ?? ""} · {run.usage?.totalTokens ?? "未知"} tokens ·{" "}
+                  {run.appliedAt ? "已自动写入" : "未自动写入"}
+                </small>
+                {run.metrics ? (
+                  <small>
+                    {(run.metrics.durationMs / 1000).toFixed(1)} 秒 · 原段落保留{" "}
+                    {Math.round(run.metrics.originalParagraphRetention * 100)}% · 估算成本{" "}
+                    {run.metrics.estimatedCost?.toFixed(4) ?? "未配置价格"}
+                  </small>
+                ) : null}
+                {run.logicReview ? (
+                  <p>
+                    逻辑修改 {run.logicReview.edit.changes.length} 处 · 独立复核{" "}
+                    {run.logicReview.canApply ? "通过" : "未通过"}
+                  </p>
+                ) : null}
+                {run.originalDraft ? (
+                  <details>
+                    <summary>写手原稿</summary>
+                    <pre>{run.originalDraft}</pre>
+                  </details>
+                ) : null}
+                {run.draft ? (
+                  <details>
+                    <summary>最终正文</summary>
+                    <pre>{run.draft}</pre>
+                  </details>
+                ) : null}
+                {run.logicReview ? (
+                  <details>
+                    <summary>修改依据与复核</summary>
+                    <pre>
+                      {JSON.stringify(
+                        {
+                          changes: run.logicReview.edit.changes,
+                          findings: run.logicReview.verification.findings,
+                          unresolved: [
+                            ...run.logicReview.edit.unresolvedIssues,
+                            ...run.logicReview.verification.unresolvedIssues
+                          ]
+                        },
+                        null,
+                        2
+                      )}
+                    </pre>
+                  </details>
+                ) : null}
+                <details>
+                  <summary>导出运行记录与训练协议</summary>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = URL.createObjectURL(
+                        new Blob([JSON.stringify(run, null, 2)], { type: "application/json" })
+                      );
+                      const anchor = document.createElement("a");
+                      anchor.href = url;
+                      anchor.download = `continuation-${run.id}.json`;
+                      anchor.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                  >
+                    下载 JSON
+                  </button>
+                </details>
+                {run.branchId && run.status === "completed" && !run.appliedAt ? (
+                  <button
+                    type="button"
+                    disabled={Boolean(busy)}
+                    onClick={() =>
+                      void runAction(
+                        "apply",
+                        async () => {
+                          await requireSavedChapter(projectPath, run.chapterId, useProjectStore.getState);
+                          await bridge.applyStoryBranch(projectPath, run.branchId!);
+                          await useProjectStore.getState().reloadCurrentChapterFromDisk(run.chapterId);
+                        },
+                        "分支已写入正文。"
+                      )
+                    }
+                  >
+                    接受正文
+                  </button>
+                ) : null}
+                {["failed", "blocked", "cancelled"].includes(run.status) ? (
+                  <button
+                    type="button"
+                    disabled={Boolean(busy)}
+                    onClick={() =>
+                      void runAction(
+                        "retry",
+                        async () => {
+                          await requireSavedChapter(projectPath, run.chapterId, useProjectStore.getState);
+                          return bridge.retryContinuationRun(projectPath, run.id, { allowCompression });
+                        },
+                        "重试结果已保存。"
+                      )
+                    }
+                  >
+                    重新生成
+                  </button>
+                ) : null}
               </div>
             ))}
           </article>

@@ -9,6 +9,7 @@ export default [
       "**/dist-electron/**",
       "**/*.tsbuildinfo",
       "output/**",
+      "promo-video/**",
       ".playwright-cli/**",
       "test-results/**"
     ]

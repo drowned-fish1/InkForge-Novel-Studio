@@ -1,9 +1,14 @@
+import { ListField } from "@/components/ListField";
+import { NameReferencePicker } from "@/components/NameReferencePicker";
+import { useReferenceOptions } from "@/lib/useReferenceOptions";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link2, Lock, MapPin, Plus, Save, Shield, Trash2, type LucideIcon } from "lucide-react";
 import { findStoryReferences, type StoryReferenceHit, type WorldEntry } from "@inkforge/schemas";
 import { EntityDeleteDialog } from "@/features/library/EntityDeleteDialog";
 import { useLibraryStore } from "@/stores/useLibraryStore";
 import { useProjectStore } from "@/stores/useProjectStore";
+import { useEntityEditor } from "@/lib/useEntityEditor";
+import { EditorFeedback } from "@/components/EditorFeedback";
 
 const sourceKindLabels: Record<StoryReferenceHit["sourceKind"], string> = {
   character: "人物",
@@ -37,6 +42,7 @@ export const WorldSubsetLibrary = ({
   newLabel,
   idPrefix
 }: WorldSubsetLibraryProps) => {
+  const options = useReferenceOptions();
   const project = useProjectStore((state) => state.project);
   const worldEntries = useLibraryStore((state) => state.worldEntries);
   const characters = useLibraryStore((state) => state.characters);
@@ -51,7 +57,11 @@ export const WorldSubsetLibrary = ({
   );
   const [query, setQuery] = useState("");
   const [, setSelectedId] = useState("");
-  const [draft, setDraft] = useState<WorldEntry | undefined>();
+  const editor = useEntityEditor<WorldEntry>(undefined, entries, saveWorldEntry, {
+    module: defaultType === "location" ? "locations" : "factions",
+    resetFilters: () => setQuery("")
+  });
+  const { draft, setDraft } = editor;
   const [deleting, setDeleting] = useState<WorldEntry | undefined>();
 
   const filtered = useMemo(() => {
@@ -93,6 +103,8 @@ export const WorldSubsetLibrary = ({
   }, [draft?.id, characters, worldEntries, timeline, clues, terms, conflicts, project]);
 
   const create = () => {
+    if (!editor.canLeave()) return;
+    setQuery("");
     const entry: WorldEntry = {
       id: `${idPrefix}_new_${Date.now()}`,
       title: newLabel,
@@ -111,7 +123,7 @@ export const WorldSubsetLibrary = ({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (draft) {
-      void saveWorldEntry(draft);
+      void editor.save();
     }
   };
 
@@ -145,6 +157,7 @@ export const WorldSubsetLibrary = ({
               key={entry.id}
               type="button"
               onClick={() => {
+                if (entry.id === draft?.id || !editor.canLeave()) return;
                 setSelectedId(entry.id);
                 setDraft(entry);
               }}
@@ -162,13 +175,17 @@ export const WorldSubsetLibrary = ({
           {!filtered.length ? <div className="empty-list-hint">还没有{title}条目。</div> : null}
         </aside>
 
-        <form className="library-editor" onSubmit={submit}>
+        <form className="library-editor" ref={editor.formRef} aria-busy={editor.busy} onSubmit={submit}>
           {draft ? (
             <>
               <div className="field-grid">
                 <label>
                   名称
-                  <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
+                  <input
+                    required
+                    value={draft.title}
+                    onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+                  />
                 </label>
                 <label>
                   类型
@@ -195,34 +212,20 @@ export const WorldSubsetLibrary = ({
               </label>
               <label>
                 标签
-                <input
-                  value={draft.tags.join(",")}
-                  onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      tags: event.target.value
-                        .split(",")
-                        .map((item) => item.trim())
-                        .filter(Boolean)
-                    })
-                  }
+                <ListField
+                  key={draft.id}
+                  value={draft.tags}
+                  onChange={(value) => setDraft({ ...draft, tags: value })}
                 />
               </label>
-              <label>
-                关联人物（逗号分隔）
-                <input
-                  value={draft.relatedCharacters.join(",")}
-                  onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      relatedCharacters: event.target.value
-                        .split(/[,，]/u)
-                        .map((item) => item.trim())
-                        .filter(Boolean)
-                    })
-                  }
-                />
-              </label>
+              <NameReferencePicker
+                key={`characters-${draft.id}`}
+                label="关联人物"
+                options={options.characters}
+                names={draft.relatedCharacters}
+                ids={draft.relatedCharacterIds}
+                onChange={(names, ids) => setDraft({ ...draft, relatedCharacters: names, relatedCharacterIds: ids })}
+              />
               <label>
                 摘要
                 <textarea
@@ -260,13 +263,19 @@ export const WorldSubsetLibrary = ({
                 )}
               </section>
 
+              <EditorFeedback {...editor} />
               <div className="library-editor-actions">
-                <button className="primary-button" type="submit">
+                <button className="primary-button" type="submit" disabled={editor.busy}>
                   <Save size={17} />
                   保存
                 </button>
                 {entries.some((entry) => entry.id === draft.id) ? (
-                  <button className="secondary-button danger" type="button" onClick={() => setDeleting(draft)}>
+                  <button
+                    className="secondary-button danger"
+                    type="button"
+                    disabled={editor.busy}
+                    onClick={() => setDeleting(draft)}
+                  >
                     <Trash2 size={15} />
                     删除
                   </button>

@@ -1,7 +1,13 @@
-import { renderTaskPrompt, type PromptTaskInput, type RenderedPrompt } from "@inkforge/prompt-engine";
+import {
+  renderTaskPrompt,
+  estimateMessageInputTokens,
+  type PromptTaskInput,
+  type RenderedPrompt
+} from "@inkforge/prompt-engine";
 import type { PromptTemplate } from "@inkforge/schemas";
 
-export type ProviderAuthMode = "bearer" | "x-api-key" | "raw-authorization" | "none";
+import type { ProviderAuthMode } from "./config.js";
+export * from "./config.js";
 
 export type ChatCompletionRole = "system" | "user" | "assistant" | "tool";
 
@@ -32,6 +38,7 @@ export interface ChatCompletionTool {
 }
 
 export interface ChatCompletionRequest {
+  stop?: string[];
   model: string;
   temperature?: number;
   max_tokens?: number;
@@ -42,6 +49,16 @@ export interface ChatCompletionRequest {
   messages: ChatCompletionMessage[];
   tools?: ChatCompletionTool[];
   tool_choice?: "auto" | "none";
+}
+
+/** Conservative estimate; exact tokenizer/template validation still belongs to deployment. */
+export function assertCompletionFits(request: ChatCompletionRequest, contextWindow?: number) {
+  const estimatedInputTokens = estimateMessageInputTokens(request.messages, request.tools);
+  if (contextWindow && estimatedInputTokens + (request.max_tokens ?? 0) > contextWindow)
+    throw new Error(
+      `完整消息预估 ${estimatedInputTokens} Token，加输出预留 ${request.max_tokens ?? 0} 超过上下文窗口 ${contextWindow}；请减少资料或拆分场景。`
+    );
+  return estimatedInputTokens;
 }
 
 export interface ChatCompletionUsage {

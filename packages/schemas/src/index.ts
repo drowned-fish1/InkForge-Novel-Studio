@@ -10,6 +10,7 @@ export * from "./references.js";
 export * from "./simulation.js";
 export * from "./workspace.js";
 export * from "./continuation.js";
+export * from "./project-data.js";
 
 export const inkforgeSchemaVersion = "0.1.0";
 
@@ -53,7 +54,11 @@ export const ChapterPlanSchema = z.object({
   notes: z.string().default(""),
   conflictPoints: z.string().default(""),
   characters: z.array(z.string()).default([]),
-  worldRefs: z.array(z.string()).default([])
+  worldRefs: z.array(z.string()).default([]),
+  // Stable-ID mirrors are additive so older InkForge builds can still read
+  // and roll back projects using the legacy display-name fields above.
+  characterIds: z.array(z.string()).optional(),
+  worldRefIds: z.array(z.string()).optional()
 });
 
 export const VolumePlanSchema = z.object({
@@ -96,7 +101,9 @@ export const CharacterSchema = z.object({
       arc: z.string().default(""),
       powerLevel: z.string().default(""),
       location: z.string().default(""),
+      locationId: z.string().optional(),
       relationships: z.array(z.string()).default([]),
+      relationshipCharacterIds: z.array(z.string()).optional(),
       secrets: z.array(z.string()).default([])
     })
     .default({
@@ -120,7 +127,9 @@ export const WorldEntrySchema = z.object({
   summary: z.string().default(""),
   content: z.string().default(""),
   relatedCharacters: z.array(z.string()).default([]),
-  relatedClues: z.array(z.string()).default([])
+  relatedClues: z.array(z.string()).default([]),
+  relatedCharacterIds: z.array(z.string()).optional(),
+  relatedClueIds: z.array(z.string()).optional()
 });
 
 export const TimelineEventSchema = z.object({
@@ -129,7 +138,9 @@ export const TimelineEventSchema = z.object({
   order: z.number(),
   title: z.string().min(1),
   location: z.string().default(""),
+  locationId: z.string().optional(),
   participants: z.array(z.string()).default([]),
+  participantIds: z.array(z.string()).optional(),
   summary: z.string().default("")
 });
 
@@ -138,6 +149,7 @@ export const ClueSchema = z.object({
   title: z.string().min(1),
   plantedChapterId: z.string().optional(),
   relatedCharacters: z.array(z.string()).default([]),
+  relatedCharacterIds: z.array(z.string()).optional(),
   expectedPayoff: z.string().default(""),
   status: z.enum(["planned", "planted", "developed", "resolved", "abandoned"]).default("planned"),
   notes: z.string().default("")
@@ -149,9 +161,12 @@ export const ConflictSchema = z.object({
   kind: z.enum(["main", "sub", "character", "faction"]).default("sub"),
   status: z.enum(["planned", "active", "escalating", "resolved", "abandoned"]).default("planned"),
   parties: z.array(z.string()).default([]),
+  partyEntityIds: z.array(z.string()).optional(),
   stakes: z.string().default(""),
   relatedCharacters: z.array(z.string()).default([]),
   relatedFactions: z.array(z.string()).default([]),
+  relatedCharacterIds: z.array(z.string()).optional(),
+  relatedFactionIds: z.array(z.string()).optional(),
   chapterIds: z.array(z.string()).default([]),
   summary: z.string().default(""),
   notes: z.string().default("")

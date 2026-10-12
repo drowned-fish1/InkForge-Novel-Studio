@@ -1,0 +1,69 @@
+{
+  "fps": 30,
+  "transitionDurationInFrames": 14,
+  "playbackRate": 1.12,
+  "totalDurationInFrames": 985,
+  "durationSeconds": 32.833333333333336,
+  "segments": [
+    {
+      "id": "scene-1",
+      "text": "写长篇，最怕什么？不是没灵感，是失去对作品的控制。",
+      "src": "voiceover/manbo/seg-01.mp3",
+      "durationSeconds": 4.944,
+      "sceneDurationInFrames": 174,
+      "sceneStartFrame": 0,
+      "voiceStartFrame": 13,
+      "voiceEndFrame": 146
+    },
+    {
+      "id": "scene-2",
+      "text": "InkForge，本地优先的 AI 小说创作驾驶舱。",
+      "src": "voiceover/manbo/seg-02.mp3",
+      "durationSeconds": 3.744,
+      "sceneDurationInFrames": 142,
+      "sceneStartFrame": 160,
+      "voiceStartFrame": 173,
+      "voiceEndFrame": 274
+    },
+    {
+      "id": "scene-3",
+      "text": "章节和设定留在你的硬盘。AI 只提交提案，你决定接受、拒绝，还是回滚。",
+      "src": "voiceover/manbo/seg-03.mp3",
+      "durationSeconds": 6.672000000000001,
+      "sceneDurationInFrames": 220,
+      "sceneStartFrame": 288,
+      "voiceStartFrame": 301,
+      "voiceEndFrame": 480
+    },
+    {
+      "id": "scene-4",
+      "text": "从规划、写作，到连续性检查、修订和 EPUB 导出，一条工作流写完整部长篇。",
+      "src": "voiceover/manbo/seg-04.mp3",
+      "durationSeconds": 6.384,
+      "sceneDurationInFrames": 213,
+      "sceneStartFrame": 494,
+      "voiceStartFrame": 507,
+      "voiceEndFrame": 678
+    },
+    {
+      "id": "scene-5",
+      "text": "AI 帮你写，但作者永远是你。",
+      "src": "voiceover/manbo/seg-05.mp3",
+      "durationSeconds": 2.8320000000000003,
+      "sceneDurationInFrames": 117,
+      "sceneStartFrame": 693,
+      "voiceStartFrame": 706,
+      "voiceEndFrame": 782
+    },
+    {
+      "id": "scene-6",
+      "text": "现在去 GitHub，给 InkForge 一颗 Star。把作品，留在自己手里。",
+      "src": "voiceover/manbo/seg-06.mp3",
+      "durationSeconds": 5.496,
+      "sceneDurationInFrames": 189,
+      "sceneStartFrame": 796,
+      "voiceStartFrame": 809,
+      "voiceEndFrame": 957
+    }
+  ]
+}

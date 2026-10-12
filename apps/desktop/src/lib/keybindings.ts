@@ -35,7 +35,7 @@ const isControlKey = (event: KeyboardEvent): boolean => event.ctrlKey || event.m
 const isPlainShortcut = (event: KeyboardEvent): boolean => isControlKey(event) && !event.altKey;
 
 export const createKeybindingHandler = (actions: KeybindingActions) => (event: KeyboardEvent) => {
-  if (event.repeat) {
+  if (event.repeat || event.defaultPrevented || event.isComposing) {
     return;
   }
 
@@ -79,6 +79,8 @@ export const createKeybindingHandler = (actions: KeybindingActions) => (event: K
   }
 
   if (key === "b" && !event.shiftKey) {
+    const target = event.target;
+    if (target instanceof Element && target.closest('input, textarea, [contenteditable="true"]')) return;
     event.preventDefault();
     actions.toggleFocusMode();
     return;

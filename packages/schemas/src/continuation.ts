@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ProjectDataEntrySchema } from "./project-data.js";
 import type { Clue } from "./index.js";
 
 /** Values that can be asserted by the continuity engine. */
@@ -265,9 +266,11 @@ export const EvidencePackSchema = z
     dueThreads: z.array(StoryThreadSchema).default([]),
     retrievedEvidence: z.array(EvidenceRefSchema).default([]),
     styleExemplars: z.array(EvidenceRefSchema).default([]),
+    projectData: z.array(ProjectDataEntrySchema).default([]),
     exclusions: z.array(z.string()).default([]),
     tokenUsageBySection: z.record(z.string(), z.number().finite().nonnegative()).default({}),
     omittedSections: z.array(z.string()).default([]),
+    sourceWarnings: z.array(z.string()).default([]),
     generatedAt: z.string().datetime({ offset: true }).optional(),
     query: z.string().default("")
   })

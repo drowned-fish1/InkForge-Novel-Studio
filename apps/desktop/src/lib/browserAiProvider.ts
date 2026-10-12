@@ -1,5 +1,8 @@
 import { createDefaultPromptTemplate } from "@inkforge/prompt-engine";
 import {
+  resolveProvider,
+  assertCompletionFits,
+  providerRoleForTask,
   buildPrompt,
   classifyProviderError,
   type ChatCompletionRequest,
@@ -31,10 +34,17 @@ export const runBrowserAiTask = async (
   template: PromptTemplate = createDefaultPromptTemplate(input.task),
   signal?: AbortSignal
 ): Promise<AiTaskResult> => {
+  const role = input.providerRole ?? (input.useEditorModel ? "reviewer" : providerRoleForTask(input.task));
+  const selected = resolveProvider(provider, role);
+  provider = { ...selected, apiKey: selected.apiKey ?? "" };
+  if (!hasAuthMaterial(provider.authMode, provider.apiKey)) throw new Error("此用途的模型尚未配置。");
   const prompt = buildPrompt(template, input);
   const selectedModel =
-    input.useEditorModel && provider.editorModel?.trim() ? provider.editorModel.trim() : provider.model;
+    (input.useEditorModel || role === "reviewer") && provider.editorModel?.trim()
+      ? provider.editorModel.trim()
+      : provider.model;
   const chatRequest: ChatCompletionRequest = {
+    stop: provider.stop,
     model: selectedModel,
     temperature: provider.temperature,
     max_tokens: provider.maxTokens,
@@ -50,6 +60,7 @@ export const runBrowserAiTask = async (
       }
     ]
   };
+  assertCompletionFits(chatRequest, provider.contextWindow);
 
   const response = await fetch(devProxyEndpoint, {
     method: "POST",

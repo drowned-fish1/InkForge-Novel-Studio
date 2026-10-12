@@ -79,6 +79,7 @@ import { CorpusImportService } from "./services/CorpusImportService.js";
 import { HybridRetriever } from "./services/HybridRetriever.js";
 import { StoryThreadService } from "./services/StoryThreadService.js";
 import { StyleProfileService } from "./services/StyleProfileService.js";
+import { UpdateService } from "./services/UpdateService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -112,7 +113,9 @@ const chatAgent = new ChatAgentService(files, projects, library, storyState, aiP
 const planning = new PlanningService(files, projects, library, storyState);
 const agents = new AgentService();
 const quality = new QualityService(files, projects, storyState);
-const branches = new BranchService(files, projects, chapters);
+const branches = new BranchService(files, projects, chapters, (projectPath, chapterId, _content, yolo) =>
+  chatAgent.refreshProjectDataAfterAccept(projectPath, chapterId, yolo)
+);
 const batches = new BatchProductionService(files, projects, aiProvider, branches, quality);
 const release = new ReleaseService(projects, aiProvider, quality, branches, batches);
 const workspace = new WorkspaceService(files);
@@ -139,6 +142,7 @@ const continuationRuns = new ContinuationOrchestrator({
   compiler: contextCompiler,
   styles: styleProfiles
 });
+const updates = new UpdateService();
 
 const windowBackgrounds = {
   light: "#f4f2ed",
@@ -260,10 +264,10 @@ const createWindow = async (): Promise<void> => {
     icon: path.join(__dirname, "../build/icon.png"),
     backgroundColor: resolvedWindowBackground(),
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
 
@@ -309,6 +313,9 @@ app.whenReady().then(async () => {
     setWindowBackground(theme);
   });
   await createWindow();
+  void updates.configure().then((status) => {
+    if (status.configured) void updates.check();
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -333,6 +340,10 @@ const registerIpc = (): void => {
   });
 
   ipcMain.handle("project:list", async () => recentProjects.list());
+  ipcMain.handle("updates:status", () => updates.status());
+  ipcMain.handle("updates:check", () => updates.check());
+  ipcMain.handle("updates:download", () => updates.download());
+  ipcMain.handle("updates:install", () => updates.install());
 
   ipcMain.handle("project:create", async (_event, input: CreateProjectInput) => {
     const result = await dialog.showOpenDialog({
@@ -353,6 +364,9 @@ const registerIpc = (): void => {
       if (issues.length) {
         throw new Error(`不是完整的 InkForge 项目文件夹：${issues.join("、")}`);
       }
+      await storyReferences
+        .migrateLegacyReferences(projectPath)
+        .catch((error) => console.error("Stable-ID reference migration skipped:", error));
       const project = await projects.openProject(projectPath);
       await recentProjects.touch(project);
       return project;
@@ -368,6 +382,9 @@ const registerIpc = (): void => {
     if (issues.length) {
       throw new Error(`不是完整的 InkForge 项目文件夹：${issues.join("、")}`);
     }
+    await storyReferences
+      .migrateLegacyReferences(result.filePaths[0])
+      .catch((error) => console.error("Stable-ID reference migration skipped:", error));
     const project = await projects.openProject(result.filePaths[0]);
     await recentProjects.touch(project);
     return project;
@@ -414,9 +431,11 @@ const registerIpc = (): void => {
       if (chapterId) await chunkIndex.removeChapter(input.projectPath, chapterId).catch(() => undefined);
       console.error("Continuation index update failed; stale chapter entry was removed:", error);
     }
-    void workspace
-      .ensureAutomaticBackup(input.projectPath)
-      .catch((error) => console.error("Automatic backup failed:", error));
+    if (process.env.INKFORGE_DISABLE_AUTOMATIC_BACKUP !== "1") {
+      void workspace
+        .ensureAutomaticBackup(input.projectPath)
+        .catch((error) => console.error("Automatic backup failed:", error));
+    }
   });
 
   ipcMain.handle("chapter:history:list", async (_event, projectPath: string, file: string) => {
@@ -837,7 +856,7 @@ const registerIpc = (): void => {
   });
 
   ipcMain.handle("provider:presets", () => aiProvider.listPresets());
-  ipcMain.handle("provider:probe", () => aiProvider.probeProvider());
+  ipcMain.handle("provider:probe", (_event, role) => aiProvider.probeProvider(role));
   ipcMain.handle("release:readiness", async (_event, projectPath: string) => release.inspect(projectPath));
 
   // Long-novel continuation IPC. Requests are validated at the boundary
@@ -1051,6 +1070,10 @@ const registerIpc = (): void => {
       maxOutputTokens: optionalNumber(input.maxOutputTokens, "maxOutputTokens"),
       modelOverride: optionalString(input.modelOverride, "modelOverride"),
       useEditorModel: input.useEditorModel === true,
+      allowCompression: input.allowCompression === true,
+      logicReview: input.logicReview !== false,
+      updateProjectData: input.updateProjectData === true,
+      yolo: input.yolo === true,
       branchName: optionalString(input.branchName, "branchName"),
       branchDescription: optionalString(input.branchDescription, "branchDescription")
     });
@@ -1068,6 +1091,7 @@ const registerIpc = (): void => {
         maxOutputTokens: optionalNumber(options.maxOutputTokens, "maxOutputTokens"),
         modelOverride: optionalString(options.modelOverride, "modelOverride"),
         useEditorModel: options.useEditorModel === true,
+        allowCompression: typeof options.allowCompression === "boolean" ? options.allowCompression : undefined,
         branchName: optionalString(options.branchName, "branchName"),
         branchDescription: optionalString(options.branchDescription, "branchDescription"),
         requestId: optionalString(options.requestId, "requestId")

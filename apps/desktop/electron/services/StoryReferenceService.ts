@@ -1,6 +1,7 @@
 import {
   detachStoryReferences,
   findStoryReferences,
+  migrateStoryReferencesToIds,
   type Character,
   type StoryDetachMode,
   type StoryEntityRef,
@@ -27,6 +28,18 @@ export class StoryReferenceService {
 
   async findReferences(projectPath: string, target: StoryEntityRef): Promise<StoryReferenceHit[]> {
     return findStoryReferences(await this.loadData(projectPath), target);
+  }
+
+  /**
+   * Persist additive stable-ID mirrors for unambiguous legacy references.
+   * Legacy display-name fields are deliberately retained for rollback with an
+   * older InkForge build. The operation is idempotent.
+   */
+  async migrateLegacyReferences(projectPath: string): Promise<number> {
+    const result = migrateStoryReferencesToIds(await this.loadData(projectPath));
+    if (!result.migratedReferenceCount) return 0;
+    await this.persistChanges(projectPath, result);
+    return result.migratedReferenceCount;
   }
 
   async deleteEntity(
@@ -108,6 +121,13 @@ export class StoryReferenceService {
   ): Promise<void> {
     const data = await this.loadData(projectPath);
     const result = detachStoryReferences(data, target, mode, replacement, namesOverride);
+    await this.persistChanges(projectPath, result);
+  }
+
+  private async persistChanges(
+    projectPath: string,
+    result: ReturnType<typeof detachStoryReferences> | ReturnType<typeof migrateStoryReferencesToIds>
+  ): Promise<void> {
     for (const id of result.changedCharacterIds) {
       const character = result.characters.find((item) => item.id === id);
       if (character) {

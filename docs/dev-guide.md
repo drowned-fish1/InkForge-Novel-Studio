@@ -18,18 +18,32 @@ npm run desktop
 ## Quality Gates
 
 ```bash
+npm run format:check
 npm run lint
 npm run typecheck        # builds workspace packages first
 npm test                 # vitest across packages and electron services
 npm run build
 npm run test:desktop-smoke   # builds, then end-to-end checks against the real main process
+npm audit --omit=dev --audit-level=high
+npm run dist:windows         # Windows NSIS
+npm run dist:mac             # run on macOS: DMG + ZIP
+npm run dist:linux           # run on Linux: AppImage + DEB
 ```
 
 Notes:
 
-- The repo is not prettier-clean at baseline; format only files you touched.
+- The tracked repository is Prettier-clean; run `npm run format` only for intentional source/document changes.
 - Shared pure logic (reference engine, export preflight, token estimator, tool registry) lives in `packages/schemas` so the electron services and the browser mirror cannot diverge.
 - Agent tools are declared once in `agentToolRegistry` (`packages/schemas/src/agent.ts`); adding a tool means extending the enum + registry, the tool definition and its `executeTool` handler.
+
+The Remotion project is intentionally isolated from the root npm workspace because it uses its own pinned media toolchain:
+
+```bash
+npm ci --prefix promo-video
+npm run check:promo
+```
+
+Generated WAV files, Remotion bundles and rendered videos are local artifacts and must not be committed.
 
 ## Phase Rule
 
