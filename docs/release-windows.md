@@ -35,7 +35,7 @@ asar 打包、NSIS x64 安装器、图标与 `dist-electron`/`dist` 产物（测
 1. 设置 `INKFORGE_UPDATE_URL=https://updates.example.com/inkforge/` 后，正式包会使用 generic feed；未设置时完全禁用且不联网。
 2. preload 已暴露状态、检查、下载和安装 IPC；下载不会自动开始，安装必须由调用方确认。
 3. 更新源只接受 HTTPS（测试时允许 localhost/127.0.0.1 HTTP），并必须与签名配套。
-4. 版本号策略：应用版本已在 v1.0 RC4 统一为 `1.0.0-rc.4`（root 与 `apps/desktop`）；
+4. 版本号策略：应用版本已在 v1.0 RC5 统一为 `1.0.0-rc.5`（root 与 `apps/desktop`）；
    `packages/*` 保持内部 `0.1.0`，项目数据 schemaVersion 独立冻结为 `0.1.0`。
 
 ## 安全与平台说明

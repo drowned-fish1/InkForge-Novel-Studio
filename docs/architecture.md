@@ -36,6 +36,9 @@ Renderer React UI
 - `BranchService`: isolated story alternatives, ordered line diffs and snapshot-backed application.
 - `BatchProductionService`: sequential generation with token budgets, cancellation and author checkpoints.
 - `ReleaseService`: provider, quality, branch, batch and manuscript readiness aggregation.
+- `ProjectDataService`: project-specific structured facts, revision history and source-evidence validation.
+- `LogicReviewService`: independent continuation edit/review pass with integrity thresholds before a branch is published.
+- `ContinuationRunStore`: per-run continuation records plus a bounded index, with automatic legacy migration.
 - `PromptEngine`: template rendering and context-summary metadata.
 
 ## Production Safety

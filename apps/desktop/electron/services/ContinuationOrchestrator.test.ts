@@ -7,6 +7,8 @@ import type { AgentCompletionResult } from "./AiProviderService.js";
 import { ContinuationOrchestrator, type ContinuationProvider } from "./ContinuationOrchestrator.js";
 import { FileRepository } from "./FileRepository.js";
 import { ProjectService } from "./ProjectService.js";
+import { BranchService } from "./BranchService.js";
+import { buildWriterMessages } from "@inkforge/prompt-engine";
 
 const makePack = (chapterId: string, contract = ChapterContractSchema.parse({ chapterId })): EvidencePack =>
   EvidencePackSchema.parse({
@@ -54,6 +56,134 @@ const makeProvider = (draft = "银灯在门后亮起。") => {
 };
 
 describe("ContinuationOrchestrator", () => {
+  it("blocks truncated editing and preserves the full writer draft in YOLO", async () => {
+    const fixture = await setup();
+    try {
+      const original = "原稿".repeat(2000);
+      const outputs = [
+        original,
+        JSON.stringify({ revisedText: "缩稿".repeat(100), findings: [], changes: [], unresolvedIssues: [] })
+      ];
+      const provider = {
+        runAgentCompletion: vi.fn(async () => ({
+          message: { role: "assistant" as const, content: outputs.shift()! },
+          model: "mock"
+        }))
+      };
+      const contract = ChapterContractSchema.parse({ chapterId: fixture.chapterId });
+      const service = new ContinuationOrchestrator({
+        files: fixture.files,
+        provider,
+        compiler: { compile: async () => makePack(fixture.chapterId, contract) }
+      });
+      const result = await service.run({
+        projectPath: fixture.projectPath,
+        chapterId: fixture.chapterId,
+        contract,
+        yolo: true
+      });
+      expect(result.status).toBe("blocked");
+      expect(result.run.originalDraft).toBe(original);
+      expect(result.branchId).toBeUndefined();
+      expect(provider.runAgentCompletion).toHaveBeenCalledTimes(2);
+      expect((await service.get(fixture.projectPath, result.id))?.originalDraft).toBe(original);
+    } finally {
+      await rm(fixture.parent, { recursive: true, force: true });
+    }
+  });
+  it.each([true, false])("reviews the same snapshot and only YOLO applies when verified=%s", async (passed) => {
+    const fixture = await setup();
+    try {
+      const original = "花去七枚元石，他的钱袋里还剩十五枚。";
+      const revisedText = "花去七枚元石，他的钱袋里还剩五枚。";
+      const outputs = [
+        original,
+        JSON.stringify({
+          revisedText,
+          findings: [],
+          changes: [{ before: "十五枚", after: "五枚", reason: "前文十二枚，花去七枚" }],
+          unresolvedIssues: []
+        }),
+        JSON.stringify({ passed, findings: [], unresolvedIssues: passed ? [] : ["余额缺少依据"] })
+      ];
+      const provider = {
+        runAgentCompletion: vi.fn(async () => ({
+          message: { role: "assistant" as const, content: outputs.shift() ?? "" },
+          model: "mock",
+          usage: { total_tokens: 18 }
+        }))
+      };
+      const accepted = vi.fn(async () => undefined);
+      const branches = new BranchService(fixture.files, new ProjectService(fixture.files), undefined, accepted);
+      const apply = vi.spyOn(branches, "apply");
+      const contract = ChapterContractSchema.parse({ chapterId: fixture.chapterId });
+      const service = new ContinuationOrchestrator({
+        files: fixture.files,
+        provider,
+        branches,
+        compiler: { compile: async () => makePack(fixture.chapterId, contract) },
+        styles: { load: async () => undefined, evaluateText: async () => ({ score: 100, warnings: [], deltas: [] }) }
+      });
+      const result = await service.run({
+        projectPath: fixture.projectPath,
+        chapterId: fixture.chapterId,
+        contract,
+        yolo: true,
+        updateProjectData: true
+      });
+      expect(result.status).toBe(passed ? "completed" : "blocked");
+      expect(result.run.originalDraft).toBe(original);
+      expect(result.run.draft).toBe(revisedText);
+      expect(result.run.writerMessages).toEqual(buildWriterMessages(result.run.writerRequest!));
+      expect(result.usage?.totalTokens).toBe(54);
+      expect(apply).toHaveBeenCalledTimes(passed ? 1 : 0);
+      if (passed) {
+        expect(result.run.snapshotId).toBeTruthy();
+        expect(result.run.appliedAt).toBeTruthy();
+        expect(accepted).toHaveBeenCalledWith(
+          fixture.projectPath,
+          fixture.chapterId,
+          expect.stringContaining("五枚"),
+          true
+        );
+      }
+    } finally {
+      await rm(fixture.parent, { recursive: true, force: true });
+    }
+  });
+  it("retains the original draft and refuses a branch if the manuscript changes during generation", async () => {
+    const fixture = await setup();
+    try {
+      const provider = {
+        runAgentCompletion: async () => {
+          await fixture.files.writeTextAtomic(
+            fixture.files.assertInsideProject(fixture.projectPath, "chapters/volume-001/ch-0001.md"),
+            "作者新内容。"
+          );
+          return { message: { role: "assistant" as const, content: "生成草稿。" }, model: "mock" };
+        }
+      };
+      const contract = ChapterContractSchema.parse({ chapterId: fixture.chapterId });
+      const service = new ContinuationOrchestrator({
+        files: fixture.files,
+        provider,
+        compiler: { compile: async () => makePack(fixture.chapterId, contract) }
+      });
+      const result = await service.run({
+        projectPath: fixture.projectPath,
+        chapterId: fixture.chapterId,
+        contract,
+        logicReview: false,
+        yolo: true
+      });
+      expect(result.status).toBe("failed");
+      expect(result.error).toContain("正文已变化");
+      expect(result.run.originalDraft).toBe("生成草稿。");
+      expect(result.branchId).toBeUndefined();
+    } finally {
+      await rm(fixture.parent, { recursive: true, force: true });
+    }
+  });
   it("compiles evidence, generates prose, and leaves the source chapter untouched", async () => {
     const fixture = await setup();
     try {
@@ -74,6 +204,7 @@ describe("ContinuationOrchestrator", () => {
       });
 
       const result = await service.run({
+        logicReview: false,
         projectPath: fixture.projectPath,
         chapterId: fixture.chapterId,
         contract,
@@ -82,13 +213,17 @@ describe("ContinuationOrchestrator", () => {
 
       expect(result.status).toBe("completed");
       expect(result.branchId).toBe("branch-success");
-      expect(result.evidencePack).toEqual(pack);
+      expect(result.evidencePack).toEqual({
+        ...pack,
+        tokenUsageBySection: expect.objectContaining({ writerMessages: expect.any(Number) })
+      });
+      expect(pack.tokenUsageBySection).toEqual({});
       expect(result.validation?.canApply).toBe(true);
       expect(result.usage?.totalTokens).toBe(18);
       expect(provider.runAgentCompletion).toHaveBeenCalledOnce();
       const messages = provider.runAgentCompletion.mock.calls[0]?.[0].messages ?? [];
-      expect(messages[0]?.content).toContain("Hard canon constraints");
-      expect(messages[1]?.content).toContain("Evidence pack");
+      expect(messages[0]?.content).toContain("已确认");
+      expect(messages[1]?.content).toContain("历史证据");
       expect(messages[1]?.content).toContain("银灯");
       expect(branchCreate).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -138,7 +273,12 @@ describe("ContinuationOrchestrator", () => {
         styles: { load: async () => undefined, evaluateText: async () => ({ score: 90, warnings: [], deltas: [] }) }
       });
 
-      const result = await service.run({ projectPath: fixture.projectPath, chapterId: fixture.chapterId, contract });
+      const result = await service.run({
+        logicReview: false,
+        projectPath: fixture.projectPath,
+        chapterId: fixture.chapterId,
+        contract
+      });
 
       expect(result.status).toBe("blocked");
       expect(result.checkpoint.phase).toBe("blocked");
@@ -177,7 +317,12 @@ describe("ContinuationOrchestrator", () => {
         styles: { load: async () => undefined, evaluateText: async () => ({ score: 100, warnings: [], deltas: [] }) }
       });
 
-      const failed = await service.run({ projectPath: fixture.projectPath, chapterId: fixture.chapterId, contract });
+      const failed = await service.run({
+        logicReview: false,
+        projectPath: fixture.projectPath,
+        chapterId: fixture.chapterId,
+        contract
+      });
       expect(failed.status).toBe("failed");
       expect(failed.error).toBe("provider unavailable");
       const restarted = new ContinuationOrchestrator({ files: fixture.files });
@@ -219,7 +364,12 @@ describe("ContinuationOrchestrator", () => {
         branches: { create: async () => ({ id: "never" }) } as never,
         styles: { load: async () => undefined, evaluateText: async () => ({ score: 100, warnings: [], deltas: [] }) }
       });
-      const running = service.run({ projectPath: fixture.projectPath, chapterId: fixture.chapterId, contract });
+      const running = service.run({
+        logicReview: false,
+        projectPath: fixture.projectPath,
+        chapterId: fixture.chapterId,
+        contract
+      });
       await startedPromise;
       const [run] = await service.list(fixture.projectPath);
       await service.cancel(fixture.projectPath, run!.id);

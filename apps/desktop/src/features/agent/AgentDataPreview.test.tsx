@@ -3,6 +3,38 @@ import { describe, expect, it } from "vitest";
 import { AgentDataPreview } from "./AgentDataPreview";
 
 describe("AgentDataPreview", () => {
+  it("shows arbitrary project data changes with the original value and deletions", () => {
+    const html = renderToStaticMarkup(
+      <AgentDataPreview
+        proposal={{
+          id: "data",
+          entityType: "project_data",
+          action: "upsert",
+          title: "专属资料",
+          explanation: "更新本书",
+          status: "pending",
+          createdAt: "2026-10-10T00:00:00.000Z",
+          payload: {
+            expectedRevision: 3,
+            before: [
+              { key: "陆砚的钱袋", content: { 元石: 12 } },
+              { key: "旧技能", content: "已废弃" }
+            ],
+            changes: [
+              { operation: "set", key: "陆砚的钱袋", content: { 元石: 5 }, sourceChapterId: "ch-2" },
+              { operation: "delete", key: "旧技能" }
+            ]
+          }
+        }}
+      />
+    );
+    expect(html).toContain("原内容");
+    expect(html).toContain("12");
+    expect(html).toContain("5");
+    expect(html).toContain("删除：旧技能");
+    expect(html).toContain("ch-2");
+    expect(html).not.toContain("新增栏目");
+  });
   it("renders scene proposals as readable cards without technical fields", () => {
     const html = renderToStaticMarkup(
       <AgentDataPreview

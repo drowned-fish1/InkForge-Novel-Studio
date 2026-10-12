@@ -81,12 +81,67 @@ export const InspirationFragmentSchema = z.object({
   updatedAt: z.string()
 });
 
+const calendarDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/u)
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  }, "请输入有效日期");
+
+export const DailyWritingTemplateSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(80),
+  wordGoal: z.number().int().min(1).max(1000000),
+  minuteGoal: z.number().int().min(0).max(1440),
+  releaseWords: z.number().int().min(0).max(1000000),
+  tasks: z.array(z.string().trim().min(1).max(500)).max(30).default([])
+});
+
+export const DailyWritingPlanSchema = DailyWritingTemplateSchema.omit({ id: true, name: true, tasks: true }).extend({
+  date: calendarDate,
+  templateId: z.string().default(""),
+  tasks: z
+    .array(z.object({ text: z.string().min(1), done: z.boolean() }))
+    .max(30)
+    .default([])
+});
+
+export const ChapterReleaseSchema = z
+  .object({
+    chapterId: z.string().min(1),
+    status: z.enum(["draft", "ready", "scheduled", "published"]),
+    scheduledDate: calendarDate.optional(),
+    publishedDate: calendarDate.optional(),
+    publishedWords: z.number().int().nonnegative().optional(),
+    updatedAt: z.string()
+  })
+  .superRefine((record, context) => {
+    if (record.status === "scheduled" && !record.scheduledDate)
+      context.addIssue({ code: "custom", path: ["scheduledDate"], message: "排期需要计划日期" });
+    if (record.status === "published" && !record.publishedDate)
+      context.addIssue({ code: "custom", path: ["publishedDate"], message: "发布记录需要实际日期" });
+  });
+
 export const WritingWorkspaceSchema = z.object({
   annotations: z.array(WritingAnnotationSchema).default([]),
   bookmarks: z.array(WritingBookmarkSchema).default([]),
   sessions: z.array(WritingSessionRecordSchema).default([]),
-  fragments: z.array(InspirationFragmentSchema).default([])
+  fragments: z.array(InspirationFragmentSchema).default([]),
+  dailyWriting: z
+    .object({
+      templates: z.array(DailyWritingTemplateSchema).default([]),
+      activeTemplateId: z.string().default("daily-standard"),
+      plans: z.array(DailyWritingPlanSchema).default([]),
+      deadline: calendarDate.optional()
+    })
+    .optional(),
+  releases: z.array(ChapterReleaseSchema).optional()
 });
+
+export type DailyWritingTemplate = z.infer<typeof DailyWritingTemplateSchema>;
+export type DailyWritingPlan = z.infer<typeof DailyWritingPlanSchema>;
+export type ChapterRelease = z.infer<typeof ChapterReleaseSchema>;
 
 export const RevisionDispositionSchema = z.object({
   key: z.string().min(1),
@@ -148,6 +203,8 @@ export const defaultAgentMembers = AgentMemberSchema.array().parse([
       "get_chapter_memory",
       "get_outline_context",
       "get_story_bible",
+      "get_project_data",
+      "propose_project_data_update",
       "get_story_entities",
       "get_narrative_board",
       "get_simulation_runs",
@@ -177,6 +234,7 @@ export const defaultAgentMembers = AgentMemberSchema.array().parse([
       "get_chapter_memory",
       "get_outline_context",
       "get_story_bible",
+      "get_project_data",
       "get_story_entities",
       "get_narrative_board",
       "get_simulation_runs",
@@ -199,6 +257,7 @@ export const defaultAgentMembers = AgentMemberSchema.array().parse([
       "get_chapter_memory",
       "get_outline_context",
       "get_narrative_board",
+      "get_project_data",
       "inspect_continuity",
       "propose_chapter_edit",
       "propose_chapter_patch"
@@ -217,6 +276,8 @@ export const defaultAgentMembers = AgentMemberSchema.array().parse([
       "get_chapter_memory",
       "get_outline_context",
       "get_story_bible",
+      "get_project_data",
+      "propose_project_data_update",
       "get_story_entities",
       "get_narrative_board",
       "get_simulation_runs",
@@ -245,6 +306,7 @@ export const AgentTaskTemplateSchema = z.object({
 });
 
 export const AgentExtensionConfigSchema = z.object({
+  projectDataToolsVersion: z.literal(1).optional(),
   promptPresets: z.array(AgentPromptPresetSchema).default([]),
   toolProfiles: z.array(AgentToolProfileSchema).default([]),
   customTools: z.array(AgentCustomToolSchema).default([]),
@@ -252,6 +314,27 @@ export const AgentExtensionConfigSchema = z.object({
   taskTemplates: z.array(AgentTaskTemplateSchema).default([]),
   workflowTemplates: z.array(PipelineSchema).default([])
 });
+
+/** Upgrade untouched built-in tool lists once; preserve author-customized permissions. */
+export const migrateProjectDataTools = (
+  config: z.infer<typeof AgentExtensionConfigSchema>
+): z.infer<typeof AgentExtensionConfigSchema> => {
+  if (config.projectDataToolsVersion === 1) return config;
+  const addedTools = new Set(["get_project_data", "propose_project_data_update"]);
+  return {
+    ...config,
+    projectDataToolsVersion: 1,
+    members: config.members.map((member) => {
+      const builtIn = defaultAgentMembers.find((item) => item.id === member.id);
+      if (!builtIn || !member.builtIn) return member;
+      const oldTools = builtIn.allowedTools.filter((tool) => !addedTools.has(tool));
+      return member.allowedTools.length === oldTools.length &&
+        oldTools.every((tool) => member.allowedTools.includes(tool))
+        ? { ...member, allowedTools: builtIn.allowedTools }
+        : member;
+    })
+  };
+};
 
 export type BackupSnapshot = z.infer<typeof BackupSnapshotSchema>;
 export type BackupSettings = z.infer<typeof BackupSettingsSchema>;

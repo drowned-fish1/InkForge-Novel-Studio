@@ -1,6 +1,6 @@
+import { requireSavedChapter } from "@/lib/requireSavedChapter";
 import {
   Activity,
-  AlertTriangle,
   Ban,
   Bot,
   BookOpenText,
@@ -12,7 +12,6 @@ import {
   Download,
   FilePenLine,
   GitBranch,
-  KeyRound,
   ListChecks,
   LoaderCircle,
   FileText,
@@ -38,7 +37,6 @@ import {
   AgentExtensionConfigSchema,
   agentToolRegistry,
   defaultAgentMembers,
-  defaultProviderConfig,
   type AgentExtensionConfig,
   type AgentMember,
   type AgentChangeProposal,
@@ -46,14 +44,19 @@ import {
   type AgentSourceReference,
   type AgentToolName
 } from "@inkforge/schemas";
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { bridge } from "@/lib/browserBridge";
 import { formatAgentError } from "@/lib/agentError";
 import { composeAgentScopePrompt, toolsForAgentScope, type AgentScope } from "@/lib/agentScope";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { ProviderSettings } from "@/features/agent/ProviderSettings";
 import { AgentDataPreview } from "@/features/agent/AgentDataPreview";
+import { AgentSelectionAttachments } from "@/features/agent/AgentSelectionAttachments";
+import { composeAgentSelectionPrompt } from "@/lib/agentSelection";
+import { useAgentSelectionStore } from "@/stores/useAgentSelectionStore";
+import { useProjectAutomation } from "@/lib/useProjectAutomation";
 import { PipelinePanel } from "@/features/agent/PipelinePanel";
-import type { AgentChatSession, ProviderAuthMode, ProviderConfigInput } from "@/types/app";
+import type { AgentChatSession } from "@/types/app";
 import type { AgentRunEvent, AgentRunTrace } from "@/types/app";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { useProviderStore } from "@/stores/useProviderStore";
@@ -102,9 +105,6 @@ type AgentConfirmation =
       proposalIds: string[];
       dataProposalIds: string[];
       scopeLabel: string;
-    }
-  | {
-      kind: "enable-yolo";
     };
 
 const sourceKey = (source: AgentSourceReference) => `${source.kind}:${source.id}`;
@@ -163,17 +163,31 @@ const visibleSessionMessages = (
 export const AgentChatPanel = () => {
   const project = useProjectStore((state) => state.project);
   const current = useProjectStore((state) => state.current);
-  const saveState = useProjectStore((state) => state.saveState);
-  const saveCurrentChapter = useProjectStore((state) => state.saveCurrentChapter);
   const selectChapter = useProjectStore((state) => state.selectChapter);
   const refreshProject = useProjectStore((state) => state.refreshProject);
-  const providerStatus = useProviderStore((state) => state.providerStatus);
-  const saveProviderConfig = useProviderStore((state) => state.saveProviderConfig);
+  const storedProviderStatus = useProviderStore((state) => state.providerStatus);
+  const providerStatus = storedProviderStatus?.taskProviders?.agent ?? storedProviderStatus;
   const loadLibraries = useLibraryStore((state) => state.loadLibraries);
   const hydrateScenePlans = useWritingSessionStore((state) => state.hydrateScenePlans);
   const [session, setSession] = useState<AgentChatSession>();
   const [message, setMessage] = useState("");
   const [textDocuments, setTextDocuments] = useState<AgentTextDocument[]>([]);
+  const allSelectionReferences = useAgentSelectionStore((state) => state.references);
+  const selectionReferences = useMemo(
+    () =>
+      allSelectionReferences.filter(
+        (item) => item.projectPath === project?.projectPath && item.chapterId === current?.plan.id
+      ),
+    [allSelectionReferences, project?.projectPath, current?.plan.id]
+  );
+  const selectionPrompt = useMemo(
+    () => composeAgentSelectionPrompt(message, selectionReferences),
+    [message, selectionReferences]
+  );
+  const composerPrompt = useMemo(
+    () => composeAgentDocumentPrompt(selectionPrompt, textDocuments),
+    [selectionPrompt, textDocuments]
+  );
   const [running, setRunning] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -200,7 +214,8 @@ export const AgentChatPanel = () => {
   const [mode, setMode] = useState<AgentMode>("direct");
   const [agentScope, setAgentScope] = useState<AgentScope>("chapter");
   const [writingApproach, setWritingApproach] = useState<WritingApproach>("stable");
-  const [yoloMode, setYoloMode] = useState(false);
+  const { settings: automation, update: updateAutomation } = useProjectAutomation(project?.projectPath);
+  const yoloMode = automation.yolo;
   const [confirmation, setConfirmation] = useState<AgentConfirmation>();
   const [contextBudget, setContextBudget] = useState(6000);
   const [includeMemories, setIncludeMemories] = useState(true);
@@ -237,21 +252,12 @@ export const AgentChatPanel = () => {
   const [streamText, setStreamText] = useState("");
   const [streamReasoning, setStreamReasoning] = useState("");
   const [expandedProposal, setExpandedProposal] = useState<string>();
-  const [providerDraft, setProviderDraft] = useState<ProviderConfigInput>({
-    providerId: defaultProviderConfig.providerId,
-    displayName: defaultProviderConfig.displayName,
-    baseUrl: defaultProviderConfig.baseUrl,
-    model: defaultProviderConfig.model,
-    editorModel: "",
-    authMode: defaultProviderConfig.authMode,
-    apiKey: "",
-    temperature: defaultProviderConfig.temperature,
-    maxTokens: defaultProviderConfig.maxTokens
-  });
+
   const abortRef = useRef<AbortController | undefined>(undefined);
   const activeRequestIdRef = useRef<string | undefined>(undefined);
   const documentInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const previousReferenceIdsRef = useRef<string[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const busy = running || resolving;
@@ -269,13 +275,22 @@ export const AgentChatPanel = () => {
   const scopedAllowedTools = useMemo(() => toolsForAgentScope(allowedTools, agentScope), [agentScope, allowedTools]);
 
   useEffect(() => {
+    const added = selectionReferences.some((item) => !previousReferenceIdsRef.current.includes(item.id));
+    previousReferenceIdsRef.current = selectionReferences.map((item) => item.id);
+    if (!added) return;
+    setAgentScope("chapter");
+    const timer = window.setTimeout(() => composerRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [selectionReferences]);
+
+  useEffect(() => {
     const receiveTask = (event: Event) => {
-      const detail = (event as CustomEvent<{ prompt?: string; scope?: AgentScope }>).detail;
-      if (!detail?.prompt) {
+      const detail = (event as CustomEvent<{ prompt?: string; scope?: AgentScope; selectionAdded?: boolean }>).detail;
+      if (!detail?.prompt && !detail?.selectionAdded) {
         return;
       }
       setAgentScope(detail.scope ?? "chapter");
-      setMessage(detail.prompt);
+      if (detail.prompt) setMessage(detail.prompt);
       window.setTimeout(() => composerRef.current?.focus(), 0);
     };
     window.addEventListener("inkforge:agent-task-ready", receiveTask);
@@ -346,7 +361,7 @@ export const AgentChatPanel = () => {
   }, [project?.projectPath]);
 
   useEffect(() => {
-    if (!project || !current || !message.trim()) {
+    if (!project || !current || !composerPrompt.trim()) {
       setRunEstimate(undefined);
       return;
     }
@@ -358,7 +373,7 @@ export const AgentChatPanel = () => {
         .estimateAgentRun({
           projectPath,
           chapterId,
-          message,
+          message: composeAgentScopePrompt(composerPrompt, agentScope),
           context: {
             tokenBudget: contextBudget,
             includeMemories,
@@ -389,7 +404,8 @@ export const AgentChatPanel = () => {
   }, [
     project?.projectPath,
     current?.plan.id,
-    message,
+    composerPrompt,
+    agentScope,
     contextBudget,
     includeMemories,
     includeSemantic,
@@ -421,24 +437,6 @@ export const AgentChatPanel = () => {
       active = false;
     };
   }, [current?.plan.id, project?.projectPath, traceOpen]);
-
-  useEffect(() => {
-    if (!providerStatus) {
-      return;
-    }
-    setProviderDraft((value) => ({
-      ...value,
-      providerId: providerStatus.providerId,
-      displayName: providerStatus.displayName,
-      baseUrl: providerStatus.baseUrl,
-      model: providerStatus.model,
-      editorModel: providerStatus.editorModel ?? "",
-      authMode: providerStatus.authMode,
-      apiKey: "",
-      inputPricePerMillion: providerStatus.inputPricePerMillion,
-      outputPricePerMillion: providerStatus.outputPricePerMillion
-    }));
-  }, [providerStatus]);
 
   useEffect(() => {
     const node = logRef.current;
@@ -477,8 +475,8 @@ export const AgentChatPanel = () => {
   );
   const pendingApprovalCount = pendingProposals.length + pendingDataProposals.length;
   const composerCharacterCount = useMemo(
-    () => composeAgentDocumentPrompt(message, textDocuments).length,
-    [message, textDocuments]
+    () => composeAgentScopePrompt(composerPrompt, agentScope).length,
+    [composerPrompt, agentScope]
   );
   const selectedTrace = useMemo(
     () => traces.find((trace) => trace.id === selectedTraceId) ?? traces[0],
@@ -533,13 +531,7 @@ export const AgentChatPanel = () => {
   };
 
   const ensureChapterSaved = async () => {
-    if (saveState !== "dirty") {
-      return;
-    }
-    await saveCurrentChapter();
-    if (useProjectStore.getState().saveState === "error") {
-      throw new Error(useProjectStore.getState().error || "章节保存失败，修改提案没有写入。");
-    }
+    if (project && current) await requireSavedChapter(project.projectPath, current.plan.id, useProjectStore.getState);
   };
 
   const applyPendingApprovals = async (
@@ -669,16 +661,15 @@ export const AgentChatPanel = () => {
   const submit = async (value?: string, replayOfTraceId?: string, options?: SubmitOptions) => {
     const composerSubmission = value === undefined;
     const submittedDocuments = composerSubmission ? textDocuments : [];
-    const rawPrompt = composerSubmission
-      ? composeAgentDocumentPrompt(message, submittedDocuments).trim()
-      : (value ?? "").trim();
+    const submittedReferences = composerSubmission ? selectionReferences : [];
+    const rawPrompt = composerSubmission ? composerPrompt.trim() : (value ?? "").trim();
     const prompt = composeAgentScopePrompt(rawPrompt, agentScope);
     if (!project || !current || !rawPrompt || busy) {
       return;
     }
     if (prompt.length > agentMessageCharacterLimit) {
       setError(
-        `消息和文档合计 ${prompt.length.toLocaleString("zh-CN")} 字符，超过 ${agentMessageCharacterLimit.toLocaleString("zh-CN")} 字符上限。请移除一份文档或拆成两轮导入。`
+        `消息、正文引用和文档合计 ${prompt.length.toLocaleString("zh-CN")} 字符，超过 ${agentMessageCharacterLimit.toLocaleString("zh-CN")} 字符上限。请移除部分引用或文档，或分两轮发送。`
       );
       return;
     }
@@ -687,24 +678,22 @@ export const AgentChatPanel = () => {
       setError("请先配置可用的模型 Provider。");
       return;
     }
-    if (saveState === "dirty") {
-      await saveCurrentChapter();
-      if (useProjectStore.getState().saveState === "error") {
-        setError(useProjectStore.getState().error || "章节保存失败，Agent 没有继续执行。");
-        return;
-      }
+    try {
+      await requireSavedChapter(project.projectPath, current.plan.id, useProjectStore.getState);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "章节保存失败");
+      return;
     }
     const requestId = `agent_chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     activeRequestIdRef.current = requestId;
-    const existingProposalIds = new Set(session?.proposals.map((proposal) => proposal.id) ?? []);
-    const existingDataProposalIds = new Set(session?.dataProposals.map((proposal) => proposal.id) ?? []);
-    const targetAgentIds = mentionedAgentIds(rawPrompt, agentRoster);
+    const targetAgentIds = mentionedAgentIds(composerSubmission ? message : rawPrompt, agentRoster);
     const abortController = new AbortController();
     abortRef.current = abortController;
     shouldAutoScrollRef.current = true;
     setMessage("");
     if (composerSubmission) {
       setTextDocuments([]);
+      useAgentSelectionStore.getState().removeReferences(submittedReferences.map((item) => item.id));
     }
     setRunning(true);
     setStopping(false);
@@ -713,7 +702,7 @@ export const AgentChatPanel = () => {
     setStreamText("");
     setStreamReasoning("");
     try {
-      let next = await bridge.runAgentChat(
+      const next = await bridge.runAgentChat(
         {
           requestId,
           projectPath: project.projectPath,
@@ -722,6 +711,8 @@ export const AgentChatPanel = () => {
           replayOfTraceId,
           mode: options?.mode ?? mode,
           writingApproach,
+          yolo: yoloMode,
+          updateProjectData: automation.updateProjectData,
           branchId: activeBranchId,
           planMessageId: options?.planMessageId,
           context: {
@@ -737,7 +728,7 @@ export const AgentChatPanel = () => {
             maxTotalTokens
           },
           allowedTools: scopedAllowedTools,
-          askBeforeTools,
+          askBeforeTools: yoloMode ? [] : askBeforeTools,
           targetAgentIds
         },
         abortController.signal,
@@ -769,34 +760,12 @@ export const AgentChatPanel = () => {
         }
       );
       setPendingApproval(undefined);
-      if (yoloMode && (options?.mode ?? mode) !== "plan") {
-        const newProposalIds = next.proposals
-          .filter((proposal) => proposal.status === "pending" && !existingProposalIds.has(proposal.id))
-          .map((proposal) => proposal.id);
-        const newDataProposalIds = next.dataProposals
-          .filter((proposal) => proposal.status === "pending" && !existingDataProposalIds.has(proposal.id))
-          .map((proposal) => proposal.id);
-        if (newProposalIds.length || newDataProposalIds.length) {
-          setLiveEvents((items) => [
-            ...items,
-            {
-              id: `yolo_${Date.now()}`,
-              type: "tool_started",
-              timestamp: new Date().toISOString(),
-              label: "AI YOLO 正在自动确认本轮新提案",
-              detail: `${newProposalIds.length + newDataProposalIds.length} 项`
-            }
-          ]);
-          try {
-            next = await applyPendingApprovals(next, newProposalIds, newDataProposalIds);
-          } catch (reason) {
-            const latest = await bridge.loadAgentChat(project.projectPath, current.plan.id).catch(() => undefined);
-            if (latest) {
-              next = latest;
-            }
-            setError(`AI YOLO 自动写入未全部完成：${formatAgentError(reason)}`);
-          }
-        }
+      if (yoloMode) {
+        await useProjectStore.getState().reloadCurrentChapterFromDisk(current.plan.id);
+        await loadLibraries();
+        await refreshProject();
+        await hydrateScenePlans();
+        await useNarrativeStore.getState().reloadBoard();
       }
       setSession(next);
       if (options?.mode === "execute-plan") {
@@ -806,12 +775,25 @@ export const AgentChatPanel = () => {
       setTraces(nextTraces);
       setSelectedTraceId(nextTraces[0]?.id);
     } catch (reason) {
+      if (yoloMode) {
+        await bridge
+          .loadAgentChat(project.projectPath, current.plan.id)
+          .then(setSession)
+          .catch(() => undefined);
+        await useProjectStore
+          .getState()
+          .reloadCurrentChapterFromDisk(current.plan.id)
+          .catch(() => undefined);
+      }
       if (!abortController.signal.aborted) {
         setError(formatAgentError(reason));
+      }
+      if (composerSubmission) {
+        setMessage(message);
+        setTextDocuments(submittedDocuments);
+        useAgentSelectionStore.getState().restoreReferences(submittedReferences);
+      } else if (!abortController.signal.aborted) {
         setMessage(composerSubmission ? message : prompt);
-        if (composerSubmission) {
-          setTextDocuments(submittedDocuments);
-        }
       }
     } finally {
       setRunning(false);
@@ -836,7 +818,7 @@ export const AgentChatPanel = () => {
       }
       const parsed = await Promise.all(candidates.map(readAgentTextDocument));
       const next = [...textDocuments, ...parsed];
-      const characters = composeAgentDocumentPrompt(message, next).length;
+      const characters = composeAgentScopePrompt(composeAgentDocumentPrompt(selectionPrompt, next), agentScope).length;
       if (characters > agentMessageCharacterLimit) {
         throw new Error(
           `导入后合计 ${characters.toLocaleString("zh-CN")} 字符，超过 ${agentMessageCharacterLimit.toLocaleString("zh-CN")} 字符上限。`
@@ -1085,17 +1067,6 @@ export const AgentChatPanel = () => {
     }
   };
 
-  const submitProvider = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(undefined);
-    try {
-      await saveProviderConfig(providerDraft);
-      setSettingsOpen(false);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Provider 配置保存失败。");
-    }
-  };
-
   const resolveDataProposal = async (proposal: AgentDataProposal, action: "apply" | "reject") => {
     if (!project || !current || busy) {
       return;
@@ -1137,10 +1108,6 @@ export const AgentChatPanel = () => {
     if (!action) {
       return;
     }
-    if (action.kind === "enable-yolo") {
-      setYoloMode(true);
-      return;
-    }
     if (action.kind === "rollback") {
       const proposal = session?.proposals.find((item) => item.id === action.proposalId);
       if (proposal) {
@@ -1177,7 +1144,12 @@ export const AgentChatPanel = () => {
             type="button"
             aria-label="上下文、权限与预算"
             title="上下文、权限与预算"
-            onClick={() => setControlsOpen((value) => !value)}
+            onClick={() => {
+              setControlsOpen((value) => !value);
+              setTraceOpen(false);
+              setWorkflowOpen(false);
+              setSettingsOpen(false);
+            }}
           >
             <SlidersHorizontal size={17} />
           </button>
@@ -1186,7 +1158,12 @@ export const AgentChatPanel = () => {
             type="button"
             aria-label="Agent 运行追踪"
             title="Agent 运行追踪"
-            onClick={() => setTraceOpen((value) => !value)}
+            onClick={() => {
+              setTraceOpen((value) => !value);
+              setControlsOpen(false);
+              setWorkflowOpen(false);
+              setSettingsOpen(false);
+            }}
           >
             <Activity size={17} />
           </button>
@@ -1195,7 +1172,12 @@ export const AgentChatPanel = () => {
             type="button"
             aria-label="多 Agent 工作流"
             title="多 Agent 工作流"
-            onClick={() => setWorkflowOpen((value) => !value)}
+            onClick={() => {
+              setWorkflowOpen((value) => !value);
+              setControlsOpen(false);
+              setTraceOpen(false);
+              setSettingsOpen(false);
+            }}
           >
             <Workflow size={17} />
           </button>
@@ -1204,7 +1186,12 @@ export const AgentChatPanel = () => {
             type="button"
             aria-label="模型设置"
             title="模型设置"
-            onClick={() => setSettingsOpen((value) => !value)}
+            onClick={() => {
+              setSettingsOpen((value) => !value);
+              setControlsOpen(false);
+              setTraceOpen(false);
+              setWorkflowOpen(false);
+            }}
           >
             <Settings2 size={17} />
           </button>
@@ -1312,102 +1299,7 @@ export const AgentChatPanel = () => {
         </section>
       ) : null}
 
-      {settingsOpen ? (
-        <form className="agent-provider-settings" onSubmit={submitProvider}>
-          <div className="agent-settings-title">
-            <span>
-              <KeyRound size={14} />
-              模型连接
-            </span>
-            <button type="button" onClick={() => setSettingsOpen(false)} aria-label="关闭设置">
-              <X size={15} />
-            </button>
-          </div>
-          <label>
-            Base URL
-            <input
-              value={providerDraft.baseUrl}
-              onChange={(event) => setProviderDraft({ ...providerDraft, baseUrl: event.target.value })}
-            />
-          </label>
-          <label>
-            模型
-            <input
-              value={providerDraft.model}
-              onChange={(event) => setProviderDraft({ ...providerDraft, model: event.target.value })}
-            />
-          </label>
-          <label>
-            编辑模型（可选）
-            <input
-              value={providerDraft.editorModel ?? ""}
-              placeholder="留空则继承主模型"
-              onChange={(event) => setProviderDraft({ ...providerDraft, editorModel: event.target.value })}
-            />
-          </label>
-          <div className="agent-provider-grid">
-            <label>
-              鉴权
-              <select
-                value={providerDraft.authMode}
-                onChange={(event) =>
-                  setProviderDraft({ ...providerDraft, authMode: event.target.value as ProviderAuthMode })
-                }
-              >
-                <option value="bearer">Bearer</option>
-                <option value="x-api-key">x-api-key</option>
-                <option value="raw-authorization">Authorization</option>
-                <option value="none">无 Key</option>
-              </select>
-            </label>
-            <label>
-              API Key
-              <input
-                type="password"
-                value={providerDraft.apiKey}
-                placeholder={providerStatus?.maskedKey || "输入 Key"}
-                onChange={(event) => setProviderDraft({ ...providerDraft, apiKey: event.target.value })}
-              />
-            </label>
-            <label>
-              输入价格 / 1M tok（可选）
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={providerDraft.inputPricePerMillion ?? ""}
-                placeholder="用于发送前费用估算"
-                onChange={(event) =>
-                  setProviderDraft({
-                    ...providerDraft,
-                    inputPricePerMillion: event.target.value === "" ? undefined : Number(event.target.value)
-                  })
-                }
-              />
-            </label>
-            <label>
-              输出价格 / 1M tok（可选）
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={providerDraft.outputPricePerMillion ?? ""}
-                placeholder="币种与你填写的价格一致"
-                onChange={(event) =>
-                  setProviderDraft({
-                    ...providerDraft,
-                    outputPricePerMillion: event.target.value === "" ? undefined : Number(event.target.value)
-                  })
-                }
-              />
-            </label>
-          </div>
-          <button className="agent-save-provider" type="submit">
-            <Check size={15} />
-            保存连接
-          </button>
-        </form>
-      ) : null}
+      {settingsOpen ? <ProviderSettings onClose={() => setSettingsOpen(false)} /> : null}
 
       {controlsOpen ? (
         <section className="agent-control-panel" aria-label="Agent 上下文、权限与预算">
@@ -1600,21 +1492,25 @@ export const AgentChatPanel = () => {
                 <input
                   value={newMemberHandle}
                   placeholder="@名称"
+                  aria-label="自定义 Agent 名称"
                   onChange={(event) => setNewMemberHandle(event.target.value)}
                 />
                 <input
                   value={newMemberRole}
                   placeholder="职责，例如：对白顾问"
+                  aria-label="自定义 Agent 职责"
                   onChange={(event) => setNewMemberRole(event.target.value)}
                 />
                 <input
                   value={newMemberModel}
                   placeholder="专用模型（可选）"
+                  aria-label="自定义 Agent 专用模型"
                   onChange={(event) => setNewMemberModel(event.target.value)}
                 />
                 <textarea
                   value={newMemberPrompt}
                   placeholder="该成员的职责边界与工作要求"
+                  aria-label="自定义 Agent 工作要求"
                   onChange={(event) => setNewMemberPrompt(event.target.value)}
                 />
                 <button
@@ -1654,11 +1550,13 @@ export const AgentChatPanel = () => {
                 <input
                   value={newPromptName}
                   placeholder="模板名称"
+                  aria-label="提示模板名称"
                   onChange={(event) => setNewPromptName(event.target.value)}
                 />
                 <textarea
                   value={newPromptValue}
                   placeholder="提示词正文"
+                  aria-label="提示模板正文"
                   onChange={(event) => setNewPromptValue(event.target.value)}
                 />
                 <button
@@ -1699,6 +1597,7 @@ export const AgentChatPanel = () => {
                 <input
                   value={newProfileName}
                   placeholder="权限包名称"
+                  aria-label="权限包名称"
                   onChange={(event) => setNewProfileName(event.target.value)}
                 />
                 <button type="button" disabled={!newProfileName.trim()} onClick={addToolProfile}>
@@ -1735,11 +1634,13 @@ export const AgentChatPanel = () => {
                 <input
                   value={newToolName}
                   placeholder="工具方案名称"
+                  aria-label="工具方案名称"
                   onChange={(event) => setNewToolName(event.target.value)}
                 />
                 <textarea
                   value={newToolInstruction}
                   placeholder="执行时填入的任务说明"
+                  aria-label="工具方案任务说明"
                   onChange={(event) => setNewToolInstruction(event.target.value)}
                 />
                 <button
@@ -2216,7 +2117,8 @@ export const AgentChatPanel = () => {
                       term: "术语",
                       timeline: "时间线",
                       conflict: "冲突",
-                      beat: "叙事节拍"
+                      beat: "叙事节拍",
+                      project_data: "项目专属资料"
                     }[proposal.entityType]
                   }{" "}
                   提案
@@ -2364,18 +2266,21 @@ export const AgentChatPanel = () => {
             type="button"
             disabled={busy}
             aria-pressed={yoloMode}
-            title="自动确认并写入本轮新生成的提案"
-            onClick={() => {
-              if (yoloMode) {
-                setYoloMode(false);
-              } else {
-                setConfirmation({ kind: "enable-yolo" });
-              }
-            }}
+            title="本项目免审批执行工具并自动写入本轮修改，保留备份与冲突检查"
+            onClick={() => updateAutomation({ yolo: !yoloMode })}
           >
             <Zap size={12} />
             YOLO
           </button>
+          <label className="agent-automation-option" title="接受正文后提取有原句依据的本书资料；YOLO 中自动应用">
+            <input
+              type="checkbox"
+              checked={automation.updateProjectData}
+              disabled={busy}
+              onChange={(event) => updateAutomation({ updateProjectData: event.target.checked })}
+            />
+            更新资料
+          </label>
           <label className="agent-document-import" title="导入 TXT、Markdown、JSON、CSV 或 YAML 文档">
             <Paperclip size={12} />
             资料
@@ -2481,6 +2386,12 @@ export const AgentChatPanel = () => {
             ))}
           </div>
         ) : null}
+        <AgentSelectionAttachments
+          references={selectionReferences}
+          disabled={busy}
+          onCommentChange={useAgentSelectionStore.getState().updateComment}
+          onRemove={useAgentSelectionStore.getState().removeReferences}
+        />
         <div className="agent-composer-input">
           {mentionSuggestions.length ? (
             <div className="agent-mention-menu" role="listbox" aria-label="选择 Agent 成员">
@@ -2503,6 +2414,7 @@ export const AgentChatPanel = () => {
             value={message}
             disabled={!current || busy}
             rows={3}
+            aria-label="发送给创作 Agent 的消息"
             placeholder={
               agentScope === "project"
                 ? "让全书 Agent 检查结构、设定与跨章节问题；输入 @ 可指定成员…"
@@ -2520,7 +2432,7 @@ export const AgentChatPanel = () => {
                 ? "AI YOLO：本轮新提案会自动写入"
                 : "Enter 发送 · Shift + Enter 换行") +
               ` · ${composerCharacterCount.toLocaleString("zh-CN")}/${agentMessageCharacterLimit.toLocaleString("zh-CN")} 字符`}
-            {runEstimate && message.trim() ? (
+            {runEstimate && composerPrompt.trim() ? (
               <em
                 className="agent-run-estimate"
                 title="发送前估算：输入 = 上下文 + 历史 + 消息 + 系统开销；输出按模型上限计"
@@ -2535,13 +2447,24 @@ export const AgentChatPanel = () => {
             ) : null}
           </span>
           {running ? (
-            <button className="stop" type="button" disabled={stopping} onClick={cancel} aria-label="停止 Agent">
+            <button
+              className="stop"
+              type="button"
+              disabled={stopping}
+              onClick={(event) => {
+                // Restoring the composer can replace this node with the submit
+                // button before the click's default action. Never submit it.
+                event.preventDefault();
+                cancel();
+              }}
+              aria-label="停止 Agent"
+            >
               <CircleStop size={17} />
             </button>
           ) : (
             <button
               type="submit"
-              disabled={(!message.trim() && !textDocuments.length) || !current || busy}
+              disabled={(!message.trim() && !textDocuments.length && !selectionReferences.length) || !current || busy}
               aria-label="发送消息"
             >
               <Send size={16} />
@@ -2596,36 +2519,18 @@ export const AgentChatPanel = () => {
             aria-labelledby="agent-confirm-title"
           >
             <div className="agent-confirm-icon" aria-hidden="true">
-              {confirmation.kind === "rollback" ? (
-                <RotateCcw size={18} />
-              ) : confirmation.kind === "enable-yolo" ? (
-                <Zap size={18} />
-              ) : (
-                <CheckCheck size={18} />
-              )}
+              {confirmation.kind === "rollback" ? <RotateCcw size={18} /> : <CheckCheck size={18} />}
             </div>
             <div>
               <h3 id="agent-confirm-title">
-                {confirmation.kind === "rollback"
-                  ? "确认撤销 Agent 写入？"
-                  : confirmation.kind === "enable-yolo"
-                    ? "开启 AI YOLO 模式？"
-                    : "确认一键写入？"}
+                {confirmation.kind === "rollback" ? "确认撤销 Agent 写入？" : "确认一键写入？"}
               </h3>
               <p>
                 {confirmation.kind === "rollback"
                   ? "将用写入前快照恢复当前章节。请确认你没有需要先保存的手动修改。"
-                  : confirmation.kind === "enable-yolo"
-                    ? "开启后，仅自动确认本轮新生成的提案；历史待确认项不会被处理。正文和资料会直接写入项目，工具权限与预算仍然有效。"
-                    : `将接受尚未决定的修改块，并立即写入${confirmation.scopeLabel}。已经手动拒绝的修改块不会被重新接受。`}
+                  : `将接受尚未决定的修改块，并立即写入${confirmation.scopeLabel}。已经手动拒绝的修改块不会被重新接受。`}
               </p>
             </div>
-            {confirmation.kind === "enable-yolo" ? (
-              <div className="agent-confirm-note">
-                <AlertTriangle size={13} />
-                建议只在你信任当前模型、提示词和工具权限时使用。
-              </div>
-            ) : null}
             <footer>
               <button type="button" autoFocus onClick={() => setConfirmation(undefined)}>
                 取消
@@ -2635,11 +2540,7 @@ export const AgentChatPanel = () => {
                 type="button"
                 onClick={() => void confirmPendingAction()}
               >
-                {confirmation.kind === "rollback"
-                  ? "确认撤销"
-                  : confirmation.kind === "enable-yolo"
-                    ? "开启 AI YOLO"
-                    : "确认并写入"}
+                {confirmation.kind === "rollback" ? "确认撤销" : "确认并写入"}
               </button>
             </footer>
           </section>

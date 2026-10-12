@@ -1,8 +1,11 @@
 import { create } from "zustand";
 import type { ChapterPlan, Outline, VolumePlan } from "@inkforge/schemas";
 import { bridge } from "@/lib/browserBridge";
+import { requestEditorLeave } from "@/lib/editorActions";
+import { findSearchSelection, searchModuleByKind } from "@/lib/searchNavigation";
 import { stripLegacyChapterHeading } from "@/lib/chapterContent";
 import { countCjkAwareWords } from "@/lib/textMetrics";
+import { chapterToResume, rememberWritingChapter } from "@/lib/writingContinuity";
 import { useAiStore } from "@/stores/useAiStore";
 import { useLibraryStore } from "@/stores/useLibraryStore";
 import { usePlanningStore } from "@/stores/usePlanningStore";
@@ -11,6 +14,7 @@ import type {
   CreateProjectInput,
   CurrentChapter,
   ProjectListItem,
+  ProjectSearchResult,
   ProjectSummary
 } from "@/types/app";
 
@@ -29,6 +33,7 @@ interface RecoveryDraft {
 export interface ImportedChapterDraft {
   title: string;
   body: string;
+  volumeTitle?: string;
 }
 
 const createVolumeId = (volumes: VolumePlan[]): string => {
@@ -160,8 +165,11 @@ interface ProjectState {
   deleteVolume: (volumeId: string) => Promise<void>;
   updateChapterPlan: (chapterId: string, patch: Partial<ChapterPlan>) => Promise<void>;
   pendingEditorSelection?: { chapterId: string; start: number; end: number };
-  jumpToChapterOffset: (chapter: ChapterPlan, start: number, end: number) => Promise<void>;
+  jumpToChapterOffset: (chapter: ChapterPlan, start: number, end: number, query?: string) => Promise<boolean>;
   clearPendingEditorSelection: () => void;
+  pendingEntitySelection?: { module: string; id: string; query: string; projectPath: string };
+  openEntitySearchResult: (result: ProjectSearchResult, query: string) => boolean;
+  clearPendingEntitySelection: () => void;
   batchUpdateChapterPlans: (updates: Array<{ chapterId: string; patch: Partial<ChapterPlan> }>) => Promise<void>;
   moveChapter: (chapterId: string, targetVolumeId: string, targetIndex?: number) => Promise<void>;
   batchMoveChapters: (chapterIds: string[], targetVolumeId: string) => Promise<void>;
@@ -202,12 +210,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   recentProjects: [],
   recentChapterIds: [],
   chapterHistory: [],
-  setSelectedModule: (module) => set({ selectedModule: module }),
-  setFocusMode: (enabled) => set({ focusMode: enabled }),
+  setSelectedModule: (module) => {
+    if (module !== get().selectedModule && !requestEditorLeave()) return;
+    set({ selectedModule: module, pendingEntitySelection: undefined });
+  },
+  setFocusMode: (enabled) => {
+    if (enabled && get().selectedModule !== "chapters" && !requestEditorLeave()) return;
+    set(enabled ? { focusMode: true, selectedModule: "chapters" } : { focusMode: false });
+  },
   loadRecentProjects: async () => {
     set({ recentProjects: await bridge.listProjects() });
   },
   createProject: async (input) => {
+    if (!requestEditorLeave()) return;
     if (!(await flushCurrentChapterIfNeeded(get))) {
       return;
     }
@@ -215,15 +230,29 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!project) {
       return;
     }
-    set({ project, selectedModule: "chapters", error: undefined });
+    set({
+      project,
+      current: undefined,
+      chapterHistory: [],
+      saveState: "idle",
+      focusMode: false,
+      selectedHistoryId: undefined,
+      historyPreview: undefined,
+      pendingEditorSelection: undefined,
+      pendingEntitySelection: undefined,
+      recentChapterIds: [],
+      selectedModule: "chapters",
+      error: undefined
+    });
     await useLibraryStore.getState().loadLibraries();
-    const first = project.outline.volumes[0]?.chapters[0];
+    const first = chapterToResume(project.projectPath, project.outline);
     if (first) {
       await get().selectChapter(first);
     }
     await get().loadRecentProjects();
   },
   createImportedProject: async (input, chapters) => {
+    if (!requestEditorLeave()) return;
     if (!(await flushCurrentChapterIfNeeded(get))) {
       return;
     }
@@ -253,17 +282,26 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       };
     });
 
+    const volumes: VolumePlan[] = [];
+    for (const [index, chapter] of importedChapters.entries()) {
+      const title = chapters[index].volumeTitle?.trim() || "第一卷";
+      let volume = volumes.at(-1);
+      if (!volume || volume.title !== title) {
+        volume = {
+          id: `vol-${String(volumes.length + 1).padStart(3, "0")}`,
+          title,
+          goal: "",
+          targetWords: 90000,
+          chapters: []
+        };
+        volumes.push(volume);
+      }
+      volume.chapters.push(chapter);
+      volume.targetWords = Math.max(90000, volume.chapters.length * project.meta.writingPreferences.chapterWords);
+    }
     const outline = {
       ...project.outline,
-      volumes: [
-        {
-          id: "vol-001",
-          title: project.outline.volumes[0]?.title ?? "第一卷",
-          goal: project.outline.volumes[0]?.goal ?? "",
-          targetWords: Math.max(90000, importedChapters.length * project.meta.writingPreferences.chapterWords),
-          chapters: importedChapters
-        }
-      ]
+      volumes
     };
     const next = await bridge.updateOutline({ projectPath: project.projectPath, outline });
     await Promise.all(
@@ -276,7 +314,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       )
     );
 
-    set({ project: next, selectedModule: "chapters", error: undefined });
+    set({
+      project: next,
+      current: undefined,
+      chapterHistory: [],
+      saveState: "idle",
+      focusMode: false,
+      selectedHistoryId: undefined,
+      historyPreview: undefined,
+      pendingEditorSelection: undefined,
+      pendingEntitySelection: undefined,
+      recentChapterIds: [],
+      selectedModule: "chapters",
+      error: undefined
+    });
     await useLibraryStore.getState().loadLibraries();
     const first = next.outline.volumes[0]?.chapters[0];
     if (first) {
@@ -285,6 +336,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     await get().loadRecentProjects();
   },
   importProjectFolder: async () => {
+    if (!requestEditorLeave()) return;
     if (!(await flushCurrentChapterIfNeeded(get))) {
       return;
     }
@@ -292,15 +344,29 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!project) {
       return;
     }
-    set({ project, selectedModule: "chapters", error: undefined });
+    set({
+      project,
+      current: undefined,
+      chapterHistory: [],
+      saveState: "idle",
+      focusMode: false,
+      selectedHistoryId: undefined,
+      historyPreview: undefined,
+      pendingEditorSelection: undefined,
+      pendingEntitySelection: undefined,
+      recentChapterIds: [],
+      selectedModule: "chapters",
+      error: undefined
+    });
     await useLibraryStore.getState().loadLibraries();
-    const first = project.outline.volumes[0]?.chapters[0];
+    const first = chapterToResume(project.projectPath, project.outline);
     if (first) {
       await get().selectChapter(first);
     }
     await get().loadRecentProjects();
   },
   openProject: async (projectPath?: string) => {
+    if (!requestEditorLeave()) return;
     if (!(await flushCurrentChapterIfNeeded(get))) {
       return;
     }
@@ -308,9 +374,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!project) {
       return;
     }
-    set({ project, selectedModule: "chapters", error: undefined });
+    set({
+      project,
+      current: undefined,
+      chapterHistory: [],
+      saveState: "idle",
+      focusMode: false,
+      selectedHistoryId: undefined,
+      historyPreview: undefined,
+      pendingEditorSelection: undefined,
+      pendingEntitySelection: undefined,
+      recentChapterIds: [],
+      selectedModule: "chapters",
+      error: undefined
+    });
     await useLibraryStore.getState().loadLibraries();
-    const first = project.outline.volumes[0]?.chapters[0];
+    const first = chapterToResume(project.projectPath, project.outline);
     if (first) {
       await get().selectChapter(first);
     }
@@ -338,6 +417,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     await get().loadRecentProjects();
   },
   closeProject: async () => {
+    if (!requestEditorLeave()) return;
     if (!(await flushCurrentChapterIfNeeded(get))) {
       return;
     }
@@ -357,8 +437,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     usePlanningStore.getState().resetPlanning();
   },
   selectChapter: async (chapter) => {
+    if (get().selectedModule !== "chapters" && !requestEditorLeave()) return;
     const project = get().project;
     if (!project) {
+      return;
+    }
+    if (get().current?.plan.id === chapter.id && !get().selectedHistoryId) {
+      set({ selectedModule: "chapters" });
+      rememberWritingChapter(project.projectPath, chapter.id);
       return;
     }
     if (get().current?.plan.id !== chapter.id) {
@@ -381,6 +467,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       recentChapterIds: [chapter.id, ...state.recentChapterIds.filter((id) => id !== chapter.id)].slice(0, 8),
       error: recoveredContent ? `已恢复「${chapter.title}」的未保存草稿，请确认后保存。` : undefined
     }));
+    rememberWritingChapter(project.projectPath, chapter.id);
     await get().loadChapterHistory();
   },
   reloadCurrentChapterFromDisk: async (chapterId) => {
@@ -514,6 +601,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
   createChapter: async (preferredVolumeId) => {
+    if (get().selectedModule !== "chapters" && !requestEditorLeave()) return;
     if (!(await flushCurrentChapterIfNeeded(get))) {
       return;
     }
@@ -523,8 +611,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return;
     }
     const next = await bridge.createChapter({ projectPath: project.projectPath, volumeId });
-    set({ project: next, error: undefined });
-    const latest = next.outline.volumes.flatMap((volume) => volume.chapters).at(-1);
+    set({ project: next, selectedModule: "chapters", error: undefined });
+    const previousIds = new Set(
+      project.outline.volumes.flatMap((volume) => volume.chapters.map((chapter) => chapter.id))
+    );
+    const latest = next.outline.volumes
+      .flatMap((volume) => volume.chapters)
+      .find((chapter) => !previousIds.has(chapter.id));
     if (latest) {
       await get().selectChapter(latest);
     }
@@ -629,11 +722,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }));
     }
   },
-  jumpToChapterOffset: async (chapter, start, end) => {
+  jumpToChapterOffset: async (chapter, start, end, query) => {
+    const projectPath = get().project?.projectPath;
     await get().selectChapter(chapter);
-    set({ pendingEditorSelection: { chapterId: chapter.id, start, end } });
+    const state = get();
+    if (
+      !projectPath ||
+      state.project?.projectPath !== projectPath ||
+      state.selectedModule !== "chapters" ||
+      state.current?.plan.id !== chapter.id
+    )
+      return false;
+    const selection = query && end > start ? findSearchSelection(state.current.content, query, start) : undefined;
+    if (query && end > start && !selection) {
+      set({ error: "该搜索内容已发生变化，请重新搜索。", pendingEditorSelection: undefined });
+      return false;
+    }
+    set({
+      pendingEditorSelection: { chapterId: chapter.id, start: selection?.start ?? start, end: selection?.end ?? end }
+    });
+    return true;
   },
   clearPendingEditorSelection: () => set({ pendingEditorSelection: undefined }),
+  openEntitySearchResult: (result, query) => {
+    const projectPath = get().project?.projectPath;
+    if (!projectPath || result.kind === "chapter" || !requestEditorLeave()) return false;
+    const module = searchModuleByKind[result.kind];
+    set({ selectedModule: module, pendingEntitySelection: { module, id: result.id, query, projectPath } });
+    return true;
+  },
+  clearPendingEntitySelection: () => set({ pendingEntitySelection: undefined }),
   batchUpdateChapterPlans: async (updates) => {
     const { project } = get();
     if (!project || !updates.length) {

@@ -1082,6 +1082,8 @@ const normalizeCharacter = (value: unknown): Character => {
       arc: firstText(currentState.arc, item.arc, item.stage, item.volume),
       powerLevel: firstText(currentState.powerLevel, item.powerLevel, item.level, item.realm, item.currentLevel),
       location: firstText(currentState.location, item.location),
+      locationId: text(currentState.locationId),
+      relationshipCharacterIds: textArray(currentState.relationshipCharacterIds),
       relationships: textArray(currentState.relationships ?? item.relationships),
       secrets: textArray(currentState.secrets ?? item.secrets)
     },
@@ -1136,6 +1138,9 @@ const normalizeWorldEntry = (value: unknown): WorldEntry => {
     tags.add(rawType);
   }
   const extras = extraDetails(item, [
+    "relatedCharacterIds",
+    "relatedClueIds",
+
     "id",
     "title",
     "name",
@@ -1155,6 +1160,9 @@ const normalizeWorldEntry = (value: unknown): WorldEntry => {
     "relatedClues"
   ]);
   return WorldEntrySchema.parse({
+    relatedCharacterIds: textArray(item.relatedCharacterIds),
+    relatedClueIds: textArray(item.relatedClueIds),
+
     id: nonEmptyText(item.id, fallbackId("world", item.title ?? item.name)),
     title: nonEmptyText(item.title ?? item.name, "Untitled World Entry"),
     type,
@@ -1171,6 +1179,9 @@ const normalizeTimelineEvent = (value: unknown): TimelineEvent => {
   const item = asRecord(value);
   const order = Number(item.order);
   const extras = extraDetails(item, [
+    "participantIds",
+    "locationId",
+
     "id",
     "chapterId",
     "chapter",
@@ -1188,6 +1199,9 @@ const normalizeTimelineEvent = (value: unknown): TimelineEvent => {
     "content"
   ]);
   return TimelineEventSchema.parse({
+    participantIds: textArray(item.participantIds),
+    locationId: text(item.locationId),
+
     id: nonEmptyText(item.id, fallbackId("event", item.title ?? item.name ?? item.event)),
     chapterId: firstText(item.chapterId, item.chapter),
     order: Number.isFinite(order) ? order : 0,
@@ -1204,6 +1218,8 @@ const normalizeClue = (value: unknown): Clue => {
   const item = asRecord(value);
   const status = clueStatuses.has(item.status as Clue["status"]) ? item.status : "planned";
   const extras = extraDetails(item, [
+    "relatedCharacterIds",
+
     "id",
     "title",
     "name",
@@ -1219,6 +1235,8 @@ const normalizeClue = (value: unknown): Clue => {
     "detail"
   ]);
   return ClueSchema.parse({
+    relatedCharacterIds: textArray(item.relatedCharacterIds),
+
     id: nonEmptyText(item.id, fallbackId("clue", item.title ?? item.name)),
     title: nonEmptyText(item.title ?? item.name, "Untitled Clue"),
     plantedChapterId: firstText(item.plantedChapterId, item.chapterId),

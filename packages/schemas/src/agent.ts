@@ -205,6 +205,8 @@ export const AgentToolNameSchema = z.enum([
   "get_outline_context",
   "prepare_narrative_deviation",
   "get_story_bible",
+  "get_project_data",
+  "propose_project_data_update",
   "get_story_entities",
   "get_narrative_board",
   "get_simulation_runs",
@@ -238,6 +240,8 @@ export const agentToolRegistry: Record<AgentToolName, { label: string; kind: Age
   get_outline_context: { label: "读取作品大纲", kind: "read" },
   prepare_narrative_deviation: { label: "准备叙事偏离卡", kind: "read" },
   get_story_bible: { label: "读取故事圣经", kind: "read" },
+  get_project_data: { label: "读取项目专属资料", kind: "read" },
+  propose_project_data_update: { label: "更新项目专属资料提案", kind: "proposal" },
   get_story_entities: { label: "读取地点/势力/冲突/事件", kind: "read" },
   get_narrative_board: { label: "读取叙事板", kind: "read" },
   get_simulation_runs: { label: "读取推演走向", kind: "read" },
@@ -333,6 +337,7 @@ export const AgentPatchBlockSchema = z.object({
 });
 
 export const AgentChangeProposalSchema = z.object({
+  updateProjectData: z.boolean().optional(),
   id: z.string().min(1),
   chapterId: z.string().min(1),
   mode: z.enum(["append", "replace", "patch"]),
@@ -360,7 +365,18 @@ export const AgentChangeProposalSchema = z.object({
 
 export const AgentDataProposalSchema = z.object({
   id: z.string().min(1),
-  entityType: z.enum(["scene", "outline", "character", "world", "clue", "term", "timeline", "conflict", "beat"]),
+  entityType: z.enum([
+    "scene",
+    "outline",
+    "character",
+    "world",
+    "clue",
+    "term",
+    "timeline",
+    "conflict",
+    "beat",
+    "project_data"
+  ]),
   action: z.literal("upsert").default("upsert"),
   title: z.string().min(1),
   payload: z.record(z.string(), z.unknown()),

@@ -15,7 +15,7 @@
 <p align="center">
   <a href="https://github.com/drowned-fish1/InkForge-Novel-Studio/actions/workflows/ci.yml"><img src="https://github.com/drowned-fish1/InkForge-Novel-Studio/actions/workflows/ci.yml/badge.svg" alt="CI 状态" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-0f766e" alt="MIT 许可证" /></a>
-  <img src="https://img.shields.io/badge/status-v1.0.0--rc.4-c58b3a" alt="v1.0.0 RC 4" />
+  <img src="https://img.shields.io/badge/status-v1.0.0--rc.5-c58b3a" alt="v1.0.0 RC 5" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2563eb" alt="Windows、macOS 与 Linux" />
 </p>
 
@@ -34,6 +34,8 @@
 
 > [!IMPORTANT]
 > InkForge 当前处于 **v1.0 候选发布阶段**。应用已可使用并有自动化测试覆盖，但公开 Windows 构建尚未签名，可能触发 SmartScreen。详情见[项目状态](#项目状态)。
+
+Windows 用户可从 [v1.0.0-rc.5 发布页](https://github.com/drowned-fish1/InkForge-Novel-Studio/releases/tag/v1.0.0-rc.5)下载安装包并核对 SHA-256。
 
 ## 为什么是 InkForge
 
@@ -57,15 +59,23 @@ InkForge 专注于**个人长篇小说创作**，有意不加入账号、云同�
 
 ![InkForge 小说质量评测与历史基线](./docs/assets/readme/quality-review.png)
 
+### 从旧稿迁移到持续更新
+
+导入 DOCX、EPUB、Markdown 或多种中文编码文本，在创建项目前校正分卷、章节与正文。写作过程中可固定人物／术语／世界观资料卡，查看整书人物、支线与视角矩阵，并用每日计划、存稿排期和发布记录管理连载节奏。
+
+### 把模型分工和资料来源说清楚
+
+正文写手、故事规划、审阅编辑和工具 Agent 可以使用不同连接。选中的正文可直接附到对话；续写结果经过逻辑编辑和独立复核，本书专属资料的变化附带章节原句与版本校验，所有写入仍由作者确认或显式开启本项目 YOLO。
+
 ## 已包含的能力
 
-| 领域       | 能力                                                                                                             |
-| ---------- | ---------------------------------------------------------------------------------------------------------------- |
-| 写作       | EPUB 2/3、Markdown、TXT 文稿导入，CodeMirror 编辑器、章节树、专注/打字机模式、批注、书签、写作统计与崩溃恢复草稿 |
-| 故事规划   | 分卷与大纲、人物、世界观、地点、势力、事件、时间线、伏笔、术语、冲突和双向关系视图                               |
-| 修订       | 全项目质量巡检、连续性与引用检查、集中处置、提案差异、不可变质量基线与剧情分支                                   |
-| Agent 控制 | OpenAI 兼容 Provider、多角色 Agent、工具授权、Token/费用估算、取消、追踪记录、模板与仅提案写入                   |
-| 交付       | 自动快照、完整性校验、保护性恢复，以及 Markdown/TXT/DOCX 和带封面、元数据、分卷目录、NCX、排版配置的 EPUB 3 导出 |
+| 领域       | 能力                                                                                                  |
+| ---------- | ----------------------------------------------------------------------------------------------------- |
+| 写作       | DOCX/EPUB/Markdown/TXT 迁移、CodeMirror 编辑器、固定资料卡、选区对话、每日计划、存稿与崩溃恢复        |
+| 故事规划   | 分卷大纲、人物与 AI 人物卡、世界观、事件、时间线、伏笔、冲突、关系视图及人物／支线／视角矩阵          |
+| 修订       | 全项目质量与连续性检查、逻辑编辑、独立复核、集中处置、提案差异、不可变基线与剧情分支                  |
+| Agent 控制 | 分用途 OpenAI 兼容 Provider、多角色 Agent、工具授权、来源证据、Token/费用估算、取消、追踪与提案式写入 |
+| 交付       | 自动快照、完整性校验、保护性恢复、连载发布记录，以及 Markdown/TXT/DOCX/EPUB 3 导出                    |
 
 完整操作说明见[用户指南](./docs/user-guide.md)。
 
@@ -149,7 +159,7 @@ CI 会在 Windows 与 Ubuntu 上运行相同门禁，并在各原生 runner 生�
 
 ## 项目状态
 
-InkForge 当前版本为 `v1.0.0-rc.4`，有以下已知且有意保留的限制：
+InkForge 当前版本为 `v1.0.0-rc.5`，有以下已知且有意保留的限制：
 
 - 在获得代码签名证书与更新源前，公开构建均为未签名版本。
 - macOS/Linux 产物由对应平台的 CI runner 构建，本机 Windows 不能验证其实际启动。

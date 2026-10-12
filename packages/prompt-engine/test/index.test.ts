@@ -156,8 +156,8 @@ describe("renderPrompt", () => {
 });
 
 describe("default prompt templates", () => {
-  it("exports 19 default task templates", () => {
-    expect(promptTasks).toHaveLength(19);
+  it("exports 21 default task templates", () => {
+    expect(promptTasks).toHaveLength(21);
   });
 
   it.each(promptTasks)("creates and renders the %s template", (task) => {

@@ -76,6 +76,8 @@ const promptTasks: PromptTask[] = [
   "next-goal",
   "pacing",
   "character-state",
+  "character-generate",
+  "character-names",
   "clue-check",
   "term-check",
   "polish",
@@ -284,6 +286,11 @@ export class ProjectService {
   }
 
   private async seedProjectFiles(projectDir: string): Promise<void> {
+    await this.files.writeJsonAtomic(path.join(projectDir, "project-data.json"), {
+      schemaVersion: "inkforge.project-data.v1",
+      revision: 0,
+      entries: []
+    });
     await this.files.writeJsonAtomic(path.join(projectDir, "timeline.json"), []);
     await this.files.writeJsonAtomic(path.join(projectDir, "clues.json"), []);
     await this.files.writeJsonAtomic(path.join(projectDir, "terms.json"), []);
@@ -297,6 +304,7 @@ export class ProjectService {
       sessions: []
     });
     await this.files.writeJsonAtomic(path.join(projectDir, ".inkforge", "agent-extensions.json"), {
+      projectDataToolsVersion: 1,
       promptPresets: [],
       toolProfiles: [],
       customTools: [],

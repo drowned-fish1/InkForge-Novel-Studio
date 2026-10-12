@@ -1,6 +1,18 @@
+import { searchChapterContent, searchStoryEntries } from "../../electron/services/ProjectSearchEntries";
 import {
-  defaultProviderConfig,
+  normalizeProviderEndpoint,
+  providerRoles,
+  assertProviderRole,
+  resolveProvider,
+  type ProviderEndpointConfig,
+  type ProviderEndpointStatus
+} from "@inkforge/ai-provider";
+import {
   defaultAgentMembers,
+  applyProjectDataUpdate,
+  ProjectDataSchema,
+  ProjectDataUpdateSchema,
+  migrateProjectDataTools,
   estimateTokensCjkAware,
   runExportPreflight,
   BeatBoardSchema,
@@ -34,7 +46,8 @@ import {
   type StoryThreadStatus,
   type StyleProfile,
   type StoryBranch,
-  type WritingWorkspace
+  type WritingWorkspace,
+  WritingWorkspaceSchema
 } from "@inkforge/schemas";
 import { createDefaultPromptTemplate, parsePromptTemplate, promptTemplateFileName } from "@inkforge/prompt-engine";
 import type {
@@ -96,19 +109,23 @@ import {
   type BrowserProviderStorage
 } from "@/lib/browserStorage";
 
+const endpointStatus = (provider: ProviderEndpointConfig): ProviderEndpointStatus => {
+  const { apiKey, ...endpoint } = normalizeProviderEndpoint(provider);
+  return {
+    ...endpoint,
+    configured: hasAuthMaterial(provider.authMode, apiKey ?? ""),
+    maskedKey: maskApiKey(apiKey ?? "")
+  };
+};
 const providerStatusFromStorage = (provider: BrowserProviderStorage): ProviderStatus => ({
-  configured: hasAuthMaterial(provider.authMode, provider.apiKey),
-  providerId: provider.providerId,
-  displayName: provider.displayName,
-  baseUrl: provider.baseUrl,
-  model: provider.model,
+  ...endpointStatus(provider),
   editorModel: provider.editorModel,
-  authMode: provider.authMode,
-  maskedKey: maskApiKey(provider.apiKey),
   updatedAt: provider.updatedAt || undefined,
-  maxTokens: provider.maxTokens,
-  inputPricePerMillion: provider.inputPricePerMillion,
-  outputPricePerMillion: provider.outputPricePerMillion
+  taskProviders: Object.fromEntries(
+    providerRoles
+      .filter((role) => provider.taskProviders?.[role])
+      .map((role) => [role, endpointStatus(provider.taskProviders![role]!)])
+  )
 });
 
 const mockChainLabel = "演示 / Mock";
@@ -458,79 +475,49 @@ export const browserBridge: InkforgeApi = {
     return overview;
   },
   async loadWritingWorkspace(projectPath) {
-    return structuredClone(
-      browserWritingWorkspaces.get(projectPath) ?? { annotations: [], bookmarks: [], sessions: [], fragments: [] }
-    );
+    const cached = browserWritingWorkspaces.get(projectPath);
+    const saved = localStorage.getItem(`inkforge.writingWorkspace.${projectPath}`);
+    return structuredClone(cached ?? WritingWorkspaceSchema.parse(saved ? JSON.parse(saved) : {}));
   },
   async searchProject(projectPath, query) {
     const trimmed = query.trim();
     if (!trimmed) {
       return [];
     }
-    const lower = trimmed.toLocaleLowerCase("zh-CN");
     const record = getProjectRecord(projectPath);
     const results: ProjectSearchResult[] = [];
     for (const volume of record.summary.outline.volumes) {
       for (const chapter of volume.chapters) {
         if (chapter.archived || results.length >= 60) continue;
-        const content = record.chapterBodies[chapter.file] ?? "";
-        const index = content.toLocaleLowerCase("zh-CN").indexOf(lower);
-        if (index >= 0) {
-          results.push({
-            kind: "chapter",
-            id: chapter.id,
-            title: chapter.title,
-            volumeTitle: volume.title,
-            offset: index,
-            matchLength: trimmed.length,
-            snippet: content.slice(Math.max(0, index - 30), index + trimmed.length + 30).replace(/\s+/g, " ")
-          });
-        } else if (chapter.title.toLocaleLowerCase("zh-CN").includes(lower)) {
-          results.push({
-            kind: "chapter",
-            id: chapter.id,
-            title: chapter.title,
-            volumeTitle: volume.title,
-            offset: 0,
-            matchLength: 0,
-            snippet: "章节标题匹配"
-          });
-        }
+        results.push(
+          ...searchChapterContent(chapter, volume.title, record.chapterBodies[chapter.file] ?? "", trimmed).slice(
+            0,
+            60 - results.length
+          )
+        );
       }
     }
-    for (const item of record.characters) {
-      if (`${item.name}`.toLocaleLowerCase("zh-CN").includes(lower)) {
-        results.push({ kind: "character", id: item.id, title: item.name, offset: 0, matchLength: 0, snippet: "" });
-      }
-    }
-    for (const item of record.worldEntries) {
-      if (`${item.title}`.toLocaleLowerCase("zh-CN").includes(lower)) {
-        const kind =
-          item.type === "location"
-            ? "location"
-            : item.type === "faction" || item.type === "organization"
-              ? "faction"
-              : "world";
-        results.push({ kind, id: item.id, title: item.title, offset: 0, matchLength: 0, snippet: item.summary ?? "" });
-      }
-    }
-    for (const item of record.conflicts ?? []) {
-      if (`${item.title}`.toLocaleLowerCase("zh-CN").includes(lower)) {
-        results.push({ kind: "conflict", id: item.id, title: item.title, offset: 0, matchLength: 0, snippet: "" });
-      }
-    }
+    results.push(
+      ...searchStoryEntries(
+        {
+          characters: record.characters,
+          world: record.worldEntries,
+          conflicts: record.conflicts ?? [],
+          clues: record.clues ?? [],
+          terms: record.terms ?? [],
+          timeline: record.timeline ?? []
+        },
+        trimmed,
+        60 - results.length
+      )
+    );
     return results;
   },
   async revisionOverview(projectPath) {
     const record = getProjectRecord(projectPath);
     const chapters = record.summary.outline.volumes.flatMap((volume) => volume.chapters);
     const chapterTitle = new Map(chapters.map((chapter) => [chapter.id, chapter.title]));
-    const workspace = browserWritingWorkspaces.get(projectPath) ?? {
-      annotations: [],
-      bookmarks: [],
-      sessions: [],
-      fragments: []
-    };
+    const workspace = await browserBridge.loadWritingWorkspace(projectPath);
     const proposals: RevisionProposalSummary[] = [];
     if (browserAgentSession) {
       for (const proposal of browserAgentSession.proposals.filter((item) => item.status === "pending")) {
@@ -596,19 +583,23 @@ export const browserBridge: InkforgeApi = {
     return structuredClone(next);
   },
   async saveWritingWorkspace(projectPath, workspace) {
-    browserWritingWorkspaces.set(projectPath, structuredClone(workspace));
-    return structuredClone(workspace);
+    const parsed = WritingWorkspaceSchema.parse(workspace);
+    localStorage.setItem(`inkforge.writingWorkspace.${projectPath}`, JSON.stringify(parsed));
+    browserWritingWorkspaces.set(projectPath, structuredClone(parsed));
+    return structuredClone(parsed);
   },
   async loadAgentExtensions(projectPath) {
     return structuredClone(
-      browserAgentExtensions.get(projectPath) ?? {
-        promptPresets: [],
-        toolProfiles: [],
-        customTools: [],
-        members: defaultAgentMembers,
-        taskTemplates: [],
-        workflowTemplates: []
-      }
+      migrateProjectDataTools(
+        browserAgentExtensions.get(projectPath) ?? {
+          promptPresets: [],
+          toolProfiles: [],
+          customTools: [],
+          members: defaultAgentMembers,
+          taskTemplates: [],
+          workflowTemplates: []
+        }
+      )
     );
   },
   async estimateAgentRun(input) {
@@ -626,26 +617,45 @@ export const browserBridge: InkforgeApi = {
     return undefined;
   },
   async saveAgentExtensions(projectPath, config) {
-    browserAgentExtensions.set(projectPath, structuredClone(config));
-    return structuredClone(config);
+    const saved = { ...config, projectDataToolsVersion: 1 as const };
+    browserAgentExtensions.set(projectPath, structuredClone(saved));
+    return structuredClone(saved);
   },
   async providerStatus(): Promise<ProviderStatus> {
     return providerStatusFromStorage(readProviderStorage());
   },
   async saveProviderConfig(input: ProviderConfigInput): Promise<ProviderStatus> {
     const existing = readProviderStorage();
-    const nextApiKey = input.apiKey?.trim() || existing.apiKey;
-    if (input.authMode !== "none" && !nextApiKey) {
-      throw new Error("需要先填写 API Key，或选择无 Key 模式。");
+    const store = (
+      raw: ProviderEndpointConfig,
+      previous?: ProviderEndpointConfig,
+      allowUnconfigured = false
+    ): ProviderEndpointConfig => {
+      const endpoint = normalizeProviderEndpoint(raw);
+      const canRetain =
+        previous?.baseUrl?.trim().replace(/\/+$/, "") === endpoint.baseUrl && previous.authMode === endpoint.authMode;
+      const apiKey = endpoint.authMode === "none" ? "" : endpoint.apiKey || (canRetain ? previous?.apiKey : "");
+      if (!hasAuthMaterial(endpoint.authMode, apiKey ?? "") && (!allowUnconfigured || previous?.apiKey))
+        throw new Error(`${endpoint.displayName}：请填写 API Key；更换地址或鉴权方式后需重新填写。`);
+      return { ...endpoint, apiKey };
+    };
+    const taskProviders =
+      input.taskProviders === undefined
+        ? existing.taskProviders
+        : ({} as NonNullable<ProviderConfigInput["taskProviders"]>);
+    if (input.taskProviders !== undefined) {
+      for (const role of Object.keys(input.taskProviders)) assertProviderRole(role);
+      for (const role of providerRoles) {
+        if (input.taskProviders[role])
+          taskProviders![role] = store(input.taskProviders[role], existing.taskProviders?.[role]);
+      }
     }
+    const endpoint = store(input, existing, true);
     const provider: BrowserProviderStorage = {
-      ...input,
-      providerId: input.providerId.trim() || defaultProviderConfig.providerId,
-      displayName: input.displayName.trim() || defaultProviderConfig.displayName,
-      baseUrl: input.baseUrl.trim().replace(/\/+$/, ""),
-      model: input.model.trim(),
+      ...endpoint,
+      apiKey: endpoint.apiKey ?? "",
       editorModel: input.editorModel?.trim() || undefined,
-      apiKey: input.authMode === "none" ? "" : nextApiKey,
+      taskProviders,
       updatedAt: new Date().toISOString()
     };
     writeProviderStorage(provider);
@@ -653,9 +663,6 @@ export const browserBridge: InkforgeApi = {
   },
   async runAiTask(input: AiTaskInput, signal?: AbortSignal, onDelta?: (chunk: string) => void): Promise<AiTaskResult> {
     const provider = readProviderStorage();
-    if (!hasAuthMaterial(provider.authMode, provider.apiKey)) {
-      throw new Error("Provider 尚未配置。");
-    }
     const record = getProjectRecord(input.projectPath);
     const template = record.prompts[promptTemplateFileName(input.task)]
       ? parsePromptTemplate(record.prompts[promptTemplateFileName(input.task)])
@@ -882,6 +889,7 @@ export const browserBridge: InkforgeApi = {
   ): Promise<AgentChatSession> {
     const session = await this.loadAgentChat(input.projectPath, input.chapterId);
     const now = new Date().toISOString();
+    const oldProposalIds = new Set(session.proposals.map((proposal) => proposal.id));
     const branchId = input.branchId ?? session.activeBranchId ?? "main";
     session.activeBranchId = branchId;
     const selectedMembers = defaultAgentMembers.filter((member) => input.targetAgentIds?.includes(member.id));
@@ -1125,6 +1133,28 @@ export const browserBridge: InkforgeApi = {
     }
     session.updatedAt = now;
     browserAgentSession = session;
+    if (input.yolo && input.mode !== "plan" && input.writingApproach !== "compare") {
+      const newProposals = session.proposals.filter(
+        (proposal) => !oldProposalIds.has(proposal.id) && proposal.status === "pending"
+      );
+      for (const proposal of newProposals) {
+        for (const block of proposal.blocks.filter((block) => block.status === "pending"))
+          await this.resolveAgentChange({
+            projectPath: input.projectPath,
+            chapterId: input.chapterId,
+            proposalId: proposal.id,
+            blockId: block.id,
+            action: "accept-block"
+          });
+        await this.resolveAgentChange({
+          projectPath: input.projectPath,
+          chapterId: input.chapterId,
+          proposalId: proposal.id,
+          action: "apply"
+        });
+      }
+      return this.loadAgentChat(input.projectPath, input.chapterId);
+    }
     return structuredClone(session);
   },
   async cancelAgentChat(): Promise<void> {
@@ -1174,8 +1204,16 @@ export const browserBridge: InkforgeApi = {
   async resolveAgentDataChange(input: AgentDataResolutionInput): Promise<AgentChatSession> {
     const session = await this.loadAgentChat(input.projectPath, input.chapterId);
     const proposal = session.dataProposals.find((item) => item.id === input.proposalId);
-    if (!proposal) {
+    if (!proposal || proposal.status !== "pending") {
       throw new Error("找不到资料修改提案。");
+    }
+    if (input.action === "apply" && proposal.entityType === "project_data") {
+      const key = `inkforge.projectData.${input.projectPath}`;
+      const current = ProjectDataSchema.parse(JSON.parse(localStorage.getItem(key) ?? "{}"));
+      localStorage.setItem(
+        key,
+        JSON.stringify(applyProjectDataUpdate(current, ProjectDataUpdateSchema.parse(proposal.payload)))
+      );
     }
     proposal.status = input.action === "apply" ? "applied" : "rejected";
     proposal.resolvedAt = new Date().toISOString();
@@ -2221,17 +2259,89 @@ export const browserBridge: InkforgeApi = {
   async listProviderPresets() {
     return structuredClone(browserProviderPresets);
   },
-  async probeProvider() {
-    const provider = readProviderStorage();
-    const ok = hasAuthMaterial(provider.authMode, provider.apiKey);
-    return {
-      ok,
-      checkedAt: new Date().toISOString(),
-      latencyMs: 24,
-      modelReachable: ok,
-      capabilities: { streaming: ok, tools: ok },
-      message: ok ? "浏览器演示探测通过；桌面版将执行真实兼容性请求。" : "请先配置模型。"
-    };
+  async probeProvider(role) {
+    assertProviderRole(role);
+    const provider = resolveProvider(readProviderStorage(), role);
+    const startedAt = Date.now();
+    const checkedAt = new Date().toISOString();
+    let modelReachable = false;
+    try {
+      if (!hasAuthMaterial(provider.authMode, provider.apiKey ?? "")) throw new Error("请先配置此用途的模型。");
+      const signal = AbortSignal.timeout(30_000);
+      const request = async (tools = false) => {
+        const response = await fetch("/__inkforge_ai/chat-completions", {
+          method: "POST",
+          signal,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            baseUrl: provider.baseUrl,
+            authMode: provider.authMode,
+            apiKey: provider.apiKey,
+            payload: {
+              model: provider.model,
+              temperature: 0,
+              max_tokens: Math.min(provider.maxTokens, tools ? 256 : 64),
+              stream: false,
+              messages: [{ role: "user", content: tools ? "Call capability_probe." : "Reply with OK." }],
+              ...(tools
+                ? {
+                    tools: [
+                      {
+                        type: "function",
+                        function: {
+                          name: "capability_probe",
+                          description: "Probe",
+                          parameters: { type: "object", properties: {} }
+                        }
+                      }
+                    ],
+                    tool_choice: "auto"
+                  }
+                : {})
+            }
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(`模型探测失败（HTTP ${response.status}）。`);
+        return payload;
+      };
+      const text = await request();
+      if (!text.choices?.[0]?.message?.content?.trim()) throw new Error("模型未返回有效文本。");
+      modelReachable = true;
+      let tools = false;
+      if (provider.supportsTools !== false) {
+        try {
+          tools = Boolean(
+            (await request(true)).choices?.[0]?.message?.tool_calls?.some(
+              (call: { function?: { name?: string } }) => call.function?.name === "capability_probe"
+            )
+          );
+        } catch {
+          /* Text generation remains usable. */
+        }
+      }
+      return {
+        ok: true,
+        checkedAt,
+        latencyMs: Date.now() - startedAt,
+        modelReachable,
+        model: provider.model,
+        providerRole: role,
+        capabilities: { tools },
+        message: `文本生成已验证。${tools ? "工具调用已验证。" : "工具调用未验证。"}流式能力待实际生成验证。`
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        checkedAt,
+        latencyMs: Date.now() - startedAt,
+        modelReachable,
+        model: provider.model,
+        providerRole: role,
+        capabilities: { tools: false },
+        message: error instanceof Error ? error.message : String(error)
+      };
+    }
   },
   async getReleaseReadiness(projectPath) {
     const record = getProjectRecord(projectPath);
@@ -2241,13 +2351,18 @@ export const browserBridge: InkforgeApi = {
     const covered = new Set(browserQualityReports.map((report) => report.chapterId)).size;
     const pending = browserBranches.filter((branch) => branch.status === "draft").length;
     const provider = providerStatusFromStorage(readProviderStorage());
+    const configuredProviders = [provider, ...Object.values(provider.taskProviders ?? {})].filter(
+      (endpoint) => endpoint.configured
+    );
     const items = [
       { id: "project-shape", label: "项目结构", status: "ready" as const, detail: "核心项目文件齐全。" },
       {
         id: "provider",
         label: "模型配置",
-        status: provider.configured ? ("ready" as const) : ("warning" as const),
-        detail: provider.configured ? provider.model : "尚未配置可用模型。"
+        status: configuredProviders.length ? ("ready" as const) : ("warning" as const),
+        detail: configuredProviders.length
+          ? configuredProviders.map((endpoint) => endpoint.model).join("；")
+          : "尚未配置可用模型。"
       },
       {
         id: "quality",
@@ -2284,7 +2399,7 @@ export const browserBridge: InkforgeApi = {
   }
 };
 
-const browserProviderPresets = [
+const browserProviderPresets: import("../../electron/types").ProviderPreset[] = [
   {
     id: "openai",
     displayName: "OpenAI",
@@ -2324,6 +2439,16 @@ const browserProviderPresets = [
     model: "qwen3",
     authMode: "none" as const,
     expectedCapabilities: { streaming: true, tools: true }
+  },
+  {
+    id: "inkforge-writer-9b",
+    displayName: "InkForge 9B 写手",
+    category: "local",
+    description: "连接已部署的小说模型服务；模型名称需与服务实际提供的名称一致。",
+    baseUrl: "http://127.0.0.1:8000/v1",
+    model: "inkforge-writer-9b",
+    authMode: "none",
+    expectedCapabilities: { streaming: true, tools: false }
   },
   {
     id: "lm-studio",

@@ -18,6 +18,7 @@ import type { BackupDiffSummary, BackupSettings, BackupSnapshot, BackupVerificat
 import { bridge } from "@/lib/browserBridge";
 import { diffTextLines, type TextDiffLine } from "@/lib/textDiffLines";
 import { useProjectStore } from "@/stores/useProjectStore";
+import { useEditorGuard } from "@/lib/useEditorGuard";
 
 const reasonLabels: Record<BackupSnapshot["reason"], string> = {
   automatic: "自动快照",
@@ -43,6 +44,7 @@ export const BackupCenter = () => {
   const [totalSize, setTotalSize] = useState(0);
   const [settings, setSettings] = useState<BackupSettings | undefined>();
   const [settingsDraft, setSettingsDraft] = useState({ interval: "10", retention: "20", cap: "512" });
+  const [settingsBusy, setSettingsBusy] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -92,8 +94,10 @@ export const BackupCenter = () => {
   }, [project?.projectPath]);
 
   const persistSettings = async (patch: Partial<BackupSettings>) => {
-    if (!project || !settings) return;
+    if (!project || !settings || settingsBusy) return;
+    setSettingsBusy(true);
     setError("");
+    setNotice("");
     try {
       const next = await bridge.saveBackupSettings(project.projectPath, { ...settings, ...patch });
       setSettings(next);
@@ -105,17 +109,34 @@ export const BackupCenter = () => {
       setNotice("备份设置已保存。");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "保存备份设置失败");
+    } finally {
+      setSettingsBusy(false);
     }
   };
 
   const saveSettingsDraft = () => {
-    const interval = Number.parseInt(settingsDraft.interval, 10);
-    const retention = Number.parseInt(settingsDraft.retention, 10);
-    const cap = Number.parseInt(settingsDraft.cap, 10);
+    const interval = Number(settingsDraft.interval);
+    const retention = Number(settingsDraft.retention);
+    const cap = Number(settingsDraft.cap);
+    if (
+      !Number.isInteger(interval) ||
+      interval < 1 ||
+      interval > 1440 ||
+      !Number.isInteger(retention) ||
+      retention < 1 ||
+      retention > 200 ||
+      !Number.isInteger(cap) ||
+      cap < 10 ||
+      cap > 102400
+    ) {
+      setNotice("");
+      setError("请填写有效整数：自动备份间隔 1–1440 分钟，保留数量 1–200，占用上限 10–102400 MB。");
+      return;
+    }
     void persistSettings({
-      automaticIntervalMinutes: Number.isFinite(interval) ? Math.min(1440, Math.max(1, interval)) : 10,
-      maxAutomaticSnapshots: Number.isFinite(retention) ? Math.min(200, Math.max(1, retention)) : 20,
-      maxTotalSizeMb: Number.isFinite(cap) ? Math.min(102400, Math.max(10, cap)) : 512
+      automaticIntervalMinutes: interval,
+      maxAutomaticSnapshots: retention,
+      maxTotalSizeMb: cap
     });
   };
 
@@ -129,6 +150,14 @@ export const BackupCenter = () => {
     }
     await persistSettings({ backupDirectory: directory });
   };
+
+  const settingsDirty = Boolean(
+    settings &&
+    (settingsDraft.interval !== String(settings.automaticIntervalMinutes) ||
+      settingsDraft.retention !== String(settings.maxAutomaticSnapshots) ||
+      settingsDraft.cap !== String(settings.maxTotalSizeMb))
+  );
+  useEditorGuard(settingsDirty, settingsBusy, saveSettingsDraft);
 
   const create = async () => {
     if (!project) return;
@@ -273,6 +302,7 @@ export const BackupCenter = () => {
               type="number"
               min={1}
               max={1440}
+              disabled={settingsBusy}
               value={settingsDraft.interval}
               onChange={(event) => setSettingsDraft((draft) => ({ ...draft, interval: event.target.value }))}
             />
@@ -283,6 +313,7 @@ export const BackupCenter = () => {
               type="number"
               min={1}
               max={200}
+              disabled={settingsBusy}
               value={settingsDraft.retention}
               onChange={(event) => setSettingsDraft((draft) => ({ ...draft, retention: event.target.value }))}
             />
@@ -293,6 +324,7 @@ export const BackupCenter = () => {
               type="number"
               min={10}
               max={102400}
+              disabled={settingsBusy}
               value={settingsDraft.cap}
               onChange={(event) => setSettingsDraft((draft) => ({ ...draft, cap: event.target.value }))}
             />
@@ -301,7 +333,12 @@ export const BackupCenter = () => {
             <span className="backup-directory-label">备份目录</span>
             <code title={backupRoot}>{backupRoot || "读取中…"}</code>
             <div className="inline-actions">
-              <button className="secondary-button compact" type="button" onClick={() => void chooseDirectory()}>
+              <button
+                className="secondary-button compact"
+                type="button"
+                disabled={settingsBusy}
+                onClick={() => void chooseDirectory()}
+              >
                 <FolderOpen size={14} />
                 选择目录
               </button>
@@ -317,9 +354,17 @@ export const BackupCenter = () => {
             </div>
           </div>
           <p className="muted">超过磁盘上限时会优先清理最旧的自动快照；手动保护点和恢复保护点不参与自动清理。</p>
-          <button className="secondary-button compact backup-settings-save" type="button" onClick={saveSettingsDraft}>
+          <button
+            className="secondary-button compact backup-settings-save"
+            type="button"
+            disabled={settingsBusy}
+            onClick={saveSettingsDraft}
+          >
             保存设置
           </button>
+          <span className="editor-feedback" role="status">
+            {settingsBusy ? "正在保存设置…" : settingsDirty ? "设置有未保存的修改 · Ctrl+S 保存设置" : ""}
+          </span>
         </div>
       </details>
 

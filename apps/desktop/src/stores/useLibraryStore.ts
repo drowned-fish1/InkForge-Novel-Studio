@@ -15,6 +15,7 @@ import { useProjectStore } from "@/stores/useProjectStore";
 import type { ConsistencyIssue } from "@/types/app";
 
 interface LibraryState {
+  libraryProjectPath?: string;
   characters: Character[];
   worldEntries: WorldEntry[];
   timeline: TimelineEvent[];
@@ -49,6 +50,7 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   consistencyIssues: [],
   resetLibraries: () =>
     set({
+      libraryProjectPath: undefined,
       characters: [],
       worldEntries: [],
       timeline: [],
@@ -71,7 +73,17 @@ export const useLibraryStore = create<LibraryState>((set) => ({
       bridge.listConflicts(project.projectPath),
       bridge.inspectStory(project.projectPath)
     ]);
-    set({ characters, worldEntries, timeline, clues, terms, conflicts, consistencyIssues });
+    if (useProjectStore.getState().project?.projectPath !== project.projectPath) return;
+    set({
+      libraryProjectPath: project.projectPath,
+      characters,
+      worldEntries,
+      timeline,
+      clues,
+      terms,
+      conflicts,
+      consistencyIssues
+    });
     await usePlanningStore.getState().loadPlanningSessions();
   },
   saveCharacter: async (character) => {

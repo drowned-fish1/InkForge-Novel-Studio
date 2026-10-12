@@ -120,6 +120,7 @@ export class SimulationService {
       this.assertNotCancelled(requestId);
 
       const premiseCompletion = await this.ai.runAgentCompletion({
+        providerRole: "planner",
         requestId,
         toolChoice: "none",
         messages: [
@@ -160,6 +161,7 @@ export class SimulationService {
           const { participant, character } = cast[(turnNumber - 1) % cast.length];
           const isFinalTurn = turnNumber === scenario.maxTurns;
           const completion = await this.ai.runAgentCompletion({
+            providerRole: "planner",
             requestId,
             toolChoice: "none",
             messages: [

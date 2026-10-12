@@ -4,6 +4,11 @@ import { findStoryReferences, type StoryReferenceHit, type TimelineEvent } from 
 import { EntityDeleteDialog } from "@/features/library/EntityDeleteDialog";
 import { useLibraryStore } from "@/stores/useLibraryStore";
 import { useProjectStore } from "@/stores/useProjectStore";
+import { useEntityEditor } from "@/lib/useEntityEditor";
+import { EditorFeedback } from "@/components/EditorFeedback";
+import { ReferencePicker } from "@/components/ReferencePicker";
+import { NameReferencePicker } from "@/components/NameReferencePicker";
+import { useReferenceOptions } from "@/lib/useReferenceOptions";
 
 const sourceKindLabels: Record<StoryReferenceHit["sourceKind"], string> = {
   character: "人物",
@@ -14,13 +19,8 @@ const sourceKindLabels: Record<StoryReferenceHit["sourceKind"], string> = {
   chapter: "章节"
 };
 
-const splitNames = (value: string): string[] =>
-  value
-    .split(/[,，]/u)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
 export const EventBoard = () => {
+  const options = useReferenceOptions();
   const project = useProjectStore((state) => state.project);
   const timeline = useLibraryStore((state) => state.timeline);
   const characters = useLibraryStore((state) => state.characters);
@@ -31,14 +31,20 @@ export const EventBoard = () => {
   const saveTimelineEvent = useLibraryStore((state) => state.saveTimelineEvent);
   const [query, setQuery] = useState("");
   const [chapterFilter, setChapterFilter] = useState("all");
-  const [draft, setDraft] = useState<TimelineEvent | undefined>();
+  const editor = useEntityEditor<TimelineEvent>(undefined, timeline, saveTimelineEvent, {
+    module: "events",
+    resetFilters: () => {
+      setQuery("");
+      setChapterFilter("all");
+    }
+  });
+  const { draft, setDraft } = editor;
   const [deleting, setDeleting] = useState<TimelineEvent | undefined>();
 
   const chapters = useMemo(
     () => project?.outline.volumes.flatMap((volume) => volume.chapters) ?? [],
     [project?.outline.volumes]
   );
-  const locations = useMemo(() => worldEntries.filter((entry) => entry.type === "location"), [worldEntries]);
   const chapterTitle = (chapterId?: string) =>
     chapterId ? (chapters.find((chapter) => chapter.id === chapterId)?.title ?? chapterId) : "未关联章节";
 
@@ -73,6 +79,9 @@ export const EventBoard = () => {
   }, [draft?.id, characters, worldEntries, timeline, clues, terms, conflicts, chapters, project]);
 
   const create = () => {
+    if (!editor.canLeave()) return;
+    setQuery("");
+    setChapterFilter("all");
     setDraft({
       id: `event_new_${Date.now()}`,
       order: timeline.length ? Math.max(...timeline.map((item) => item.order)) + 1 : 0,
@@ -86,7 +95,7 @@ export const EventBoard = () => {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (draft) {
-      void saveTimelineEvent(draft);
+      void editor.save();
     }
   };
 
@@ -110,10 +119,15 @@ export const EventBoard = () => {
           <input
             value={query}
             placeholder="搜索事件、参与者或地点"
+            aria-label="搜索事件"
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        <select value={chapterFilter} onChange={(event) => setChapterFilter(event.target.value)}>
+        <select
+          aria-label="按事件章节筛选"
+          value={chapterFilter}
+          onChange={(event) => setChapterFilter(event.target.value)}
+        >
           <option value="all">全部章节</option>
           <option value="none">未关联章节</option>
           {chapters.map((chapter) => (
@@ -131,7 +145,9 @@ export const EventBoard = () => {
               className={draft?.id === event.id ? "selected" : ""}
               key={event.id}
               type="button"
-              onClick={() => setDraft(event)}
+              onClick={() => {
+                if (event.id !== draft?.id && editor.canLeave()) setDraft(event);
+              }}
             >
               <BookOpen size={17} />
               <span>
@@ -146,13 +162,17 @@ export const EventBoard = () => {
           {!filtered.length ? <div className="empty-list-hint">没有匹配的事件。</div> : null}
         </aside>
 
-        <form className="library-editor" onSubmit={submit}>
+        <form className="library-editor" ref={editor.formRef} aria-busy={editor.busy} onSubmit={submit}>
           {draft ? (
             <>
               <div className="field-grid">
                 <label>
                   事件名称
-                  <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
+                  <input
+                    required
+                    value={draft.title}
+                    onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+                  />
                 </label>
                 <label>
                   顺序
@@ -162,47 +182,31 @@ export const EventBoard = () => {
                     onChange={(event) => setDraft({ ...draft, order: Number(event.target.value) || 0 })}
                   />
                 </label>
-                <label>
-                  关联章节
-                  <select
-                    value={draft.chapterId ?? ""}
-                    onChange={(event) => setDraft({ ...draft, chapterId: event.target.value || undefined })}
-                  >
-                    <option value="">不关联章节</option>
-                    {chapters.map((chapter) => (
-                      <option key={chapter.id} value={chapter.id}>
-                        {chapter.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  发生地点
-                  <input
-                    list="event-location-options"
-                    value={draft.location}
-                    onChange={(event) => setDraft({ ...draft, location: event.target.value })}
-                  />
-                  <datalist id="event-location-options">
-                    {locations.map((location) => (
-                      <option key={location.id} value={location.title} />
-                    ))}
-                  </datalist>
-                </label>
-              </div>
-              <label>
-                参与人物（逗号分隔）
-                <input
-                  list="event-character-options"
-                  value={draft.participants.join(", ")}
-                  onChange={(event) => setDraft({ ...draft, participants: splitNames(event.target.value) })}
+                <ReferencePicker
+                  key={`chapter-${draft.id}`}
+                  label="关联章节"
+                  options={options.chapters}
+                  value={draft.chapterId ? [draft.chapterId] : []}
+                  onChange={(value) => setDraft({ ...draft, chapterId: value[0] ?? "" })}
                 />
-                <datalist id="event-character-options">
-                  {characters.map((character) => (
-                    <option key={character.id} value={character.name} />
-                  ))}
-                </datalist>
-              </label>
+                <NameReferencePicker
+                  key={`location-${draft.id}`}
+                  label="发生地点"
+                  options={options.locations}
+                  multiple={false}
+                  names={draft.location ? [draft.location] : []}
+                  ids={draft.locationId ? [draft.locationId] : []}
+                  onChange={(names, ids) => setDraft({ ...draft, location: names[0] ?? "", locationId: ids[0] ?? "" })}
+                />
+              </div>
+              <NameReferencePicker
+                key={`participants-${draft.id}`}
+                label="参与人物"
+                options={options.characters}
+                names={draft.participants}
+                ids={draft.participantIds}
+                onChange={(names, ids) => setDraft({ ...draft, participants: names, participantIds: ids })}
+              />
               <label>
                 概要
                 <textarea
@@ -232,13 +236,19 @@ export const EventBoard = () => {
                 )}
               </section>
 
+              <EditorFeedback {...editor} />
               <div className="library-editor-actions">
-                <button className="primary-button" type="submit">
+                <button className="primary-button" type="submit" disabled={editor.busy}>
                   <Save size={17} />
                   保存事件
                 </button>
                 {timeline.some((item) => item.id === draft.id) ? (
-                  <button className="secondary-button danger" type="button" onClick={() => setDeleting(draft)}>
+                  <button
+                    className="secondary-button danger"
+                    type="button"
+                    disabled={editor.busy}
+                    onClick={() => setDeleting(draft)}
+                  >
                     <Trash2 size={15} />
                     删除
                   </button>

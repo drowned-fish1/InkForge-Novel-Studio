@@ -1,8 +1,12 @@
+import { ListField } from "@/components/ListField";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { BookMarked, Lock, Plus, Save, Trash2 } from "lucide-react";
 import type { WorldEntry } from "@inkforge/schemas";
 import { EntityDeleteDialog } from "@/features/library/EntityDeleteDialog";
 import { useLibraryStore } from "@/stores/useLibraryStore";
+import { useEntityEditor } from "@/lib/useEntityEditor";
+import { EditorFeedback } from "@/components/EditorFeedback";
+import { PinWritingReferenceButton } from "@/components/PinWritingReferenceButton";
 
 const newEntry = (seed: number): WorldEntry => ({
   id: `world_${Date.now()}_${seed}`,
@@ -22,7 +26,11 @@ export const WorldLibrary = () => {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(entries[0]?.id ?? "");
   const selected = useMemo(() => entries.find((item) => item.id === selectedId) ?? entries[0], [entries, selectedId]);
-  const [draft, setDraft] = useState<WorldEntry | undefined>(selected);
+  const editor = useEntityEditor(selected, entries, saveWorldEntry, {
+    module: "world",
+    resetFilters: () => setQuery("")
+  });
+  const { draft, setDraft } = editor;
   const [deleting, setDeleting] = useState<WorldEntry | undefined>();
   const filteredEntries = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -42,11 +50,14 @@ export const WorldLibrary = () => {
   }, [draft, selected]);
 
   const choose = (entry: WorldEntry) => {
+    if (entry.id === draft?.id || !editor.canLeave()) return;
     setSelectedId(entry.id);
     setDraft(entry);
   };
 
   const create = () => {
+    if (!editor.canLeave()) return;
+    setQuery("");
     const entry = newEntry(entries.length + 1);
     setSelectedId(entry.id);
     setDraft(entry);
@@ -55,7 +66,7 @@ export const WorldLibrary = () => {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (draft) {
-      void saveWorldEntry(draft);
+      void editor.save();
     }
   };
 
@@ -66,10 +77,16 @@ export const WorldLibrary = () => {
           <div className="crumb">资料库</div>
           <h2>世界观设定</h2>
         </div>
-        <button className="primary-button" type="button" onClick={create}>
-          <Plus size={17} />
-          新设定
-        </button>
+        <div className="library-pin-actions">
+          <PinWritingReferenceButton
+            disabled={editor.busy}
+            target={draft && entries.some((item) => item.id === draft.id) ? { kind: "world", id: draft.id } : undefined}
+          />
+          <button className="primary-button" type="button" onClick={create}>
+            <Plus size={17} />
+            新设定
+          </button>
+        </div>
       </header>
 
       <div className="library-layout">
@@ -102,13 +119,17 @@ export const WorldLibrary = () => {
           {!filteredEntries.length ? <div className="empty-list-hint">没有匹配的设定。</div> : null}
         </aside>
 
-        <form className="library-editor" onSubmit={submit}>
+        <form className="library-editor" ref={editor.formRef} aria-busy={editor.busy} onSubmit={submit}>
           {draft ? (
             <>
               <div className="field-grid">
                 <label>
                   标题
-                  <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
+                  <input
+                    required
+                    value={draft.title}
+                    onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+                  />
                 </label>
                 <label>
                   类型
@@ -140,17 +161,10 @@ export const WorldLibrary = () => {
               </label>
               <label>
                 标签
-                <input
-                  value={draft.tags.join(",")}
-                  onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      tags: event.target.value
-                        .split(",")
-                        .map((item) => item.trim())
-                        .filter(Boolean)
-                    })
-                  }
+                <ListField
+                  key={draft.id}
+                  value={draft.tags}
+                  onChange={(value) => setDraft({ ...draft, tags: value })}
                 />
               </label>
               <label>
@@ -168,13 +182,19 @@ export const WorldLibrary = () => {
                   onChange={(event) => setDraft({ ...draft, content: event.target.value })}
                 />
               </label>
+              <EditorFeedback {...editor} />
               <div className="library-editor-actions">
-                <button className="primary-button" type="submit">
+                <button className="primary-button" type="submit" disabled={editor.busy}>
                   <Save size={17} />
                   保存设定
                 </button>
                 {entries.some((item) => item.id === draft.id) ? (
-                  <button className="secondary-button danger" type="button" onClick={() => setDeleting(draft)}>
+                  <button
+                    className="secondary-button danger"
+                    type="button"
+                    disabled={editor.busy}
+                    onClick={() => setDeleting(draft)}
+                  >
                     <Trash2 size={15} />
                     删除
                   </button>

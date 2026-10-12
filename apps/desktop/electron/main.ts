@@ -113,7 +113,9 @@ const chatAgent = new ChatAgentService(files, projects, library, storyState, aiP
 const planning = new PlanningService(files, projects, library, storyState);
 const agents = new AgentService();
 const quality = new QualityService(files, projects, storyState);
-const branches = new BranchService(files, projects, chapters);
+const branches = new BranchService(files, projects, chapters, (projectPath, chapterId, _content, yolo) =>
+  chatAgent.refreshProjectDataAfterAccept(projectPath, chapterId, yolo)
+);
 const batches = new BatchProductionService(files, projects, aiProvider, branches, quality);
 const release = new ReleaseService(projects, aiProvider, quality, branches, batches);
 const workspace = new WorkspaceService(files);
@@ -854,7 +856,7 @@ const registerIpc = (): void => {
   });
 
   ipcMain.handle("provider:presets", () => aiProvider.listPresets());
-  ipcMain.handle("provider:probe", () => aiProvider.probeProvider());
+  ipcMain.handle("provider:probe", (_event, role) => aiProvider.probeProvider(role));
   ipcMain.handle("release:readiness", async (_event, projectPath: string) => release.inspect(projectPath));
 
   // Long-novel continuation IPC. Requests are validated at the boundary
@@ -1068,6 +1070,10 @@ const registerIpc = (): void => {
       maxOutputTokens: optionalNumber(input.maxOutputTokens, "maxOutputTokens"),
       modelOverride: optionalString(input.modelOverride, "modelOverride"),
       useEditorModel: input.useEditorModel === true,
+      allowCompression: input.allowCompression === true,
+      logicReview: input.logicReview !== false,
+      updateProjectData: input.updateProjectData === true,
+      yolo: input.yolo === true,
       branchName: optionalString(input.branchName, "branchName"),
       branchDescription: optionalString(input.branchDescription, "branchDescription")
     });
@@ -1085,6 +1091,7 @@ const registerIpc = (): void => {
         maxOutputTokens: optionalNumber(options.maxOutputTokens, "maxOutputTokens"),
         modelOverride: optionalString(options.modelOverride, "modelOverride"),
         useEditorModel: options.useEditorModel === true,
+        allowCompression: typeof options.allowCompression === "boolean" ? options.allowCompression : undefined,
         branchName: optionalString(options.branchName, "branchName"),
         branchDescription: optionalString(options.branchDescription, "branchDescription"),
         requestId: optionalString(options.requestId, "requestId")

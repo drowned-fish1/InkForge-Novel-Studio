@@ -13,6 +13,7 @@ import {
   FolderPlus,
   FileText,
   GripVertical,
+  Grid3X3,
   ListTree,
   MapPin,
   Milestone,
@@ -27,20 +28,9 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ProjectSearchResult } from "@/types/app";
+import { SearchHighlight } from "@/components/SearchHighlight";
 import { bridge } from "@/lib/browserBridge";
 import { useProjectStore } from "@/stores/useProjectStore";
-
-const searchModuleByKind: Record<ProjectSearchResult["kind"], string> = {
-  chapter: "chapters",
-  character: "characters",
-  world: "world",
-  location: "locations",
-  faction: "factions",
-  conflict: "conflicts",
-  clue: "clues",
-  term: "terms",
-  event: "events"
-};
 
 const searchKindLabels: Record<ProjectSearchResult["kind"], string> = {
   chapter: "章节",
@@ -80,6 +70,7 @@ const moduleGroups = [
     title: "剧情",
     items: [
       ["narrative", "叙事板", Waypoints],
+      ["matrix", "整书矩阵", Grid3X3],
       ["simulation", "推演", FlaskConical],
       ["timeline", "时间线", Clock3],
       ["clues", "伏笔", Milestone],
@@ -126,7 +117,19 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
   const deleteChapterPlan = useProjectStore((state) => state.deleteChapterPlan);
   const jumpToChapterOffset = useProjectStore((state) => state.jumpToChapterOffset);
   const [chapterQuery, setChapterQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<ProjectSearchResult[] | undefined>();
+  const openEntitySearchResult = useProjectStore((state) => state.openEntitySearchResult);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchRevision, setSearchRevision] = useState(0);
+  const [openingResult, setOpeningResult] = useState(false);
+  const [searchState, setSearchState] = useState<{
+    query: string;
+    projectPath: string;
+    results?: ProjectSearchResult[];
+    error?: string;
+  }>({ query: "", projectPath: "" });
+  const searching = Boolean(searchQuery.trim());
+  const currentSearch = searchState.query === searchQuery.trim() && searchState.projectPath === project?.projectPath;
+  const searchResults = currentSearch ? searchState.results : undefined;
   const [collapsedVolumes, setCollapsedVolumes] = useState<Record<string, boolean>>({});
   const [collapsedModuleGroups, setCollapsedModuleGroups] = useState<Record<string, boolean>>({
     资料: true,
@@ -176,45 +179,55 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
   }, [collapsedStorageKey, collapsedVolumes]);
 
   useEffect(() => {
-    const query = chapterQuery.trim();
-    if (!project || query.length < 2) {
-      setSearchResults(undefined);
-      return;
-    }
+    const query = searchQuery.trim();
+    if (!project || !query) return;
     const projectPath = project.projectPath;
     let cancelled = false;
+    setSearchState({ query, projectPath });
     const timer = window.setTimeout(() => {
       void bridge
         .searchProject(projectPath, query)
         .then((results) => {
-          if (!cancelled && useProjectStore.getState().project?.projectPath === projectPath) {
-            setSearchResults(results);
-          }
+          if (!cancelled && useProjectStore.getState().project?.projectPath === projectPath)
+            setSearchState({ query, projectPath, results });
         })
-        .catch(() => {
-          if (!cancelled) {
-            setSearchResults(undefined);
-          }
+        .catch((cause) => {
+          if (!cancelled)
+            setSearchState({
+              query,
+              projectPath,
+              error: cause instanceof Error ? cause.message : "搜索失败，请重试。"
+            });
         });
     }, 350);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [chapterQuery, project?.projectPath]);
+  }, [searchQuery, searchRevision, project?.projectPath]);
 
-  const openSearchResult = (result: ProjectSearchResult) => {
-    if (result.kind === "chapter") {
-      const chapter = project?.outline.volumes
-        .flatMap((volume) => volume.chapters)
-        .find((item) => item.id === result.id);
-      if (chapter) {
-        void jumpToChapterOffset(chapter, result.offset, result.offset + result.matchLength).then(() => onNavigate?.());
-      }
-      return;
+  const openSearchResult = async (result: ProjectSearchResult) => {
+    if (openingResult) return;
+    setOpeningResult(true);
+    try {
+      if (result.kind === "chapter") {
+        const chapter = project?.outline.volumes
+          .flatMap((volume) => volume.chapters)
+          .find((item) => item.id === result.id);
+        if (
+          chapter &&
+          (await jumpToChapterOffset(chapter, result.offset, result.offset + result.matchLength, searchQuery.trim()))
+        )
+          onNavigate?.();
+      } else if (openEntitySearchResult(result, searchQuery.trim())) onNavigate?.();
+    } catch (cause) {
+      setSearchState((state) => ({
+        ...state,
+        error: cause instanceof Error ? cause.message : "打开搜索结果失败，请重试。"
+      }));
+    } finally {
+      setOpeningResult(false);
     }
-    setSelectedModule(searchModuleByKind[result.kind]);
-    onNavigate?.();
   };
 
   const toggleVolume = (volumeId: string) => {
@@ -255,30 +268,77 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
         <input
           aria-label="搜索章节与设定"
           placeholder="全文搜索章节与设定"
-          value={chapterQuery}
-          onChange={(event) => setChapterQuery(event.target.value)}
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "Escape" && searchQuery) {
+              event.preventDefault();
+              event.stopPropagation();
+              setSearchQuery("");
+            }
+            if (event.key === "ArrowDown" && searchResults?.length) {
+              event.preventDefault();
+              event.currentTarget.closest("aside")?.querySelector<HTMLButtonElement>(".nav-search-result")?.focus();
+            }
+          }}
         />
+        {searchQuery ? (
+          <button
+            type="button"
+            className="tiny-text-button"
+            aria-label="清除全文搜索"
+            onClick={() => setSearchQuery("")}
+          >
+            清除
+          </button>
+        ) : null}
       </div>
-      {searchResults ? (
+      {searching ? (
         <section className="nav-global-search" aria-label="全文搜索结果">
           <div className="section-heading">
-            <span>全文搜索 · {searchResults.length} 条</span>
+            <span>全文搜索{searchResults ? ` · ${searchResults.length} 条` : ""}</span>
           </div>
-          {searchResults.slice(0, 30).map((result, index) => (
+          {currentSearch && searchState.error ? (
+            <div className="nav-search-error" role="alert">
+              {searchState.error}
+              <button
+                type="button"
+                className="tiny-text-button"
+                onClick={() => setSearchRevision((value) => value + 1)}
+              >
+                重试
+              </button>
+            </div>
+          ) : null}
+          {!searchResults && !(currentSearch && searchState.error) ? <p role="status">正在搜索…</p> : null}
+          {searchResults?.map((result, index) => (
             <button
               key={`${result.kind}-${result.id}-${result.offset}-${index}`}
               type="button"
               className="nav-search-result"
-              onClick={() => openSearchResult(result)}
+              disabled={openingResult}
+              onClick={() => void openSearchResult(result)}
             >
               <em>{searchKindLabels[result.kind]}</em>
               <span>
-                <strong>{result.title}</strong>
-                {result.snippet ? <small>{result.snippet}</small> : null}
+                <strong>
+                  <SearchHighlight text={result.title} query={searchQuery} />
+                </strong>
+                {result.volumeTitle ? <small>{result.volumeTitle}</small> : null}
+                {result.snippet ? (
+                  <small>
+                    <SearchHighlight text={result.snippet} query={searchQuery} />
+                  </small>
+                ) : null}
               </span>
             </button>
           ))}
-          {!searchResults.length ? <div className="empty-list-hint">没有匹配内容。</div> : null}
+          {searchResults?.length === 0 ? (
+            <div className="empty-list-hint" role="status">
+              没有匹配内容。
+            </div>
+          ) : null}
         </section>
       ) : null}
       <nav className="module-list">
@@ -304,10 +364,11 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
                         key={id}
                         type="button"
                         className={`${selectedModule === id ? "active" : ""} ${planned ? "planned" : ""}`}
+                        aria-current={selectedModule === id ? "page" : undefined}
                         title={planned ? "功能建设中，点击查看当前替代入口" : undefined}
                         onClick={() => {
                           setSelectedModule(id);
-                          onNavigate?.();
+                          if (useProjectStore.getState().selectedModule === id) onNavigate?.();
                         }}
                       >
                         <Icon size={16} />
@@ -333,7 +394,12 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
               key={chapter.id}
               type="button"
               className={`chapter-row recent ${current?.plan.id === chapter.id ? "selected" : ""}`}
-              onClick={() => void selectChapter(chapter).then(() => onNavigate?.())}
+              onClick={() =>
+                void selectChapter(chapter).then(() => {
+                  const state = useProjectStore.getState();
+                  if (state.selectedModule === "chapters" && state.current?.plan.id === chapter.id) onNavigate?.();
+                })
+              }
             >
               <FileText size={14} />
               <span>{chapter.title}</span>
@@ -376,7 +442,12 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
           return (
             <div className="volume-group" key={volume.id}>
               <div className="volume-title">
-                <button className="volume-title-button" type="button" onClick={() => toggleVolume(volume.id)}>
+                <button
+                  className="volume-title-button"
+                  type="button"
+                  aria-expanded={!isCollapsed}
+                  onClick={() => toggleVolume(volume.id)}
+                >
                   <ChevronIcon size={14} />
                   <span>{volume.title}</span>
                 </button>
@@ -441,7 +512,13 @@ export const ProjectNav = ({ onNavigate }: ProjectNavProps) => {
                         <button
                           type="button"
                           className={`chapter-row ${current?.plan.id === chapter.id ? "selected" : ""}`}
-                          onClick={() => void selectChapter(chapter).then(() => onNavigate?.())}
+                          onClick={() =>
+                            void selectChapter(chapter).then(() => {
+                              const state = useProjectStore.getState();
+                              if (state.selectedModule === "chapters" && state.current?.plan.id === chapter.id)
+                                onNavigate?.();
+                            })
+                          }
                         >
                           <GripVertical size={13} className="drag-handle" />
                           <FileText size={14} />

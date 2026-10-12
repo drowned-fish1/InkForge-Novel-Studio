@@ -196,20 +196,8 @@ export interface ExportInput {
   };
 }
 
-export interface ProviderStatus {
-  configured: boolean;
-  providerId: string;
-  displayName: string;
-  baseUrl: string;
-  model: string;
-  editorModel?: string;
-  authMode: ProviderAuthMode;
-  maskedKey?: string;
-  updatedAt?: string;
-  maxTokens?: number;
-  inputPricePerMillion?: number;
-  outputPricePerMillion?: number;
-}
+export type { ProviderStatus, ProviderConfigInput, ProviderAuthMode } from "@inkforge/ai-provider";
+import type { ProviderStatus, ProviderConfigInput, ProviderRole, ProviderAuthMode } from "@inkforge/ai-provider";
 
 export interface ProviderPreset {
   id: string;
@@ -231,29 +219,17 @@ export interface ProviderProbeResult {
   latencyMs: number;
   modelReachable: boolean;
   capabilities: {
-    streaming: boolean;
+    streaming?: boolean;
     tools: boolean;
   };
+  providerRole?: ProviderRole;
+  model?: string;
   message: string;
 }
 
-export type ProviderAuthMode = "bearer" | "x-api-key" | "raw-authorization" | "none";
-
-export interface ProviderConfigInput {
-  providerId: string;
-  displayName: string;
-  baseUrl: string;
-  model: string;
-  editorModel?: string;
-  authMode: ProviderAuthMode;
-  apiKey?: string;
-  temperature: number;
-  maxTokens: number;
-  inputPricePerMillion?: number;
-  outputPricePerMillion?: number;
-}
-
 export interface AiTaskInput {
+  chapterId?: string;
+  providerRole?: ProviderRole;
   requestId?: string;
   useEditorModel?: boolean;
   projectPath: string;
@@ -267,6 +243,8 @@ export interface AiTaskInput {
     | "next-goal"
     | "pacing"
     | "character-state"
+    | "character-generate"
+    | "character-names"
     | "clue-check"
     | "term-check"
     | "polish"
@@ -473,6 +451,8 @@ export interface WritingSessionCommandInput {
 }
 
 export interface AgentChatInput {
+  yolo?: boolean;
+  updateProjectData?: boolean;
   requestId?: string;
   projectPath: string;
   chapterId: string;
@@ -535,6 +515,8 @@ export interface AgentDataResolutionInput {
 }
 
 export interface CreateStoryBranchInput {
+  expectedBaseContent?: string;
+  updateProjectData?: boolean;
   projectPath: string;
   chapterId: string;
   name: string;
@@ -764,7 +746,7 @@ export interface InkforgeApi {
   resumeBatchRun: (projectPath: string, runId: string) => Promise<BatchRun>;
   cancelBatchRun: (projectPath: string, runId: string) => Promise<BatchRun>;
   listProviderPresets: () => Promise<ProviderPreset[]>;
-  probeProvider: () => Promise<ProviderProbeResult>;
+  probeProvider: (role?: ProviderRole) => Promise<ProviderProbeResult>;
   getReleaseReadiness: (projectPath: string) => Promise<ReleaseReadiness>;
   getUpdateStatus: () => Promise<UpdateStatus>;
   checkForUpdates: () => Promise<UpdateStatus>;

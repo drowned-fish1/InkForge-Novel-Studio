@@ -1,6 +1,6 @@
 {
   "name": "@inkforge/desktop",
-  "version": "1.0.0-rc.4",
+  "version": "1.0.0-rc.5",
   "private": true,
   "description": "InkForge local-first AI novel writing studio.",
   "author": "InkForge Contributors",
@@ -9,7 +9,7 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5273 --strictPort",
-    "build": "tsc -p tsconfig.electron.json && node scripts/build-preload.mjs && vite build",
+    "build": "node ../../scripts/write-manuscript-matrix-notices.mjs && tsc -p tsconfig.electron.json && node scripts/build-preload.mjs && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "desktop": "concurrently -k \"npm:dev\" \"wait-on http://127.0.0.1:5273 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5273 electron .\"",
     "pack": "npm run build && node scripts/package-windows.mjs --dir",
@@ -33,8 +33,10 @@
     "fflate": "^0.8.3",
     "fs-extra": "^11.3.5",
     "lucide-react": "^0.555.0",
+    "mammoth": "1.13.0",
     "marked": "^18.0.3",
     "react": "^19.2.0",
+    "react-data-grid": "7.0.0-beta.61",
     "react-dom": "^19.2.0",
     "scheduler": "^0.27.0",
     "yauzl": "^2.10.0",

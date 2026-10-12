@@ -252,6 +252,39 @@ const BeatPreview = ({ payload }: { payload: DataRecord }) => {
 
 export const AgentDataPreview = ({ proposal }: { proposal: AgentDataProposal }) => {
   const payload = proposal.payload as DataRecord;
+  if (proposal.entityType === "project_data") {
+    const changes = Array.isArray(payload.changes) ? payload.changes.filter(isRecord) : [];
+    const before = Array.isArray(payload.before) ? payload.before.filter(isRecord) : [];
+    return (
+      <div className="agent-data-preview">
+        <p>基于资料版本 {String(payload.expectedRevision)}；未列出的栏目保持原样。</p>
+        {changes.map((change) => (
+          <article key={String(change.key)}>
+            <strong>
+              {change.operation === "delete" ? "删除" : "保存"}：{String(change.key)}
+            </strong>
+            {before.some((entry) => entry.key === change.key) ? (
+              <details>
+                <summary>原内容</summary>
+                <pre>{JSON.stringify(before.find((entry) => entry.key === change.key)?.content, null, 2)}</pre>
+              </details>
+            ) : (
+              <small>新增栏目</small>
+            )}
+            {change.operation !== "delete" ? <pre>{JSON.stringify(change.content, null, 2)}</pre> : null}
+            {change.sourceChapterId ? <p>来源章节：{String(change.sourceChapterId)}</p> : null}
+            {Array.isArray(change.sources)
+              ? change.sources.filter(isRecord).map((source, index) => (
+                  <blockquote key={index}>
+                    [{String(source.chapterId)}] {String(source.excerpt)}
+                  </blockquote>
+                ))
+              : null}
+          </article>
+        ))}
+      </div>
+    );
+  }
   if (proposal.entityType === "scene") {
     return <ScenePreview payload={payload} />;
   }
