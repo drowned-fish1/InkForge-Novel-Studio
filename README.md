@@ -39,6 +39,8 @@
 > [!IMPORTANT]
 > InkForge is currently a **v1.0 release candidate**. The application is usable and covered by automated tests, but public Windows builds are unsigned and may trigger SmartScreen. See [release status](#project-status).
 
+Download the latest Windows installer from the [v1.0.0-rc.5 prerelease](https://github.com/drowned-fish1/InkForge-Novel-Studio/releases/tag/v1.0.0-rc.5). That release includes newer features than this default-branch source snapshot; check out its matching tag to build RC5 from source.
+
 ## Why InkForge
 
 | Your work stays yours                                                                                                                          | AI stays under control                                                                                                   | One workspace for a whole novel                                                                                                                |

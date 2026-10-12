@@ -39,6 +39,8 @@
 > [!IMPORTANT]
 > InkForge 当前处于 **v1.0 候选发布阶段**。应用已可使用并有自动化测试覆盖，但公开 Windows 构建尚未签名，可能触发 SmartScreen。详情见[项目状态](#项目状态)。
 
+最新 Windows 安装包见 [v1.0.0-rc.5 预发布页](https://github.com/drowned-fish1/InkForge-Novel-Studio/releases/tag/v1.0.0-rc.5)。该发布包含比当前默认分支源码更新的功能；如需从源码构建 RC5，请切换到对应标签。
+
 ## 为什么是 InkForge
 
 | 作品始终属于你                                                                               | AI 始终受你控制                                                                        | 一处管理整部长篇                                                             |
