@@ -2,10 +2,14 @@
   <img src="./apps/desktop/build/icon.png" width="88" alt="InkForge logo" />
 </p>
 
-<h1 align="center">InkForge Local Novel Studio</h1>
+<h1 align="center">InkForge — AI Novel Writing Software · 小说工坊</h1>
 
 <p align="center">
-  A local-first AI writing cockpit for novelists who want assistance without giving up authorship or control of their drafts.
+  Open-source, local-first novel writing software with an AI writing assistant, story planning, worldbuilding, a Markdown editor, and EPUB export.
+</p>
+
+<p align="center">
+  开源、本地优先的 AI 小说写作工具：管理小说大纲、人物与世界观，辅助续写和修订，导出 EPUB 电子书。
 </p>
 
 <p align="center">
@@ -44,6 +48,14 @@ Windows users can download the installer and verify its SHA-256 from the [v1.0.0
 | Chapters, outlines, story data, history, and backups live in a folder you choose. Core writing workflows do not require an account or API key. | Agent writes are proposals: preview the diff, accept or reject it, trace what happened, and roll back confirmed changes. | Draft, plan, inspect continuity, manage story entities, revise across chapters, back up, and export without stitching together separate tools. |
 
 InkForge is deliberately built for **solo long-form fiction**. It does not include accounts, cloud sync, billing, ads, or team permissions.
+
+Use InkForge for:
+
+- **Novel writing and creative writing:** draft chapters, outline a book, track writing progress, and revise a long-form manuscript.
+- **Story planning and worldbuilding:** keep character profiles, relationships, timelines, clues, and fictional settings beside your prose.
+- **AI-assisted writing and ebook publishing:** connect Ollama or an OpenAI-compatible model for optional assistance, then export Markdown, TXT, DOCX, or EPUB.
+
+Core writing works offline without an AI provider. AI tasks need a reachable model service; that can be a local Ollama server or a remote provider.
 
 ## Product tour
 

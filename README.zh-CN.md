@@ -2,10 +2,14 @@
   <img src="./apps/desktop/build/icon.png" width="88" alt="InkForge 标志" />
 </p>
 
-<h1 align="center">InkForge 小说工坊</h1>
+<h1 align="center">InkForge 小说工坊 — 开源 AI 小说写作工具</h1>
 
 <p align="center">
-  面向小说作者的本地优先 AI 创作驾驶舱：让 AI 参与工作，但不交出作品、数据与最终决定权。
+  本地优先的开源小说写作软件，整合 AI 写作助手、小说大纲、人物设定、世界观管理、Markdown 编辑与 EPUB 电子书导出。
+</p>
+
+<p align="center">
+  Open-source, local-first novel writing software with optional AI assistance and ebook export.
 </p>
 
 <p align="center">
@@ -44,6 +48,14 @@ Windows 用户可从 [v1.0.0-rc.5 发布页](https://github.com/drowned-fish1/In
 | 章节、大纲、故事资料、历史与备份都保存在你选择的文件夹中。核心写作流程不需要账号或 API Key。 | Agent 写入只会生成提案：先看差异，再接受或拒绝；操作过程可追踪，确认后的修改也可回滚。 | 写作、规划、连续性检查、资料管理、跨章修订、备份和交付不再散落在多个工具里。 |
 
 InkForge 专注于**个人长篇小说创作**，有意不加入账号、云同步、付费系统、广告与团队权限。
+
+你可以用 InkForge 完成：
+
+- **小说写作与网文创作：**撰写章节、规划整书大纲、跟踪写作进度，并修订长篇稿件。
+- **人物设定与世界观管理：**把人物卡、人物关系、时间线、伏笔和故事背景放在正文旁，减少资料来回查找。
+- **AI 辅助写作与电子书制作：**连接 Ollama 或 OpenAI 兼容模型辅助续写和修订，导出 Markdown、TXT、DOCX 或 EPUB。
+
+核心写作功能可离线使用，不需要配置模型。AI 任务需要可访问的模型服务，可以使用本地 Ollama，也可以连接远程 Provider。
 
 ## 产品一览
 
