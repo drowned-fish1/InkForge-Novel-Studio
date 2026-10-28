@@ -43,5 +43,8 @@
   },
   "sideEffects": [
     "*.css"
-  ]
+  ],
+  "overrides": {
+    "zod": "4.6.7"
+  }
 }
