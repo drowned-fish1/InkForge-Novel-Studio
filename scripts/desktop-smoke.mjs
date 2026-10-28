@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { strFromU8, unzipSync } from "fflate";
@@ -10,11 +10,15 @@ const root = await mkdtemp(path.join(os.tmpdir(), "inkforge-desktop-smoke-"));
 const userData = path.join(root, "user-data");
 process.env.INKFORGE_SMOKE_USER_DATA = userData;
 process.env.INKFORGE_SMOKE_OPEN_DIALOG_PATH = root;
+process.env.INKFORGE_DISABLE_AUTOMATIC_BACKUP = "1";
 
 await import("../apps/desktop/dist-electron/main.js");
 await new Promise((resolve) => setTimeout(resolve, 0));
 
 try {
+  const updateStatus = await __electronMock.invoke("updates:status");
+  assert.equal(updateStatus.phase, "disabled");
+  assert.equal(await __electronMock.invoke("updates:install"), false);
   const project = await __electronMock.invoke("project:create", {
     title: "SmokeNovel",
     author: "Smoke Tester",
@@ -26,8 +30,21 @@ try {
   });
   assert.ok(project?.projectPath, "project:create IPC should return a project");
   const firstChapter = project.outline.volumes[0].chapters[0];
-  const chapterText =
-    '# Smoke Chapter\n\nThe editor saves durable chapter text.\n\n---\n\n<script src="https://example.invalid/evil.js"></script>\n';
+  await mkdir(path.join(project.projectPath, "assets"), { recursive: true });
+  await writeFile(
+    path.join(project.projectPath, "assets", "smoke.png"),
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64"
+    )
+  );
+  const smokeImageSource = path
+    .relative(
+      path.dirname(path.join(project.projectPath, firstChapter.file)),
+      path.join(project.projectPath, "assets", "smoke.png")
+    )
+    .replaceAll(path.sep, "/");
+  const chapterText = `# Smoke Chapter\n\nThe editor saves durable chapter text.\n\n![Smoke diagram](${smokeImageSource})\n\n---\n\n<script src="https://example.invalid/evil.js"></script>\n`;
   await __electronMock.invoke("chapter:save", {
     projectPath: project.projectPath,
     file: firstChapter.file,
@@ -64,6 +81,13 @@ try {
     });
     assert.ok(exportPath, `${format} export should return a path`);
     assert.ok((await stat(exportPath)).size > 0, `${format} export should write a non-empty file`);
+    if (format === "docx") {
+      const archive = unzipSync(await readFile(exportPath));
+      assert.ok(
+        Object.keys(archive).some((name) => name.startsWith("word/media/")),
+        "DOCX should embed a referenced project image"
+      );
+    }
     if (format === "epub") {
       const epub = await readFile(exportPath);
       assert.equal(epub.subarray(30, 38).toString("utf8"), "mimetype");
@@ -75,6 +99,8 @@ try {
         .join("\n");
       assert.match(sections, /<hr \/>/u);
       assert.doesNotMatch(sections, /<script\b/iu);
+      assert.ok(archive["OEBPS/images/body-image-1.png"], "EPUB should embed a referenced project image");
+      assert.match(sections, /src="\.\.\/images\/body-image-1\.png"/u);
     }
   }
 
@@ -261,6 +287,7 @@ try {
         projectPath: project.projectPath,
         checked: [
           "register and invoke desktop IPC handlers",
+          "safe disabled-state update IPC",
           "create project",
           "write and reopen chapter",
           "chapter save history + aggregated overview",

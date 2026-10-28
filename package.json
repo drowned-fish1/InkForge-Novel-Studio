@@ -1,6 +1,6 @@
 {
   "name": "inkforge-local-novel-studio",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.5",
   "private": true,
   "description": "Local-first AI novel writing cockpit for solo authors.",
   "license": "MIT",
@@ -23,8 +23,11 @@
     "format": "prettier --write .",
     "test": "vitest run --exclude apps/desktop/dist-electron/** --exclude apps/desktop/dist/**",
     "test:desktop-smoke": "npm run build && node --import ./scripts/register-mock-electron.mjs ./scripts/desktop-smoke.mjs",
+    "check:promo": "npm --prefix promo-video run format:check && npm --prefix promo-video run lint && npm --prefix promo-video audit --omit=dev --audit-level=high && npm --prefix promo-video run build",
     "pack:desktop": "npm run build:packages && npm --workspace @inkforge/desktop run pack",
     "dist:windows": "npm run build:packages && npm --workspace @inkforge/desktop run dist",
+    "dist:mac": "npm run build:packages && npm --workspace @inkforge/desktop run dist:mac",
+    "dist:linux": "npm run build:packages && npm --workspace @inkforge/desktop run dist:linux",
     "perf:probe": "npm run build && node --import ./scripts/register-mock-electron.mjs ./scripts/perf-probe.mjs",
     "perf:probe:long": "npm run build && cross-env PERF_VOLUMES=10 PERF_CHAPTERS_PER_VOLUME=200 PERF_CHARS_PER_CHAPTER=3500 node --import ./scripts/register-mock-electron.mjs ./scripts/perf-probe.mjs"
   },

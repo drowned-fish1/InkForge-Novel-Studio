@@ -3,14 +3,6 @@ import type { ChapterPlan } from "@inkforge/schemas";
 import { useOutlineStore } from "@/stores/useOutlineStore";
 import { useProjectStore } from "@/stores/useProjectStore";
 
-const statusColors: Record<ChapterPlan["status"], string> = {
-  unplanned: "#94a3b8",
-  planned: "#3b82f6",
-  drafting: "#f59e0b",
-  revising: "#f97316",
-  done: "#22c55e"
-};
-
 const statusLabels: Record<ChapterPlan["status"], string> = {
   unplanned: "未规划",
   planned: "已规划",
@@ -56,14 +48,17 @@ export const ChapterCard = ({ chapter, volumeId }: ChapterCardProps) => {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="card-header" onClick={() => setExpandedChapter(isExpanded ? null : chapter.id)}>
+      <button
+        className="card-header"
+        type="button"
+        aria-expanded={isExpanded}
+        onClick={() => setExpandedChapter(isExpanded ? null : chapter.id)}
+      >
         <GripVertical size={14} className="drag-handle" />
         <span className="chapter-number">#{chapter.number}</span>
         <span className="chapter-title">{chapter.title}</span>
-        <span className="status-badge" style={{ backgroundColor: statusColors[chapter.status] }}>
-          {statusLabels[chapter.status]}
-        </span>
-      </div>
+        <span className={`status-badge ${chapter.status}`}>{statusLabels[chapter.status]}</span>
+      </button>
 
       <div className="card-body">
         <div className="word-count">

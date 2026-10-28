@@ -1,5 +1,5 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { EditorState, StateEffect, StateField, Compartment, RangeSetBuilder, Prec } from "@codemirror/state";
+import { forwardRef, useEffect, useLayoutEffect, useImperativeHandle, useRef } from "react";
+import { StateEffect, StateField, Compartment, RangeSetBuilder, Prec } from "@codemirror/state";
 import {
   EditorView,
   Decoration,
@@ -11,6 +11,8 @@ import {
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { readEditorScrollSnapshot, rememberEditorState, restoreEditorState } from "@/lib/editorSessionCache";
+import { readChapterPosition, rememberChapterPosition } from "@/lib/writingContinuity";
 
 export interface EditorMark {
   id: string;
@@ -34,6 +36,7 @@ export interface MarkdownCodeEditorHandle {
 }
 
 interface MarkdownCodeEditorProps {
+  projectPath: string;
   chapterKey: string;
   value: string;
   placeholder?: string;
@@ -232,15 +235,23 @@ export const MarkdownCodeEditor = forwardRef<MarkdownCodeEditorHandle, MarkdownC
       }
     }));
 
-    useEffect(() => {
+    useLayoutEffect(() => {
       const container = containerRef.current;
       if (!container) {
         return;
       }
       const shortcutKeys = new Set(["b", "i", "f"]);
-      const state = EditorState.create({
-        doc: propsRef.current.value,
-        extensions: [
+      const projectPath = props.projectPath;
+      const chapterId = props.chapterKey;
+      const position = readChapterPosition(projectPath, chapterId);
+      const scrollSnapshot = readEditorScrollSnapshot(projectPath, chapterId, propsRef.current.value);
+      let lastScrollTop = position?.scrollTop ?? 0;
+      let lastScrollSnapshot: ReturnType<EditorView["scrollSnapshot"]> | undefined = scrollSnapshot;
+      const state = restoreEditorState(
+        projectPath,
+        chapterId,
+        propsRef.current.value,
+        [
           history(),
           lineNumbers(),
           EditorView.lineWrapping,
@@ -294,6 +305,7 @@ export const MarkdownCodeEditor = forwardRef<MarkdownCodeEditorHandle, MarkdownC
           keymap.of([...defaultKeymap, ...historyKeymap]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
+              lastScrollSnapshot = lastScrollSnapshot?.map(update.changes);
               propsRef.current.onChange(update.state.doc.toString());
             }
             if (update.selectionSet || update.docChanged) {
@@ -310,10 +322,51 @@ export const MarkdownCodeEditor = forwardRef<MarkdownCodeEditorHandle, MarkdownC
               }
             }
           })
-        ]
+        ],
+        position
+      );
+      const view = new EditorView({
+        state,
+        parent: container,
+        scrollTo:
+          scrollSnapshot ??
+          (position ? EditorView.scrollIntoView(state.selection.main.head, { y: "center" }) : undefined)
       });
-      const view = new EditorView({ state, parent: container });
       viewRef.current = view;
+      propsRef.current.onSelectionChange(view.state.selection.main.from, view.state.selection.main.to);
+      let checkpointTimer: number | undefined;
+      const recordViewport = () => {
+        if (view.scrollDOM.isConnected && view.scrollDOM.clientHeight > 0) {
+          lastScrollTop = view.scrollDOM.scrollTop;
+          lastScrollSnapshot = view.scrollSnapshot();
+        }
+      };
+      const persistPosition = () => {
+        const selection = view.state.selection.main;
+        rememberChapterPosition(projectPath, chapterId, {
+          anchor: selection.anchor,
+          head: selection.head,
+          scrollTop: lastScrollTop
+        });
+      };
+      const checkpoint = () => {
+        recordViewport();
+        persistPosition();
+      };
+      const scheduleCheckpoint = () => {
+        recordViewport();
+        window.clearTimeout(checkpointTimer);
+        checkpointTimer = window.setTimeout(checkpoint, 300);
+      };
+      view.scrollDOM.addEventListener("scroll", scheduleCheckpoint);
+      container.addEventListener("keyup", scheduleCheckpoint);
+      container.addEventListener("pointerup", scheduleCheckpoint);
+      document.addEventListener("pointerdown", checkpoint, true);
+      window.addEventListener("pagehide", checkpoint);
+      const onVisibilityChange = () => {
+        if (document.visibilityState === "hidden") checkpoint();
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
       // Keep editor shortcuts from reaching the global window handler
       // (Ctrl+B outside the editor toggles focus mode). The container sits on
       // the bubble path between the editor content and window, so stopping
@@ -329,13 +382,21 @@ export const MarkdownCodeEditor = forwardRef<MarkdownCodeEditorHandle, MarkdownC
         view.dispatch({ effects: setFindEffect.of(propsRef.current.find) });
       }
       return () => {
+        window.clearTimeout(checkpointTimer);
+        persistPosition();
+        rememberEditorState(projectPath, chapterId, view.state, lastScrollSnapshot);
+        view.scrollDOM.removeEventListener("scroll", scheduleCheckpoint);
+        container.removeEventListener("keyup", scheduleCheckpoint);
+        container.removeEventListener("pointerup", scheduleCheckpoint);
+        document.removeEventListener("pointerdown", checkpoint, true);
+        window.removeEventListener("pagehide", checkpoint);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
         container.removeEventListener("keydown", stopEditorShortcuts);
         view.destroy();
         viewRef.current = null;
       };
-      // The editor state is intentionally recreated per chapter so undo
-      // history never crosses chapter boundaries.
-    }, [props.chapterKey]);
+      // Recent chapters retain undo while each project/chapter has an isolated state.
+    }, [props.projectPath, props.chapterKey]);
 
     useEffect(() => {
       const view = viewRef.current;

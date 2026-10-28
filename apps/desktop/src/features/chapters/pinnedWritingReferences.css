@@ -1,0 +1,180 @@
+.editor-workspace {
+  container-type: inline-size;
+}
+.writing-editor-body {
+  display: grid;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 120px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+.writing-editor-body.has-pinned-reference {
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 300px);
+  gap: 10px;
+}
+.writing-editor-body > .markdown-editor-shell,
+.writing-editor-body > .markdown-preview {
+  min-height: 0;
+  min-width: 0;
+}
+.pinned-writing-references {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--accent-border-muted);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text);
+  overflow: hidden;
+  font-size: 12px;
+}
+.pinned-writing-references > header,
+.pinned-writing-references > header strong,
+.pinned-writing-references > header > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pinned-writing-references > header {
+  justify-content: space-between;
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.pinned-writing-references .icon-button {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+.pinned-reference-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px;
+  flex: 0 0 auto;
+}
+.pinned-reference-tabs > div {
+  display: flex;
+  align-items: center;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.pinned-reference-tabs > div.active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+.pinned-reference-tabs > div > button:first-child {
+  min-width: 0;
+  padding: 6px 8px;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.pinned-reference-tabs > div > button[aria-pressed="true"] {
+  color: var(--accent-text);
+}
+.pinned-reference-detail {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 14px 18px;
+}
+.writing-reference-card h3 {
+  font-size: 17px;
+  margin: 9px 0;
+  overflow-wrap: anywhere;
+}
+.writing-reference-card dl {
+  margin: 14px 0;
+}
+.writing-reference-card dl > div {
+  margin: 10px 0;
+}
+.writing-reference-card dt {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.writing-reference-card dd {
+  margin: 4px 0 0;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.writing-reference-card .muted,
+.writing-reference-kind,
+.writing-reference-state-note {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.writing-reference-state-note {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.pinned-reference-missing {
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.writing-reference-panel footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.writing-reference-panel footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.library-pin-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pin-writing-reference-action .secondary-button {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+.pin-writing-reference-action p {
+  max-width: 300px;
+  margin: 5px 0 0;
+}
+.writing-editor-body.has-pinned-reference.reference-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+.pinned-writing-references.collapsed > header {
+  border-bottom: 0;
+  padding: 4px 12px;
+}
+@container (max-width: 760px) {
+  .writing-editor-body.has-pinned-reference {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(120px, 1fr) minmax(130px, 36%);
+    gap: 6px;
+  }
+  .writing-editor-body.has-pinned-reference.reference-collapsed {
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .pinned-reference-tabs {
+    padding: 6px 10px;
+  }
+  .pinned-reference-detail {
+    padding: 0 12px 12px;
+  }
+  .pinned-writing-references > header {
+    padding: 5px 10px;
+  }
+}

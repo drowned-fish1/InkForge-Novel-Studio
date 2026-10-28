@@ -2,6 +2,19 @@ import type { WritingWorkspace } from "@inkforge/schemas";
 import { bridge } from "@/lib/browserBridge";
 
 const writingWorkspaceMutations = new Map<string, Promise<void>>();
+const listeners = new Set<(path: string, workspace: WritingWorkspace) => void>();
+
+export const subscribeWritingWorkspace = (listener: (path: string, workspace: WritingWorkspace) => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
+
+export const loadLatestWritingWorkspace = async (projectPath: string) => {
+  await writingWorkspaceMutations.get(projectPath);
+  return bridge.loadWritingWorkspace(projectPath);
+};
 
 /**
  * Serializes read-modify-write mutations of .inkforge/writing-workspace.json per
@@ -16,7 +29,9 @@ export const mutateWritingWorkspace = (
     .catch(() => undefined)
     .then(async () => {
       const latest = await bridge.loadWritingWorkspace(projectPath);
-      return bridge.saveWritingWorkspace(projectPath, update(latest));
+      const workspace = await bridge.saveWritingWorkspace(projectPath, update(latest));
+      listeners.forEach((listener) => listener(projectPath, workspace));
+      return workspace;
     });
   const settled = operation.then(
     () => undefined,

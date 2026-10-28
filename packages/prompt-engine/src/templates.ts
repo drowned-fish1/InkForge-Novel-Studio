@@ -3,6 +3,7 @@ import { actionTemplate } from "./templates/action.js";
 import { aiInspectTemplate } from "./templates/ai-inspect.js";
 import { chapterEndStateTemplate } from "./templates/chapter-end-state.js";
 import { characterStateTemplate } from "./templates/character-state.js";
+import { characterGenerateTemplate, characterNamesTemplate } from "./templates/character-generate.js";
 import { clueCheckTemplate } from "./templates/clue-check.js";
 import { continueTemplate } from "./templates/continue.js";
 import { decisionAnalyzeTemplate } from "./templates/decision-analyze.js";
@@ -29,6 +30,8 @@ export type PromptTask =
   | "next-goal"
   | "pacing"
   | "character-state"
+  | "character-generate"
+  | "character-names"
   | "clue-check"
   | "term-check"
   | "polish"
@@ -49,6 +52,8 @@ export const defaultPromptPartials = {
 } as const;
 
 export const taskInstructions: Record<PromptTask, string> = {
+  "character-generate": "按要求生成人物卡及可供选择的名字，输出 JSON。",
+  "character-names": "按要求生成人物名字候选、寓意和适配理由，输出 JSON。",
   continue: "Continue the current chapter and output Markdown prose that can be reviewed by the author.",
   expand: "Expand the recent prose with richer scene texture without changing established plot facts.",
   rewrite: "Rewrite the recent prose while preserving plot facts, improving rhythm and expression.",
@@ -77,6 +82,8 @@ export const taskInstructions: Record<PromptTask, string> = {
 };
 
 export const defaultPromptTemplates: Record<PromptTask, PromptTemplate> = {
+  "character-generate": characterGenerateTemplate,
+  "character-names": characterNamesTemplate,
   continue: continueTemplate,
   expand: expandTemplate,
   rewrite: rewriteTemplate,

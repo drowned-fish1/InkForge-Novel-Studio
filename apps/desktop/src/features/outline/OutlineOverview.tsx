@@ -29,13 +29,16 @@ export const OutlineOverview = () => {
           <textarea
             autoFocus
             defaultValue={outline.premise}
+            aria-label="编辑故事前提"
             onBlur={(e) => handleUpdate("premise", e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") setEditing(null);
             }}
           />
         ) : (
-          <p onClick={() => setEditing("premise")}>{outline.premise || "点击编辑前提..."}</p>
+          <button className="overview-edit" type="button" onClick={() => setEditing("premise")}>
+            {outline.premise || "点击编辑前提…"}
+          </button>
         )}
       </div>
 
@@ -48,13 +51,16 @@ export const OutlineOverview = () => {
           <textarea
             autoFocus
             defaultValue={outline.mainConflict}
+            aria-label="编辑主线冲突"
             onBlur={(e) => handleUpdate("mainConflict", e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") setEditing(null);
             }}
           />
         ) : (
-          <p onClick={() => setEditing("mainConflict")}>{outline.mainConflict || "点击编辑主线冲突..."}</p>
+          <button className="overview-edit" type="button" onClick={() => setEditing("mainConflict")}>
+            {outline.mainConflict || "点击编辑主线冲突…"}
+          </button>
         )}
       </div>
 
@@ -67,13 +73,16 @@ export const OutlineOverview = () => {
           <textarea
             autoFocus
             defaultValue={outline.endingDirection}
+            aria-label="编辑结局方向"
             onBlur={(e) => handleUpdate("endingDirection", e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") setEditing(null);
             }}
           />
         ) : (
-          <p onClick={() => setEditing("endingDirection")}>{outline.endingDirection || "点击编辑结局方向..."}</p>
+          <button className="overview-edit" type="button" onClick={() => setEditing("endingDirection")}>
+            {outline.endingDirection || "点击编辑结局方向…"}
+          </button>
         )}
       </div>
     </section>

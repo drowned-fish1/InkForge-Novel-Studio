@@ -92,6 +92,7 @@ export const useAiStore = create<AiState>((set, get) => {
             task,
             instruction,
             chapterTitle: current.plan.title,
+            chapterId: current.plan.id,
             chapterGoal: current.plan.goal,
             recentText: isDeepInspect ? "" : current.content.slice(-5000),
             characters: (isDeepInspect ? characters : characters.slice(0, 8)).map(
@@ -174,6 +175,7 @@ export const useAiStore = create<AiState>((set, get) => {
             task: entry.result.task,
             instruction: `Follow-up: ${instruction}\n\nPrevious output:\n${entry.result.text.slice(0, 3000)}`,
             chapterTitle: current.plan.title,
+            chapterId: current.plan.id,
             chapterGoal: current.plan.goal,
             recentText: current.content.slice(-3000),
             characters: characters

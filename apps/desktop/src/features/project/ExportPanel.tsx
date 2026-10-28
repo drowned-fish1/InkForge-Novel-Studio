@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useEditorGuard } from "@/lib/useEditorGuard";
 import {
   Archive,
   BookOpenText,
@@ -82,6 +83,10 @@ export const ExportPanel = () => {
   const [issues, setIssues] = useState<ExportPreflightIssue[] | undefined>();
   const [checking, setChecking] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [configNotice, setConfigNotice] = useState("");
+  const configRef = useRef(config);
+  configRef.current = config;
 
   useEffect(() => {
     if (!project) return;
@@ -91,26 +96,47 @@ export const ExportPanel = () => {
         setConfig(loaded);
         setConfigDirty(false);
       })
-      .catch(() => undefined);
+      .catch((error) => setStatus({ kind: "error", message: getErrorMessage(error) }));
     setIssues(undefined);
     setStatus({ kind: "idle" });
   }, [project?.projectPath]);
 
   const updateEpub = (patch: Partial<ExportConfig["epub"]>) => {
+    setConfigNotice("");
     setConfig((state) => ({ ...state, epub: { ...state.epub, ...patch } }));
     setConfigDirty(true);
   };
 
   const persistConfig = async (): Promise<ExportConfig | undefined> => {
     if (!project) return undefined;
-    const saved = await bridge.saveExportConfig(project.projectPath, config);
-    setConfig(saved);
-    setConfigDirty(false);
+    const snapshot = config;
+    const saved = await bridge.saveExportConfig(project.projectPath, snapshot);
+    if (configRef.current === snapshot) {
+      setConfig(saved);
+      setConfigDirty(false);
+    }
     return saved;
   };
 
+  const saveConfig = async () => {
+    if (savingConfig || runningFormat || checking) return;
+    setSavingConfig(true);
+    setConfigNotice("");
+    setStatus({ kind: "idle" });
+    try {
+      await persistConfig();
+      setConfigNotice("导出配置已保存。");
+    } catch (error) {
+      setStatus({ kind: "error", message: getErrorMessage(error) });
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+  useEditorGuard(configDirty, savingConfig || checking || Boolean(runningFormat), () => void saveConfig());
+
   const runPreflight = async () => {
     if (!project) return;
+    setStatus({ kind: "idle" });
     setChecking(true);
     try {
       await persistConfig();
@@ -155,11 +181,15 @@ export const ExportPanel = () => {
   };
 
   const chooseCover = async () => {
-    const filePath = await bridge.chooseCoverImage();
-    if (filePath) {
-      updateEpub({ coverImagePath: filePath });
-    } else if (!window.inkforge) {
-      setStatus({ kind: "error", message: "浏览器预览无法选择封面文件，请在桌面版设置。" });
+    try {
+      const filePath = await bridge.chooseCoverImage();
+      if (filePath) {
+        updateEpub({ coverImagePath: filePath });
+      } else if (!window.inkforge) {
+        setStatus({ kind: "error", message: "浏览器预览无法选择封面文件，请在桌面版设置。" });
+      }
+    } catch (error) {
+      setStatus({ kind: "error", message: getErrorMessage(error) });
     }
   };
 
@@ -210,7 +240,7 @@ export const ExportPanel = () => {
               <button
                 className={option.primary || option.format === "epub" ? "primary-button" : "secondary-button"}
                 type="button"
-                disabled={runningFormat !== null}
+                disabled={runningFormat !== null || checking || savingConfig}
                 onClick={() => void exportFormat(option.format)}
               >
                 <Icon size={16} className={running ? "spinning" : undefined} />
@@ -247,7 +277,7 @@ export const ExportPanel = () => {
         <button
           className="secondary-button compact"
           type="button"
-          disabled={checking}
+          disabled={checking || runningFormat !== null || savingConfig}
           onClick={() => void runPreflight()}
         >
           {checking ? <Loader2 className="spinning" size={14} /> : <FileSearch size={14} />}
@@ -258,12 +288,21 @@ export const ExportPanel = () => {
           {previewOpen ? "收起预览" : "导出预览"}
         </button>
         {configDirty ? (
-          <button className="secondary-button compact" type="button" onClick={() => void persistConfig()}>
+          <button
+            className="secondary-button compact"
+            type="button"
+            disabled={savingConfig || checking || runningFormat !== null}
+            onClick={() => void saveConfig()}
+          >
             <Save size={14} />
             保存配置
           </button>
         ) : null}
       </div>
+
+      <span className="editor-feedback" role="status">
+        {savingConfig ? "正在保存配置…" : configDirty ? "配置有未保存的修改 · Ctrl+S 保存配置" : configNotice}
+      </span>
 
       {previewOpen ? (
         <section className="export-preview">
@@ -446,7 +485,7 @@ export const ExportPanel = () => {
       ) : null}
       {status.kind === "cancelled" ? <div className="notice-banner">已取消导出。</div> : null}
       {status.kind === "error" ? (
-        <div className="error-banner compact">
+        <div className="error-banner compact" role="alert">
           <Download size={15} />
           {status.message}
         </div>

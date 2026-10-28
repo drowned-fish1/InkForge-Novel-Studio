@@ -1,9 +1,14 @@
+import { ReferencePicker } from "@/components/ReferencePicker";
+import { NameReferencePicker } from "@/components/NameReferencePicker";
+import { useReferenceOptions } from "@/lib/useReferenceOptions";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link2, Plus, Save, Search, Swords, Trash2 } from "lucide-react";
 import { findStoryReferences, type Conflict, type StoryReferenceHit } from "@inkforge/schemas";
 import { EntityDeleteDialog } from "@/features/library/EntityDeleteDialog";
 import { useLibraryStore } from "@/stores/useLibraryStore";
 import { useProjectStore } from "@/stores/useProjectStore";
+import { useEntityEditor } from "@/lib/useEntityEditor";
+import { EditorFeedback } from "@/components/EditorFeedback";
 
 const kindLabels: Record<Conflict["kind"], string> = {
   main: "主线冲突",
@@ -29,13 +34,8 @@ const sourceKindLabels: Record<StoryReferenceHit["sourceKind"], string> = {
   chapter: "章节"
 };
 
-const splitNames = (value: string): string[] =>
-  value
-    .split(/[,，]/u)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
 export const ConflictBoard = () => {
+  const options = useReferenceOptions();
   const project = useProjectStore((state) => state.project);
   const conflicts = useLibraryStore((state) => state.conflicts);
   const characters = useLibraryStore((state) => state.characters);
@@ -47,7 +47,15 @@ export const ConflictBoard = () => {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<Conflict["status"] | "all">("all");
   const [kindFilter, setKindFilter] = useState<Conflict["kind"] | "all">("all");
-  const [draft, setDraft] = useState<Conflict | undefined>();
+  const editor = useEntityEditor<Conflict>(undefined, conflicts, saveConflict, {
+    module: "conflicts",
+    resetFilters: () => {
+      setQuery("");
+      setKindFilter("all");
+      setStatusFilter("all");
+    }
+  });
+  const { draft, setDraft } = editor;
   const [deleting, setDeleting] = useState<Conflict | undefined>();
 
   const chapters = useMemo(
@@ -95,6 +103,10 @@ export const ConflictBoard = () => {
   }, [draft?.id, characters, worldEntries, timeline, clues, terms, conflicts, chapters, project]);
 
   const create = () => {
+    if (!editor.canLeave()) return;
+    setQuery("");
+    setKindFilter("all");
+    setStatusFilter("all");
     setDraft({
       id: `conflict_new_${Date.now()}`,
       title: "新冲突",
@@ -113,7 +125,7 @@ export const ConflictBoard = () => {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (draft) {
-      void saveConflict(draft);
+      void editor.save();
     }
   };
 
@@ -134,9 +146,18 @@ export const ConflictBoard = () => {
       <div className="draft-toolbar">
         <label>
           <Search size={15} />
-          <input value={query} placeholder="搜索冲突、各方或赌注" onChange={(event) => setQuery(event.target.value)} />
+          <input
+            aria-label="搜索冲突"
+            value={query}
+            placeholder="搜索冲突、各方或赌注"
+            onChange={(event) => setQuery(event.target.value)}
+          />
         </label>
-        <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}>
+        <select
+          aria-label="按冲突类型筛选"
+          value={kindFilter}
+          onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}
+        >
           <option value="all">全部类型</option>
           {Object.entries(kindLabels).map(([value, label]) => (
             <option key={value} value={value}>
@@ -144,7 +165,11 @@ export const ConflictBoard = () => {
             </option>
           ))}
         </select>
-        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+        <select
+          aria-label="按冲突状态筛选"
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+        >
           <option value="all">全部状态</option>
           {Object.entries(statusLabels).map(([value, label]) => (
             <option key={value} value={value}>
@@ -161,7 +186,9 @@ export const ConflictBoard = () => {
               className={draft?.id === conflict.id ? "selected" : ""}
               key={conflict.id}
               type="button"
-              onClick={() => setDraft(conflict)}
+              onClick={() => {
+                if (conflict.id !== draft?.id && editor.canLeave()) setDraft(conflict);
+              }}
             >
               <Swords size={17} />
               <span>
@@ -176,13 +203,17 @@ export const ConflictBoard = () => {
           {!filtered.length ? <div className="empty-list-hint">没有匹配的冲突。</div> : null}
         </aside>
 
-        <form className="library-editor" onSubmit={submit}>
+        <form className="library-editor" ref={editor.formRef} aria-busy={editor.busy} onSubmit={submit}>
           {draft ? (
             <>
               <div className="field-grid">
                 <label>
                   冲突名称
-                  <input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
+                  <input
+                    required
+                    value={draft.title}
+                    onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+                  />
                 </label>
                 <label>
                   类型
@@ -211,29 +242,31 @@ export const ConflictBoard = () => {
                   </select>
                 </label>
               </div>
-              <label>
-                冲突各方（逗号分隔）
-                <input
-                  value={draft.parties.join(", ")}
-                  placeholder="例如：林烬, 缉私队"
-                  onChange={(event) => setDraft({ ...draft, parties: splitNames(event.target.value) })}
-                />
-              </label>
+              <NameReferencePicker
+                key={`parties-${draft.id}`}
+                label="冲突各方"
+                options={options.parties}
+                names={draft.parties}
+                ids={draft.partyEntityIds}
+                onChange={(names, ids) => setDraft({ ...draft, parties: names, partyEntityIds: ids })}
+              />
               <div className="field-grid">
-                <label>
-                  涉及人物（逗号分隔）
-                  <input
-                    value={draft.relatedCharacters.join(", ")}
-                    onChange={(event) => setDraft({ ...draft, relatedCharacters: splitNames(event.target.value) })}
-                  />
-                </label>
-                <label>
-                  涉及势力（逗号分隔）
-                  <input
-                    value={draft.relatedFactions.join(", ")}
-                    onChange={(event) => setDraft({ ...draft, relatedFactions: splitNames(event.target.value) })}
-                  />
-                </label>
+                <NameReferencePicker
+                  key={`characters-${draft.id}`}
+                  label="涉及人物"
+                  options={options.characters}
+                  names={draft.relatedCharacters}
+                  ids={draft.relatedCharacterIds}
+                  onChange={(names, ids) => setDraft({ ...draft, relatedCharacters: names, relatedCharacterIds: ids })}
+                />
+                <NameReferencePicker
+                  key={`factions-${draft.id}`}
+                  label="涉及势力"
+                  options={options.factions}
+                  names={draft.relatedFactions}
+                  ids={draft.relatedFactionIds}
+                  onChange={(names, ids) => setDraft({ ...draft, relatedFactions: names, relatedFactionIds: ids })}
+                />
               </div>
               <label>
                 赌注 / 输赢后果
@@ -249,29 +282,14 @@ export const ConflictBoard = () => {
                   onChange={(event) => setDraft({ ...draft, summary: event.target.value })}
                 />
               </label>
-              <label>
-                关联章节
-                <div className="conflict-chapter-picker">
-                  {chapters.map((chapter) => (
-                    <label key={chapter.id} className="conflict-chapter-option">
-                      <input
-                        type="checkbox"
-                        checked={draft.chapterIds.includes(chapter.id)}
-                        onChange={(event) =>
-                          setDraft({
-                            ...draft,
-                            chapterIds: event.target.checked
-                              ? [...draft.chapterIds, chapter.id]
-                              : draft.chapterIds.filter((id) => id !== chapter.id)
-                          })
-                        }
-                      />
-                      <span>{chapter.title}</span>
-                    </label>
-                  ))}
-                  {!chapters.length ? <span className="muted">还没有章节。</span> : null}
-                </div>
-              </label>
+              <ReferencePicker
+                key={`chapters-${draft.id}`}
+                label="关联章节"
+                options={options.chapters}
+                multiple
+                value={draft.chapterIds}
+                onChange={(value) => setDraft({ ...draft, chapterIds: value })}
+              />
               {draft.chapterIds.length ? (
                 <p className="muted">已关联：{draft.chapterIds.map(chapterTitle).join("、")}</p>
               ) : null}
@@ -300,13 +318,19 @@ export const ConflictBoard = () => {
                 )}
               </section>
 
+              <EditorFeedback {...editor} />
               <div className="library-editor-actions">
-                <button className="primary-button" type="submit">
+                <button className="primary-button" type="submit" disabled={editor.busy}>
                   <Save size={17} />
                   保存冲突
                 </button>
                 {conflicts.some((item) => item.id === draft.id) ? (
-                  <button className="secondary-button danger" type="button" onClick={() => setDeleting(draft)}>
+                  <button
+                    className="secondary-button danger"
+                    type="button"
+                    disabled={editor.busy}
+                    onClick={() => setDeleting(draft)}
+                  >
                     <Trash2 size={15} />
                     删除
                   </button>

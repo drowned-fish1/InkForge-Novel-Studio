@@ -3,6 +3,7 @@ import { copyFile, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   AgentExtensionConfigSchema,
+  migrateProjectDataTools,
   BackupDiffSummarySchema,
   BackupInspectionSchema,
   BackupSettingsSchema,
@@ -19,7 +20,14 @@ import {
 } from "@inkforge/schemas";
 import { FileRepository } from "./FileRepository.js";
 
-const backupMetaFiles = ["project.novel.json", "outline.json", "timeline.json", "clues.json", "terms.json"];
+const backupMetaFiles = [
+  "project.novel.json",
+  "outline.json",
+  "timeline.json",
+  "clues.json",
+  "terms.json",
+  "project-data.json"
+];
 
 const safeStamp = (): string => new Date().toISOString().replace(/[:.]/gu, "-");
 
@@ -249,8 +257,11 @@ export class WorkspaceService {
   async loadWritingWorkspace(projectPath: string): Promise<WritingWorkspace> {
     try {
       return WritingWorkspaceSchema.parse(await this.files.readJson(this.writingWorkspacePath(projectPath)));
-    } catch {
-      return WritingWorkspaceSchema.parse({});
+    } catch (cause) {
+      if (isMissingFile(cause)) return WritingWorkspaceSchema.parse({});
+      throw new Error(
+        `写作记录文件无法读取，请检查 .inkforge/writing-workspace.json：${cause instanceof Error ? cause.message : String(cause)}`
+      );
     }
   }
 
@@ -262,14 +273,18 @@ export class WorkspaceService {
 
   async loadAgentExtensions(projectPath: string): Promise<AgentExtensionConfig> {
     try {
-      return AgentExtensionConfigSchema.parse(await this.files.readJson(this.agentExtensionsPath(projectPath)));
+      const config = AgentExtensionConfigSchema.parse(await this.files.readJson(this.agentExtensionsPath(projectPath)));
+      const migrated = migrateProjectDataTools(config);
+      if (config.projectDataToolsVersion !== 1)
+        await this.files.writeJsonAtomic(this.agentExtensionsPath(projectPath), migrated);
+      return migrated;
     } catch {
       return AgentExtensionConfigSchema.parse({});
     }
   }
 
   async saveAgentExtensions(projectPath: string, config: AgentExtensionConfig): Promise<AgentExtensionConfig> {
-    const parsed = AgentExtensionConfigSchema.parse(config);
+    const parsed = AgentExtensionConfigSchema.parse({ ...config, projectDataToolsVersion: 1 });
     await this.files.writeJsonAtomic(this.agentExtensionsPath(projectPath), parsed);
     return parsed;
   }

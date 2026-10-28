@@ -1,10 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChapterPlan } from "@inkforge/schemas";
 import type { ProjectSummary } from "../types/app";
 
 const bridgeMock = vi.hoisted(() => ({
   saveChapter: vi.fn(),
   readChapter: vi.fn(),
+  createChapter: vi.fn(),
+  openProject: vi.fn(),
+  listProjects: vi.fn(async () => []),
   listChapterHistory: vi.fn(async () => []),
   updateOutline: vi.fn()
 }));
@@ -16,6 +19,9 @@ vi.mock("@/lib/chapterContent", () => ({
 vi.mock("@/lib/textMetrics", () => ({
   countCjkAwareWords: (value: string) => value.length
 }));
+vi.mock("@/lib/editorActions", async () => await import("../lib/editorActions"));
+vi.mock("@/lib/searchNavigation", async () => await import("../lib/searchNavigation"));
+vi.mock("@/lib/writingContinuity", async () => await import("../lib/writingContinuity"));
 vi.mock("@/stores/useAiStore", () => ({
   useAiStore: { getState: () => ({ resetAi: vi.fn() }) }
 }));
@@ -138,5 +144,106 @@ describe("project store chapter saves", () => {
     await expect(useProjectStore.getState().reloadCurrentChapterFromDisk(chapter.id)).rejects.toThrow("仍有未保存内容");
     expect(bridgeMock.readChapter).not.toHaveBeenCalled();
     expect(useProjectStore.getState().current?.content).toBe("旧内容");
+  });
+});
+
+describe("project navigation protects active forms", () => {
+  beforeEach(() => {
+    bridgeMock.readChapter.mockReset();
+    bridgeMock.createChapter.mockReset();
+    useProjectStore.setState({
+      project,
+      current: { plan: chapter, content: "已保存内容" },
+      saveState: "saved",
+      selectedModule: "characters",
+      focusMode: false,
+      pendingEditorSelection: undefined,
+      pendingEntitySelection: undefined
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps the module, chapter and project when the active form rejects leaving", async () => {
+    const surface = new EventTarget();
+    surface.addEventListener("inkforge:before-editor-leave", (event) => event.preventDefault());
+    vi.stubGlobal("window", surface);
+    useProjectStore.getState().setSelectedModule("world");
+    useProjectStore.getState().setFocusMode(true);
+    await useProjectStore.getState().selectChapter({ ...chapter, id: "other" });
+    expect(await useProjectStore.getState().jumpToChapterOffset({ ...chapter, id: "other" }, 0, 2, "内容")).toBe(false);
+    expect(
+      useProjectStore
+        .getState()
+        .openEntitySearchResult(
+          { kind: "character", id: "another", title: "另一人物", offset: 0, matchLength: 0, snippet: "" },
+          "另一人物"
+        )
+    ).toBe(false);
+    await useProjectStore.getState().createChapter();
+    await useProjectStore.getState().closeProject();
+    expect(useProjectStore.getState().selectedModule).toBe("characters");
+    expect(useProjectStore.getState().focusMode).toBe(false);
+    expect(useProjectStore.getState().project).toBe(project);
+    expect(useProjectStore.getState().current?.plan.id).toBe(chapter.id);
+    expect(bridgeMock.readChapter).not.toHaveBeenCalled();
+    expect(bridgeMock.createChapter).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().pendingEditorSelection).toBeUndefined();
+    expect(useProjectStore.getState().pendingEntitySelection).toBeUndefined();
+  });
+
+  it("keeps unsaved active-chapter content while positioning a search match", async () => {
+    useProjectStore.setState({
+      selectedModule: "chapters",
+      saveState: "dirty",
+      selectedHistoryId: undefined,
+      current: { plan: chapter, content: "新输入前缀。车票出现了。" }
+    });
+    expect(await useProjectStore.getState().jumpToChapterOffset(chapter, 0, 2, "车票")).toBe(true);
+    expect(bridgeMock.readChapter).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().current?.content).toBe("新输入前缀。车票出现了。");
+    expect(useProjectStore.getState().saveState).toBe("dirty");
+    expect(useProjectStore.getState().pendingEditorSelection).toEqual({ chapterId: chapter.id, start: 6, end: 8 });
+  });
+
+  it("does not create a selection when the searched text has been removed", async () => {
+    useProjectStore.setState({ selectedModule: "chapters", selectedHistoryId: undefined });
+    expect(await useProjectStore.getState().jumpToChapterOffset(chapter, 0, 2, "已经删去")).toBe(false);
+    expect(useProjectStore.getState().pendingEditorSelection).toBeUndefined();
+    expect(useProjectStore.getState().error).toContain("重新搜索");
+  });
+
+  it("loads the new novel's content when both novels use the same chapter ID", async () => {
+    const other = { ...project, projectPath: "other-novel" };
+    bridgeMock.openProject.mockResolvedValue(other);
+    bridgeMock.readChapter.mockResolvedValue("另一部小说的正文");
+    await useProjectStore.getState().openProject("other-novel");
+    expect(bridgeMock.readChapter).toHaveBeenCalledWith("other-novel", chapter.file);
+    expect(useProjectStore.getState().current?.content).toBe("另一部小说的正文");
+    expect(useProjectStore.getState().project?.projectPath).toBe("other-novel");
+  });
+
+  it("opens the newly created chapter in an earlier volume instead of the last volume's old chapter", async () => {
+    const oldLast = { ...chapter, id: "ch-0002", number: 2, file: "last.md" };
+    const created = { ...chapter, id: "ch-new", number: 2, file: "new.md" };
+    const before = {
+      ...project,
+      outline: {
+        ...project.outline,
+        volumes: [project.outline.volumes[0], { ...project.outline.volumes[0], id: "vol-002", chapters: [oldLast] }]
+      }
+    };
+    const next = {
+      ...before,
+      outline: {
+        ...before.outline,
+        volumes: [{ ...before.outline.volumes[0], chapters: [chapter, created] }, before.outline.volumes[1]]
+      }
+    };
+    useProjectStore.setState({ project: before, selectedModule: "chapters" });
+    bridgeMock.createChapter.mockResolvedValue(next);
+    bridgeMock.readChapter.mockResolvedValue("");
+    await useProjectStore.getState().createChapter("vol-001");
+    expect(bridgeMock.readChapter).toHaveBeenCalledWith(project.projectPath, "new.md");
+    expect(useProjectStore.getState().current?.plan.id).toBe("ch-new");
   });
 });

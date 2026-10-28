@@ -45,6 +45,9 @@ export const QualityBaselineSchema = z.object({
 });
 
 export const StoryBranchSchema = z.object({
+  indexingError: z.string().optional(),
+  dataUpdateError: z.string().optional(),
+  updateProjectData: z.boolean().optional(),
   schemaVersion: z.literal("0.1.0").default("0.1.0"),
   id: z.string().min(1),
   chapterId: z.string().min(1),

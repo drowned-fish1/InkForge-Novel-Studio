@@ -6,6 +6,8 @@ const listeners = new Map();
 const sentMessages = [];
 
 export const app = {
+  isPackaged: false,
+  getVersion: () => "0.0.0-smoke",
   getPath: name => name === "userData"
     ? process.env.INKFORGE_SMOKE_USER_DATA || path.join(process.cwd(), "output", "smoke-user-data")
     : process.cwd(),

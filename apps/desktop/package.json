@@ -1,6 +1,6 @@
 {
   "name": "@inkforge/desktop",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.5",
   "private": true,
   "description": "InkForge local-first AI novel writing studio.",
   "author": "InkForge Contributors",
@@ -9,11 +9,13 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5273 --strictPort",
-    "build": "tsc -p tsconfig.electron.json && vite build",
+    "build": "node ../../scripts/write-manuscript-matrix-notices.mjs && tsc -p tsconfig.electron.json && node scripts/build-preload.mjs && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "desktop": "concurrently -k \"npm:dev\" \"wait-on http://127.0.0.1:5273 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5273 electron .\"",
     "pack": "npm run build && node scripts/package-windows.mjs --dir",
-    "dist": "npm run build && node scripts/package-windows.mjs"
+    "dist": "npm run build && node scripts/package-windows.mjs",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -27,11 +29,14 @@
     "@inkforge/schemas": "0.1.0",
     "@vitejs/plugin-react": "^5.1.1",
     "docx": "^9.6.1",
+    "electron-updater": "^6.8.9",
     "fflate": "^0.8.3",
     "fs-extra": "^11.3.5",
     "lucide-react": "^0.555.0",
+    "mammoth": "1.13.0",
     "marked": "^18.0.3",
     "react": "^19.2.0",
+    "react-data-grid": "7.0.0-beta.61",
     "react-dom": "^19.2.0",
     "scheduler": "^0.27.0",
     "yauzl": "^2.10.0",
@@ -44,6 +49,7 @@
     "@types/react-dom": "^19.2.3",
     "electron": "39.8.10",
     "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
     "vite": "^7.2.4"
   },
@@ -75,6 +81,23 @@
         }
       ],
       "artifactName": "InkForge-Novel-Studio-${version}-${arch}-Setup.${ext}"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "InkForge-Novel-Studio-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "category": "Office",
+      "executableName": "inkforge",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "InkForge-Novel-Studio-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

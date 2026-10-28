@@ -2,9 +2,11 @@ import { GripVertical, Link2, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useProjectStore } from "@/stores/useProjectStore";
 import { useWritingSessionStore } from "@/stores/useWritingSessionStore";
+import { useLibraryStore } from "@/stores/useLibraryStore";
 
 export const ScenePlanner = () => {
   const current = useProjectStore((state) => state.current);
+  const characters = useLibraryStore((state) => state.characters);
   const scenePlans = useWritingSessionStore((state) => state.scenePlans);
   const session = useWritingSessionStore((state) => state.session);
   const hydrateScenePlans = useWritingSessionStore((state) => state.hydrateScenePlans);
@@ -97,6 +99,51 @@ export const ScenePlanner = () => {
               onChange={(event) => updateScenePlan(activeScene.id, { location: event.target.value })}
             />
           </label>
+          <label>
+            视角人物
+            <select
+              value={activeScene.povCharacterId ?? ""}
+              onChange={(event) => updateScenePlan(activeScene.id, { povCharacterId: event.target.value || undefined })}
+            >
+              <option value="">未标注视角</option>
+              {activeScene.povCharacterId &&
+              !characters.some((character) => character.id === activeScene.povCharacterId) ? (
+                <option value={activeScene.povCharacterId}>失效 / 旧引用：{activeScene.povCharacterId}</option>
+              ) : null}
+              {characters.map((character) => (
+                <option key={character.id} value={character.id}>
+                  {character.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <fieldset className="scene-character-picker">
+            <legend>场景人物</legend>
+            {characters.length ? (
+              characters.map((character) => (
+                <label key={character.id}>
+                  <input
+                    type="checkbox"
+                    checked={
+                      activeScene.requiredCharacters.includes(character.id) ||
+                      activeScene.requiredCharacters.includes(character.name)
+                    }
+                    onChange={(event) => {
+                      const retained = activeScene.requiredCharacters.filter(
+                        (value) => value !== character.id && value !== character.name
+                      );
+                      updateScenePlan(activeScene.id, {
+                        requiredCharacters: event.target.checked ? [...retained, character.id] : retained
+                      });
+                    }}
+                  />
+                  {character.name}
+                </label>
+              ))
+            ) : (
+              <small>请先在人物库添加人物。</small>
+            )}
+          </fieldset>
           <label className="wide">
             目标
             <textarea

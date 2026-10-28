@@ -1,11 +1,15 @@
-import { randomUUID } from "node:crypto";
+import { ContinuationRunStore } from "./ContinuationRunStore.js";
+import { createHash, randomUUID } from "node:crypto";
+import { buildWriterMessages, prepareWriterRequest, type WriterRequestV1 } from "@inkforge/prompt-engine";
 import path from "node:path";
 import { ChapterContractSchema, EvidencePackSchema, type ChapterContract, type EvidencePack } from "@inkforge/schemas";
-import type { ChatCompletionMessage } from "@inkforge/ai-provider";
+import { completionBudget, type ProviderStatus, type ChatCompletionMessage } from "@inkforge/ai-provider";
 import { AiProviderService, type AgentCompletionInput, type AgentCompletionResult } from "./AiProviderService.js";
 import { BranchService } from "./BranchService.js";
 import { CanonStore } from "./CanonStore.js";
-import { ContextCompiler, renderEvidencePack } from "./ContextCompiler.js";
+import { ContextCompiler } from "./ContextCompiler.js";
+import { LogicReviewService, LogicReviewIntegrityError, type LogicReviewResult } from "./LogicReviewService.js";
+import { WorkspaceService } from "./WorkspaceService.js";
 import { ContinuationValidator, type ContinuationValidationReport } from "./ContinuationValidator.js";
 import { FileRepository } from "./FileRepository.js";
 import { HybridRetriever } from "./HybridRetriever.js";
@@ -21,6 +25,8 @@ export type ContinuationRunPhase =
   | "evidence-compiled"
   | "generating"
   | "draft-generated"
+  | "editing"
+  | "verifying"
   | "branch-created"
   | "validated"
   | "completed"
@@ -61,11 +67,25 @@ export interface ContinuationRun {
   usage?: ContinuationUsage;
   model?: string;
   error?: string;
+  writerRequest?: WriterRequestV1;
+  writerMessages?: ChatCompletionMessage[];
+  originalDraft?: string;
+  logicReview?: LogicReviewResult;
+  logicReviewEnabled?: boolean;
+  allowCompression?: boolean;
+  updateProjectData?: boolean;
+  appliedAt?: string;
+  snapshotId?: string;
+  postAcceptWarning?: string;
+  baseContentHash?: string;
+  writerTelemetry?: AgentCompletionResult["telemetry"];
+  metrics?: { durationMs: number; originalParagraphRetention: number; estimatedCost?: number };
   createdAt: string;
   updatedAt: string;
 }
 
 export interface ContinuationRunInput {
+  allowCompression?: boolean;
   projectPath: string;
   chapterId: string;
   contract: ChapterContract;
@@ -80,9 +100,13 @@ export interface ContinuationRunInput {
   useEditorModel?: boolean;
   branchName?: string;
   branchDescription?: string;
+  logicReview?: boolean;
+  updateProjectData?: boolean;
+  yolo?: boolean;
 }
 
 export interface ContinuationRetryInput {
+  allowCompression?: boolean;
   instruction?: string;
   tokenBudget?: number;
   retrievalLimit?: number;
@@ -111,6 +135,7 @@ export interface ContinuationRunResult {
 }
 
 export interface ContinuationProvider {
+  getStatus?(): Promise<ProviderStatus>;
   runAgentCompletion(
     input: AgentCompletionInput,
     onDelta?: (delta: { type: "text" | "reasoning"; content: string }) => void
@@ -122,35 +147,33 @@ export interface ContinuationOrchestratorDependencies {
   files?: FileRepository;
   projects?: ProjectService;
   provider?: ContinuationProvider;
-  branches?: Pick<BranchService, "create">;
+  branches?: Pick<BranchService, "create"> & Partial<Pick<BranchService, "apply">>;
   compiler?: Pick<ContextCompiler, "compile">;
   validator?: Pick<ContinuationValidator, "validate">;
   styles?: Pick<StyleProfileService, "load" | "evaluateText">;
 }
 
-const continuationRunsFile = path.posix.join(".inkforge", "continuation", "runs.json");
-const maxStoredRuns = 100;
-
 /**
  * Coordinates the long-form continuation pipeline.  Every externally visible
  * stage is persisted before the next one begins.  Generated prose is always
- * placed in a StoryBranch; the source chapter is never written by this class.
+ * placed in a StoryBranch; YOLO may apply a validated branch with a backup.
  */
 export class ContinuationOrchestrator {
   private readonly files: FileRepository;
   private readonly projects: ProjectService;
   /** Constructed lazily so list/get can be used by a headless recovery process. */
   private provider?: ContinuationProvider;
-  private readonly branches: Pick<BranchService, "create">;
+  private readonly branches: Pick<BranchService, "create"> & Partial<Pick<BranchService, "apply">>;
   private readonly compiler: Pick<ContextCompiler, "compile">;
   private readonly validator: Pick<ContinuationValidator, "validate">;
   private readonly styles: Pick<StyleProfileService, "load" | "evaluateText">;
   private readonly controls = new Map<string, { cancelled: boolean; requestId?: string }>();
-  private readonly mutationQueues = new Map<string, Promise<void>>();
+  private readonly store: ContinuationRunStore<ContinuationRun>;
 
   constructor(dependencies: ContinuationOrchestratorDependencies = {}) {
     this.files = dependencies.files ?? new FileRepository();
     this.projects = dependencies.projects ?? new ProjectService(this.files);
+    this.store = new ContinuationRunStore(this.files, parseRun);
     this.provider = dependencies.provider;
     this.branches = dependencies.branches ?? new BranchService(this.files, this.projects);
     this.compiler =
@@ -173,7 +196,7 @@ export class ContinuationOrchestrator {
   }
 
   async get(projectPath: string, runId: string): Promise<ContinuationRun | undefined> {
-    return (await this.readRuns(projectPath)).find((run) => run.id === runId);
+    return this.store.get(projectPath, runId);
   }
 
   /** Run a new continuation from evidence compilation through validation. */
@@ -194,6 +217,9 @@ export class ContinuationOrchestrator {
       chapterId,
       contract,
       instruction: input.instruction?.trim() ?? "",
+      logicReviewEnabled: input.logicReview !== false,
+      allowCompression: input.allowCompression === true,
+      updateProjectData: input.updateProjectData === true,
       status: "queued",
       checkpoint: { phase: "created", updatedAt: now },
       createdAt: now,
@@ -243,6 +269,15 @@ export class ContinuationOrchestrator {
       styleEvaluation: undefined,
       usage: undefined,
       model: undefined,
+      originalDraft: undefined,
+      logicReview: undefined,
+      writerRequest: undefined,
+      writerMessages: undefined,
+      writerTelemetry: undefined,
+      metrics: undefined,
+      appliedAt: undefined,
+      snapshotId: undefined,
+      postAcceptWarning: undefined,
       instruction: retryOptions.instruction?.trim() ?? previous.instruction,
       checkpoint: { phase: "created", updatedAt: now, message: "Retry requested." },
       updatedAt: now
@@ -260,6 +295,9 @@ export class ContinuationOrchestrator {
       maxOutputTokens: retryOptions.maxOutputTokens,
       modelOverride: retryOptions.modelOverride,
       useEditorModel: retryOptions.useEditorModel,
+      logicReview: previous.logicReviewEnabled,
+      allowCompression: retryOptions.allowCompression ?? previous.allowCompression,
+      updateProjectData: previous.updateProjectData,
       branchName: retryOptions.branchName,
       branchDescription: retryOptions.branchDescription
     };
@@ -301,6 +339,7 @@ export class ContinuationOrchestrator {
     await this.upsert(input.projectPath, current);
     try {
       this.assertNotCancelled(run.id);
+      const { chapterTitle, currentContent } = await this.readChapter(input.projectPath, input.chapterId);
       const evidencePack = EvidencePackSchema.parse(
         await this.compiler.compile({
           projectPath: input.projectPath,
@@ -319,39 +358,120 @@ export class ContinuationOrchestrator {
       await this.upsert(input.projectPath, current);
       this.assertNotCancelled(run.id);
 
-      const { chapterTitle, currentContent } = await this.readChapter(input.projectPath, input.chapterId);
+      if ((await this.readChapter(input.projectPath, input.chapterId)).currentContent !== currentContent)
+        throw new Error("上下文编译时正文已变化，请重新生成。");
+      const status = await this.getProvider().getStatus?.();
+      let inputBudget = input.tokenBudget;
+      if (status) {
+        const writer = completionBudget(status, input.useEditorModel ? "reviewer" : "writer", input.maxOutputTokens);
+        const limits = [inputBudget, writer.inputTokens];
+        if (input.logicReview !== false) {
+          const reviewer = completionBudget(status, "reviewer", 12000);
+          if (reviewer.inputTokens !== undefined) limits.push(reviewer.inputTokens - writer.outputTokens - 512);
+        }
+        const known = limits.filter((limit): limit is number => limit !== undefined);
+        inputBudget = known.length ? Math.min(...known) : undefined;
+      }
+      const writerRequest: WriterRequestV1 = prepareWriterRequest(
+        {
+          schemaVersion: "inkforge.writer.v1",
+          task: "continue_scene",
+          storyPosition: {
+            chapterId: input.chapterId,
+            sceneId: `${run.id}-scene`,
+            sourceCutoff: `${input.chapterId}:${currentContent.length}`
+          },
+          chapterContract: input.contract,
+          sceneContract: {
+            goal: input.contract.mustHappen.join("；") || input.contract.title || chapterTitle,
+            pov: input.contract.pov,
+            styleConstraints: []
+          },
+          evidencePack,
+          recentText: currentContent.slice(-3_600),
+          authorInstruction: input.instruction?.trim() || "承接前文继续本场景。",
+          outputConstraints: { proseOnly: true, preserveNames: true }
+        },
+        inputBudget
+      );
+      current = updateRun(current, { evidencePack: writerRequest.evidencePack });
+      const writerMessages = buildWriterMessages(writerRequest);
+      current = updateRun(current, {
+        writerRequest,
+        writerMessages,
+        baseContentHash: createHash("sha256").update(currentContent).digest("hex")
+      });
       current = updateRun(current, { checkpoint: { phase: "generating" } });
       await this.upsert(input.projectPath, current);
       const completion = await this.getProvider().runAgentCompletion(
         {
+          providerRole: input.useEditorModel ? "reviewer" : "writer",
           requestId: control.requestId,
-          messages: buildContinuationMessages({
-            chapterId: input.chapterId,
-            chapterTitle,
-            contract: input.contract,
-            instruction: input.instruction,
-            evidencePack
-          }),
+          messages: writerMessages,
           maxOutputTokens: input.maxOutputTokens,
           modelOverride: input.modelOverride,
-          useEditorModel: input.useEditorModel,
           toolChoice: "none"
         },
         undefined
       );
       this.assertNotCancelled(run.id);
-      const draft = extractDraft(completion);
+      let draft = extractDraft(completion);
       if (!draft) throw new Error("Provider returned an empty continuation draft.");
       const usage = normalizeUsage(completion, completion.model);
       current = updateRun(current, {
         status: "running",
         draft,
+        originalDraft: draft,
+        writerTelemetry: completion.telemetry,
         usage,
         model: completion.model,
         checkpoint: { phase: "draft-generated" }
       });
       await this.upsert(input.projectPath, current);
       this.assertNotCancelled(run.id);
+
+      let logicReview: LogicReviewResult | undefined;
+      if (input.logicReview !== false) {
+        logicReview = await new LogicReviewService(this.getProvider()).review({
+          draft,
+          allowCompression: input.allowCompression,
+          recentText: writerRequest.recentText,
+          instruction: input.instruction ?? "",
+          evidencePack: writerRequest.evidencePack,
+          requestId: control.requestId,
+          assertActive: () => this.assertNotCancelled(run.id),
+          onCheckpoint: async (phase, edit) => {
+            current = updateRun(current, {
+              checkpoint: { phase },
+              ...(edit ? { draft: (edit as { revisedText: string }).revisedText } : {})
+            });
+            await this.upsert(input.projectPath, current);
+          }
+        });
+        draft = logicReview.revisedText;
+        const calls = logicReview.calls;
+        current = updateRun(current, {
+          draft,
+          logicReview,
+          usage: {
+            ...usage,
+            promptTokens:
+              usage?.promptTokens !== undefined && calls.every((call) => call.usage?.prompt_tokens !== undefined)
+                ? usage.promptTokens + calls.reduce((sum, call) => sum + call.usage!.prompt_tokens!, 0)
+                : undefined,
+            completionTokens:
+              usage?.completionTokens !== undefined &&
+              calls.every((call) => call.usage?.completion_tokens !== undefined)
+                ? usage.completionTokens + calls.reduce((sum, call) => sum + call.usage!.completion_tokens!, 0)
+                : undefined,
+            totalTokens:
+              usage?.totalTokens !== undefined && calls.every((call) => call.usage?.total_tokens !== undefined)
+                ? usage.totalTokens + calls.reduce((sum, call) => sum + call.usage!.total_tokens!, 0)
+                : undefined
+          }
+        });
+        await this.upsert(input.projectPath, current);
+      }
 
       const branchContent = appendDraft(currentContent, draft);
       const branch = await this.branches.create({
@@ -364,6 +484,8 @@ export class ContinuationOrchestrator {
           input.branchDescription?.trim() ||
           `Generated by continuation run ${run.id}. The source chapter remains unchanged until author approval.`,
         content: branchContent,
+        updateProjectData: input.updateProjectData,
+        expectedBaseContent: currentContent,
         source: "agent"
       });
       current = updateRun(current, {
@@ -386,8 +508,44 @@ export class ContinuationOrchestrator {
         styleProfile,
         styleEvaluation
       });
+      if (logicReview && !logicReview.canApply) {
+        validation.canApply = false;
+        validation.hardFailures += 1;
+        validation.findings.push({
+          id: "logic-review-unresolved",
+          severity: "hard",
+          category: "canon",
+          title: "逻辑复核未通过",
+          detail:
+            [
+              ...logicReview.edit.unresolvedIssues,
+              ...logicReview.verification.unresolvedIssues,
+              ...logicReview.verification.findings
+                .filter((finding) => finding.severity === "hard")
+                .map((finding) => finding.detail)
+            ].join("；") || "独立复核未明确通过。"
+        });
+      }
       current = updateRun(current, {
         status: validation.canApply ? "completed" : "blocked",
+        metrics: {
+          durationMs: Date.now() - Date.parse(run.checkpoint.updatedAt),
+          originalParagraphRetention: (() => {
+            const paragraphs = (current.originalDraft ?? draft).split(/\n\s*\n/u).filter((value) => value.trim());
+            return paragraphs.length
+              ? paragraphs.filter((paragraph) => draft.includes(paragraph)).length / paragraphs.length
+              : 0;
+          })(),
+          estimatedCost: (() => {
+            const costs = [
+              completion.telemetry?.estimatedCost,
+              ...(logicReview?.calls.map((call) => call.telemetry?.estimatedCost) ?? [])
+            ];
+            return costs.every((cost) => cost !== undefined)
+              ? costs.reduce<number>((sum, cost) => sum + cost!, 0)
+              : undefined;
+          })()
+        },
         validation,
         styleEvaluation,
         checkpoint: {
@@ -398,14 +556,40 @@ export class ContinuationOrchestrator {
         }
       });
       await this.upsert(input.projectPath, current);
+      if (input.yolo && validation.canApply) {
+        this.assertNotCancelled(run.id);
+        const latest = await this.readChapter(input.projectPath, input.chapterId);
+        if (createHash("sha256").update(latest.currentContent).digest("hex") !== current.baseContentHash)
+          throw new Error("正文已变化，YOLO 写入已停止；分支保留供复核。");
+        if (!this.branches.apply) throw new Error("当前分支服务不支持自动应用。");
+        const snapshot = await new WorkspaceService(this.files).createBackup(
+          input.projectPath,
+          "manual",
+          `YOLO续写 ${run.id}`
+        );
+        current = updateRun(current, { snapshotId: snapshot.id });
+        await this.upsert(input.projectPath, current);
+        const applied = await this.branches.apply(input.projectPath, branch.id, true);
+        current = updateRun(current, {
+          appliedAt: new Date().toISOString(),
+          postAcceptWarning:
+            [
+              applied.indexingError && `索引更新失败：${applied.indexingError}`,
+              applied.dataUpdateError && `资料更新失败：${applied.dataUpdateError}`
+            ]
+              .filter(Boolean)
+              .join("；") || undefined
+        });
+        await this.upsert(input.projectPath, current);
+      }
       return this.toResult(current);
     } catch (error) {
       const cancelled = isCancelledError(error) || this.isCancelled(run.id);
       current = updateRun(current, {
-        status: cancelled ? "cancelled" : "failed",
+        status: cancelled ? "cancelled" : error instanceof LogicReviewIntegrityError ? "blocked" : "failed",
         error: cancelled ? "Continuation run cancelled by the author." : errorMessage(error),
         checkpoint: {
-          phase: cancelled ? "cancelled" : "failed",
+          phase: cancelled ? "cancelled" : error instanceof LogicReviewIntegrityError ? "blocked" : "failed",
           message: cancelled ? "Cancelled by the author." : errorMessage(error)
         }
       });
@@ -435,45 +619,11 @@ export class ContinuationOrchestrator {
     return run;
   }
 
-  private async readRuns(projectPath: string): Promise<ContinuationRun[]> {
-    try {
-      const raw = await this.files.readJson<unknown[]>(this.runPath(projectPath));
-      if (!Array.isArray(raw)) throw new Error("Invalid continuation run store.");
-      return raw.flatMap((item) => {
-        try {
-          return [parseRun(item)];
-        } catch {
-          return [];
-        }
-      });
-    } catch (error) {
-      if (isMissingFile(error)) return [];
-      throw error;
-    }
+  private readRuns(projectPath: string) {
+    return this.store.list(projectPath);
   }
-
-  private async upsert(projectPath: string, run: ContinuationRun): Promise<void> {
-    const key = path.resolve(projectPath);
-    const previous = this.mutationQueues.get(key) ?? Promise.resolve();
-    const operation = previous
-      .catch(() => undefined)
-      .then(async () => {
-        const existing = await this.readRuns(projectPath);
-        await this.files.writeJsonAtomic(
-          this.runPath(projectPath),
-          [run, ...existing.filter((item) => item.id !== run.id)].slice(0, maxStoredRuns)
-        );
-      });
-    this.mutationQueues.set(key, operation);
-    try {
-      await operation;
-    } finally {
-      if (this.mutationQueues.get(key) === operation) this.mutationQueues.delete(key);
-    }
-  }
-
-  private runPath(projectPath: string): string {
-    return this.files.assertInsideProject(projectPath, continuationRunsFile);
+  private upsert(projectPath: string, run: ContinuationRun) {
+    return this.store.save(projectPath, run);
   }
 
   private assertNotCancelled(runId: string): void {
@@ -545,41 +695,6 @@ const updateRun = (
   return parseRun({ ...run, ...rest, checkpoint, updatedAt: now });
 };
 
-const buildContinuationMessages = (input: {
-  chapterId: string;
-  chapterTitle: string;
-  contract: ChapterContract;
-  instruction: string | undefined;
-  evidencePack: EvidencePack;
-}): ChatCompletionMessage[] => {
-  const hardConstraintText = input.evidencePack.hardConstraints.length
-    ? input.evidencePack.hardConstraints
-        .map((fact) => `${fact.subjectId}.${fact.predicate}=${JSON.stringify(fact.objectValue)}`)
-        .join("; ")
-    : "（无额外锁定正典）";
-  const system = [
-    "You are the InkForge long-form continuation novelist.",
-    "Write only the requested Chinese novel prose. Do not output analysis, outlines, labels, markdown fences, or explanations.",
-    "The chapter contract and author-locked canon are hard constraints. Never contradict, silently retcon, or omit them.",
-    "Treat every excerpt in the evidence pack as source evidence: preserve its facts, chronology, character state, and terminology; do not invent an unsupported backstory.",
-    "Use the style exemplars as a voice baseline (rhythm, paragraphing, viewpoint, dialogue habits), while producing original text rather than copying passages.",
-    `Hard canon constraints: ${hardConstraintText}`
-  ].join("\n");
-  const user = [
-    `Chapter: ${input.chapterId} ${input.chapterTitle}`,
-    `Author instruction: ${input.instruction?.trim() || "Continue naturally from the current chapter state."}`,
-    "Return the continuation draft only.",
-    "## Evidence pack",
-    renderEvidencePack(input.evidencePack),
-    "## Contract (must satisfy every mustHappen/requiredBeat and avoid every forbidden item)",
-    JSON.stringify(input.contract, null, 2)
-  ].join("\n\n");
-  return [
-    { role: "system", content: system },
-    { role: "user", content: user }
-  ];
-};
-
 const extractDraft = (completion: AgentCompletionResult): string => completion.message.content?.trim() ?? "";
 
 const normalizeUsage = (completion: AgentCompletionResult, model?: string): ContinuationUsage | undefined => {
@@ -640,6 +755,8 @@ const continuationPhases = new Set<ContinuationRunPhase>([
   "evidence-compiled",
   "generating",
   "draft-generated",
+  "editing",
+  "verifying",
   "branch-created",
   "validated",
   "completed",
@@ -649,8 +766,6 @@ const continuationPhases = new Set<ContinuationRunPhase>([
 ]);
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-const isMissingFile = (error: unknown): boolean =>
-  typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "ENOENT";
 
 class ContinuationCancelledError extends Error {
   constructor() {

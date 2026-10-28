@@ -1,0 +1,50 @@
+{
+  "name": "promo-video",
+  "version": "1.0.0",
+  "description": "InkForge Local Novel Studio product promo",
+  "repository": {},
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@remotion/captions": "4.0.507",
+    "@remotion/cli": "4.0.507",
+    "@remotion/media": "4.0.507",
+    "@remotion/transitions": "4.0.507",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.507"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.507",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "globals": "^17.10.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion bundle",
+    "audio": "node scripts/generate-audio.mjs",
+    "audio:voiceover": "node scripts/generate-audio.mjs 34 public/audio/inkforge-promo-manbo-bed.wav",
+    "audio:longform": "node scripts/generate-audio.mjs 221 public/audio/inkforge-longform-bed.wav public/voiceover/manbo-longform/timeline.json",
+    "voiceover:manbo": "node scripts/generate-manbo-voiceover.mjs",
+    "voiceover:longform": "node scripts/generate-manbo-longform.mjs",
+    "render:promo": "remotion render InkForgePromo out/inkforge-github-promo.mp4 --codec=h264 --crf=16 --audio-codec=aac",
+    "render:voiceover": "remotion render InkForgePromoVoiceover out/inkforge-github-promo-manbo.mp4 --codec=h264 --crf=16 --audio-codec=aac",
+    "render:longform": "remotion render InkForgeLongformSoftAd out/inkforge-longform-soft-ad.mp4 --codec=h264 --crf=17 --audio-codec=aac",
+    "render:longform:voice-only": "remotion render InkForgeLongformSoftAd out/inkforge-longform-soft-ad-voice-only.mp4 --codec=h264 --crf=17 --audio-codec=aac",
+    "still:promo": "remotion still InkForgePromo out/preview.png --frame=632",
+    "upgrade": "remotion upgrade",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"*.{ts,mjs,json,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"*.{ts,mjs,json,md}\"",
+    "lint": "eslint src scripts && tsc"
+  },
+  "sideEffects": [
+    "*.css"
+  ],
+  "overrides": {
+    "zod": "4.6.7"
+  }
+}

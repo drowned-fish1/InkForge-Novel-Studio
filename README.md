@@ -19,8 +19,8 @@
 <p align="center">
   <a href="https://github.com/drowned-fish1/InkForge-Novel-Studio/actions/workflows/ci.yml"><img src="https://github.com/drowned-fish1/InkForge-Novel-Studio/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-0f766e" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/status-v1.0.0--rc.1-c58b3a" alt="v1.0.0 RC 1" />
-  <img src="https://img.shields.io/badge/platform-Windows-2563eb" alt="Windows" />
+  <img src="https://img.shields.io/badge/status-v1.0.0--rc.5-c58b3a" alt="v1.0.0 RC 5" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-2563eb" alt="Windows, macOS and Linux" />
 </p>
 
 <p align="center">
@@ -39,7 +39,7 @@
 > [!IMPORTANT]
 > InkForge is currently a **v1.0 release candidate**. The application is usable and covered by automated tests, but public Windows builds are unsigned and may trigger SmartScreen. See [release status](#project-status).
 
-Download the latest Windows installer from the [v1.0.0-rc.5 prerelease](https://github.com/drowned-fish1/InkForge-Novel-Studio/releases/tag/v1.0.0-rc.5). That release includes newer features than this default-branch source snapshot; check out its matching tag to build RC5 from source.
+Windows users can download the installer and verify its SHA-256 from the [v1.0.0-rc.5 release](https://github.com/drowned-fish1/InkForge-Novel-Studio/releases/tag/v1.0.0-rc.5).
 
 ## Why InkForge
 
@@ -71,15 +71,23 @@ Run deterministic local quality checks, compare chapter baselines, inspect conti
 
 ![InkForge manuscript quality review with dimension scores and history](./docs/assets/readme/quality-review.png)
 
+### Move an existing manuscript into a sustainable workflow
+
+Import DOCX, EPUB, Markdown, or Chinese text encodings, then correct volumes, chapters, and body text before creating the project. While writing, pin character/term/world references, inspect book-wide character, subplot, and POV matrices, and manage daily plans, release-ready stock, schedules, and publication history.
+
+### Make model roles and evidence explicit
+
+Use separate connections for prose writing, planning, review/editing, and tool agents. Attach selected manuscript passages to chat, pass continuation drafts through logic editing and independent review, and keep project-specific data changes tied to source excerpts and version checks. Writes remain author-confirmed unless project-scoped YOLO is explicitly enabled.
+
 ## What is included
 
-| Area           | Capabilities                                                                                                                                                                        |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Writing        | CodeMirror Markdown editor, chapter tree, focus and typewriter modes, find/replace, headings, annotations, revision marks, bookmarks, session statistics, and crash-recovery drafts |
-| Story planning | Volumes and outlines, characters, worldbuilding, locations, factions, events, timeline, clues, terms, conflicts, and bidirectional relationship views                               |
-| Revision       | Project-wide quality sweep, continuity and reference checks, centralized dispositions, proposal diffs, immutable quality baselines, and story branches                              |
-| Agent control  | OpenAI-compatible providers, multi-role Agent sessions, tool authorization, token and cost estimates, cancellation, trace history, templates, and proposal-only writes              |
-| Delivery       | Automatic snapshots, integrity verification, protected restore, Markdown/TXT/DOCX export, and validated EPUB 3 with cover, metadata, nested TOC, NCX, and typography options        |
+| Area           | Capabilities                                                                                                                                                     |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Writing        | DOCX/EPUB/Markdown/TXT migration, CodeMirror editor, pinned references, selection chat, daily plans, release-ready stock, and crash recovery                     |
+| Story planning | Volumes/outlines, characters and AI character cards, worldbuilding, events, timeline, clues, conflicts, relationship views, and character/subplot/POV matrices   |
+| Revision       | Project-wide quality and continuity checks, logic editing, independent review, centralized dispositions, proposal diffs, immutable baselines, and story branches |
+| Agent control  | Role-specific OpenAI-compatible providers, multi-agent sessions, tool authorization, source evidence, token/cost estimates, cancellation, traces, and proposals  |
+| Delivery       | Automatic snapshots, integrity verification, protected restore, serial-publication records, and Markdown/TXT/DOCX/EPUB 3 export                                  |
 
 The complete walkthrough lives in the [user guide](./docs/user-guide.md).
 
@@ -159,16 +167,16 @@ npm test
 npm run test:desktop-smoke
 ```
 
-The CI workflow runs the same gates on Windows and Ubuntu, then builds an unsigned Windows installer for manual verification.
+The CI workflow runs the same gates on Windows and Ubuntu, then builds Windows, macOS and Linux artifacts on matching native runners for manual verification.
 
 ## Project status
 
-InkForge is at `v1.0.0-rc.1`. Current intentional limitations:
+InkForge is at `v1.0.0-rc.5`. Current intentional limitations:
 
-- Windows is the only packaging target.
 - Public builds are unsigned until a code-signing certificate and update feed are available.
-- Browser preview uses reduced-fidelity backup and EPUB implementations; the Electron app contains the complete implementations.
-- Images referenced inside chapter Markdown are reported during export checks but are not embedded in exported manuscripts.
+- macOS/Linux artifacts are built on matching CI runners and cannot be runtime-verified from a Windows workstation.
+- Browser preview cannot read project-relative images and retains alt text; desktop exports embed project-contained PNG/JPG/GIF images.
+- Browser backup remains an in-memory demonstration; Electron provides checksummed disk snapshots and protected restore.
 
 See the [implementation status](./docs/v1-implementation-status.md) and [post-v1 candidates](./docs/roadmap-next.md) for the detailed record.
 

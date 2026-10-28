@@ -1,6 +1,8 @@
 import type { ExportInput } from "@/types/app";
+import { EpubExportConfigSchema } from "@inkforge/schemas";
 import { strToU8, zipSync, type Zippable } from "fflate";
-import { getProjectRecord } from "@/lib/browserStorage";
+import { marked, Renderer } from "marked";
+import { getProjectRecord } from "./browserStorage";
 
 type DocxModule = typeof import("docx");
 type DocumentInstance = InstanceType<DocxModule["Document"]>;
@@ -226,45 +228,167 @@ const downloadBlob = (blob: Blob, fileName: string): void => {
 };
 
 const escapeXml = (value: string): string =>
-  value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/"/gu, "&quot;");
+  value
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;")
+    .replace(/"/gu, "&quot;")
+    .replace(/'/gu, "&apos;");
 
-const buildBrowserEpub = (input: ExportInput, title: string, blocks: ExportBlock[]): Uint8Array => {
-  const metadata = input.epub ?? {
-    title,
-    author: "",
-    language: "zh-CN",
-    description: "",
-    cssTheme: "classic" as const
+const browserEpubMarkdownRenderer = (): Renderer => {
+  const renderer = new Renderer();
+  renderer.html = ({ text }) => escapeXml(text);
+  renderer.hr = () => "<hr />\n";
+  renderer.br = () => "<br />\n";
+  renderer.checkbox = ({ checked }) => (checked ? "☒ " : "☐ ");
+  renderer.image = ({ text }) => `<span class="image-alt">${escapeXml(text)}</span>`;
+  renderer.link = function ({ href, title, tokens }) {
+    const label = this.parser.parseInline(tokens);
+    const normalizedHref = href.trim();
+    if (!/^(?:https?:|mailto:|#)/iu.test(normalizedHref)) return label;
+    const titleAttribute = title ? ` title="${escapeXml(title)}"` : "";
+    return `<a href="${escapeXml(normalizedHref)}"${titleAttribute}>${label}</a>`;
   };
-  const sections = blocks.map((block, index) => ({
-    ...block,
-    id: `section-${index + 1}`,
-    file: `section-${index + 1}.xhtml`,
-    label: block.title || `章节 ${index + 1}`
-  }));
+  return renderer;
+};
+
+export const renderBrowserEpubMarkdown = (markdown: string): string =>
+  String(marked.parse(markdown, { async: false, renderer: browserEpubMarkdownRenderer() })).replace(
+    /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);)/giu,
+    "&amp;"
+  );
+
+const epubXhtml = (language: string, title: string, body: string): string =>
+  `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="${escapeXml(language)}">
+<head><title>${escapeXml(title)}</title><link rel="stylesheet" href="../styles/book.css"/></head>
+<body>${body}</body></html>`;
+
+export const buildBrowserEpub = (input: ExportInput, fallbackTitle: string): Uint8Array => {
+  const record = getProjectRecord(input.projectPath);
+  const metadata = EpubExportConfigSchema.parse({
+    title: fallbackTitle,
+    author: record.summary.meta.author,
+    ...input.epub
+  });
+  const language = metadata.language.trim() || "zh-CN";
+  const title = metadata.title.trim() || fallbackTitle;
+  const author = metadata.author.trim() || record.summary.meta.author;
+  const identifier = record.summary.meta.projectId || `inkforge-${safeFileName(title)}`;
+  const modified = record.summary.meta.updatedAt.replace(/\.\d{3}Z$/u, "Z");
+  type Section = {
+    id: string;
+    file: string;
+    label: string;
+    content: string;
+    inToc: boolean;
+    children?: Array<{ file: string; label: string }>;
+  };
+  const sections: Section[] = [];
+
+  if (metadata.publisher.trim() || metadata.copyright.trim()) {
+    const body = [
+      `<h2>${escapeXml(title)}</h2>`,
+      author ? `<p>作者：${escapeXml(author)}</p>` : "",
+      metadata.publisher.trim() ? `<p>出版：${escapeXml(metadata.publisher.trim())}</p>` : "",
+      metadata.copyright.trim() ? `<p>${escapeXml(metadata.copyright.trim())}</p>` : ""
+    ]
+      .filter(Boolean)
+      .join("\n");
+    sections.push({
+      id: "copyright-page",
+      file: "copyright.xhtml",
+      label: "版权信息",
+      inToc: true,
+      content: epubXhtml(language, "版权信息", `<section class="copyright-page">${body}</section>`)
+    });
+  }
+
+  const activeVolumes = record.summary.outline.volumes
+    .map((volume) => ({ ...volume, chapters: volume.chapters.filter((chapter) => !chapter.archived) }))
+    .filter((volume) => volume.chapters.length > 0);
+  activeVolumes.forEach((volume, volumeIndex) => {
+    const volumeLabel = volume.title.trim() || `第 ${volumeIndex + 1} 卷`;
+    const childLinks: Array<{ file: string; label: string }> = [];
+    let volumeSection: Section | undefined;
+    if (metadata.volumeTitlePages && activeVolumes.length > 1) {
+      volumeSection = {
+        id: `volume-${volumeIndex + 1}`,
+        file: `volume-${volumeIndex + 1}.xhtml`,
+        label: volumeLabel,
+        inToc: true,
+        children: childLinks,
+        content: epubXhtml(
+          language,
+          volumeLabel,
+          `<section class="volume-title"><h1>${escapeXml(volumeLabel)}</h1></section>`
+        )
+      };
+      sections.push(volumeSection);
+    }
+    volume.chapters.forEach((chapter, chapterIndex) => {
+      const fallbackLabel = `第 ${chapterIndex + 1} 章`;
+      const label = input.includeChapterTitles ? chapter.title.trim() || fallbackLabel : fallbackLabel;
+      const file = `v${volumeIndex + 1}-c${chapterIndex + 1}.xhtml`;
+      const body = stripLeadingMarkdownTitle(record.chapterBodies[chapter.file] ?? "");
+      const heading = input.includeChapterTitles ? `<h2>${escapeXml(label)}</h2>` : "";
+      sections.push({
+        id: `v${volumeIndex + 1}-c${chapterIndex + 1}`,
+        file,
+        label,
+        inToc: !volumeSection,
+        content: epubXhtml(language, label, `${heading}${renderBrowserEpubMarkdown(body)}`)
+      });
+      childLinks.push({ file, label });
+    });
+  });
+
+  let playOrder = 0;
+  const ncxPoint = (file: string, label: string, children = ""): string => {
+    playOrder += 1;
+    return `<navPoint id="np-${playOrder}" playOrder="${playOrder}"><navLabel><text>${escapeXml(label)}</text></navLabel><content src="text/${file}"/>${children}</navPoint>`;
+  };
+  const tocSections = sections.filter((section) => section.inToc);
+  const tocItems = tocSections
+    .map((section) => {
+      const children = section.children?.length
+        ? `<ol>${section.children.map((child) => `<li><a href="text/${child.file}">${escapeXml(child.label)}</a></li>`).join("")}</ol>`
+        : "";
+      return `<li><a href="text/${section.file}">${escapeXml(section.label)}</a>${children}</li>`;
+    })
+    .join("");
+  const ncxItems = tocSections
+    .map((section) =>
+      ncxPoint(
+        section.file,
+        section.label,
+        (section.children ?? []).map((child) => ncxPoint(child.file, child.label)).join("")
+      )
+    )
+    .join("");
+  const fontFamily = metadata.cssTheme === "modern" ? "system-ui,sans-serif" : "serif";
+  const headingAlign = metadata.cssTheme === "modern" ? "" : "text-align:center;";
+  const indent = metadata.paragraphIndent ? "text-indent:2em;" : "";
   const archive: Zippable = {
     mimetype: [strToU8("application/epub+zip"), { level: 0 }],
     "META-INF/container.xml": strToU8(
       '<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
     ),
-    "OEBPS/book.css": strToU8(
-      "body{font-family:serif;line-height:1.9;margin:7%}h1,h2{text-align:center}p{text-indent:2em}"
+    "OEBPS/styles/book.css": strToU8(
+      `body{font-family:${fontFamily};line-height:${metadata.lineHeight};margin:6%}h1,h2{${headingAlign}line-height:1.3}p{${indent}margin:.55em 0}.volume-title{display:flex;align-items:center;justify-content:center;min-height:70vh;text-align:center}.copyright-page{margin-top:35vh;text-align:center;color:#555}.image-alt{color:#666;font-style:italic}`
     ),
     "OEBPS/nav.xhtml": strToU8(
-      `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>目录</title></head><body><nav epub:type="toc"><ol>${sections.map((item) => `<li><a href="text/${item.file}">${escapeXml(item.label)}</a></li>`).join("")}</ol></nav></body></html>`
+      `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${escapeXml(language)}"><head><title>目录</title><link rel="stylesheet" href="styles/book.css"/></head><body><nav epub:type="toc"><h1>目录</h1><ol>${tocItems}</ol></nav><nav epub:type="landmarks" hidden=""><ol><li><a epub:type="bodymatter" href="text/${sections.find((section) => section.id !== "copyright-page")?.file ?? sections[0]?.file ?? ""}">正文</a></li></ol></nav></body></html>`
+    ),
+    "OEBPS/toc.ncx": strToU8(
+      `<?xml version="1.0" encoding="UTF-8"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="${escapeXml(identifier)}"/><meta name="dtb:depth" content="2"/></head><docTitle><text>${escapeXml(title)}</text></docTitle><navMap>${ncxItems}</navMap></ncx>`
     ),
     "OEBPS/content.opf": strToU8(
-      `<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">inkforge-browser-export</dc:identifier><dc:title>${escapeXml(metadata.title)}</dc:title><dc:creator>${escapeXml(metadata.author)}</dc:creator><dc:language>${escapeXml(metadata.language)}</dc:language><dc:description>${escapeXml(metadata.description)}</dc:description><meta property="dcterms:modified">${new Date().toISOString().replace(/\.\d{3}Z$/u, "Z")}</meta></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="css" href="book.css" media-type="text/css"/>${sections.map((item) => `<item id="${item.id}" href="text/${item.file}" media-type="application/xhtml+xml"/>`).join("")}</manifest><spine>${sections.map((item) => `<itemref idref="${item.id}"/>`).join("")}</spine></package>`
+      `<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id" xml:lang="${escapeXml(language)}"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">${escapeXml(identifier)}</dc:identifier><dc:title>${escapeXml(title)}</dc:title><dc:creator>${escapeXml(author)}</dc:creator><dc:language>${escapeXml(language)}</dc:language><dc:description>${escapeXml(metadata.description)}</dc:description>${metadata.publisher.trim() ? `<dc:publisher>${escapeXml(metadata.publisher.trim())}</dc:publisher>` : ""}${metadata.copyright.trim() ? `<dc:rights>${escapeXml(metadata.copyright.trim())}</dc:rights>` : ""}<meta property="dcterms:modified">${modified}</meta></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="css" href="styles/book.css" media-type="text/css"/>${sections.map((item) => `<item id="${item.id}" href="text/${item.file}" media-type="application/xhtml+xml"/>`).join("")}</manifest><spine toc="ncx">${sections.map((item) => `<itemref idref="${item.id}"/>`).join("")}</spine></package>`
     )
   };
   sections.forEach((section) => {
-    const paragraphs = (section.body ?? "")
-      .split(/\n{2,}/u)
-      .map((paragraph) => `<p>${escapeXml(paragraph.replace(/^#+\s*/u, ""))}</p>`)
-      .join("");
-    archive[`OEBPS/text/${section.file}`] = strToU8(
-      `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${escapeXml(section.label)}</title><link rel="stylesheet" href="../book.css"/></head><body><h2>${escapeXml(section.label)}</h2>${paragraphs}</body></html>`
-    );
+    archive[`OEBPS/text/${section.file}`] = strToU8(section.content);
   });
   return zipSync(archive, { level: 6 });
 };
@@ -282,7 +406,7 @@ export const exportManuscriptInBrowser = async (input: ExportInput): Promise<str
   }
 
   if (input.format === "epub") {
-    const bytes = buildBrowserEpub(input, title, blocks);
+    const bytes = buildBrowserEpub(input, title);
     const arrayBuffer = new ArrayBuffer(bytes.byteLength);
     new Uint8Array(arrayBuffer).set(bytes);
     downloadBlob(new Blob([arrayBuffer], { type: "application/epub+zip" }), fileName);

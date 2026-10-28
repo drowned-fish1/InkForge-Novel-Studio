@@ -1,6 +1,10 @@
 import path from "node:path";
 import { createDefaultPromptTemplate, parsePromptTemplate, promptTemplateFileName } from "@inkforge/prompt-engine";
 import {
+  assertProviderRole,
+  assertCompletionFits,
+  providerRoleForTask,
+  type ProviderRole,
   authHeaders,
   buildPrompt,
   classifyProviderError,
@@ -20,6 +24,7 @@ import type {
 } from "../types.js";
 import { FileRepository } from "./FileRepository.js";
 import { SecureConfigService } from "./SecureConfigService.js";
+import { ProjectDataService } from "./ProjectDataService.js";
 
 const isMissingFile = (error: unknown): boolean =>
   typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "ENOENT";
@@ -40,6 +45,7 @@ export class EmptyAgentResponseError extends Error {
 }
 
 export interface AgentCompletionInput {
+  providerRole?: ProviderRole;
   requestId?: string;
   messages: ChatCompletionMessage[];
   tools?: ChatCompletionTool[];
@@ -50,6 +56,17 @@ export interface AgentCompletionInput {
 }
 
 export interface AgentCompletionResult {
+  telemetry?: {
+    estimatedInputTokens: number;
+    maxOutputTokens: number;
+    durationMs: number;
+    estimatedCost?: number;
+    modelRevision?: string;
+    tokenizerRevision?: string;
+    chatTemplateRevision?: string;
+    stop?: string[];
+    contextWindow?: number;
+  };
   message: ChatCompletionMessage;
   model: string;
   usage?: ChatCompletionResponse["usage"];
@@ -82,65 +99,85 @@ export class AiProviderService {
     return providerPresets.map((preset) => ({ ...preset, expectedCapabilities: { ...preset.expectedCapabilities } }));
   }
 
-  async probeProvider(): Promise<ProviderProbeResult> {
+  async probeProvider(role?: ProviderRole): Promise<ProviderProbeResult> {
+    assertProviderRole(role);
     const startedAt = Date.now();
     const checkedAt = new Date().toISOString();
+    let model: string | undefined;
+    let modelReachable = false;
     try {
-      const provider = await this.secureConfig.getProvider();
-      if (provider.authMode !== "none" && !provider.apiKey) {
-        throw new Error("Provider has no API key configured.");
+      const provider = await this.secureConfig.getProvider(role);
+      model = provider.model;
+      if (provider.authMode !== "none" && !provider.apiKey) throw new Error("Provider has no API key configured.");
+      const signal = AbortSignal.timeout(30_000);
+      const request = async (tools = false) => {
+        const response = await fetch(completionsUrl(provider.baseUrl), {
+          method: "POST",
+          signal,
+          headers: { "content-type": "application/json", ...authHeaders(provider.authMode, provider.apiKey) },
+          body: JSON.stringify({
+            model: provider.model,
+            temperature: 0,
+            max_tokens: Math.min(provider.maxTokens, tools ? 256 : 64),
+            stream: false,
+            messages: [{ role: "user", content: tools ? "Call the capability_probe tool." : "Reply with OK." }],
+            ...(tools
+              ? {
+                  tools: [
+                    {
+                      type: "function",
+                      function: {
+                        name: "capability_probe",
+                        description: "Return a compatibility probe.",
+                        parameters: { type: "object", properties: {} }
+                      }
+                    }
+                  ],
+                  tool_choice: "auto"
+                }
+              : {})
+          } satisfies ChatCompletionRequest)
+        });
+        const payload = (await response.json().catch(() => ({}))) as ChatCompletionResponse;
+        if (!response.ok) throw new Error(classifyProviderError(response.status, payload));
+        return payload;
+      };
+      const text = await request();
+      if (!text.choices?.[0]?.message?.content?.trim())
+        throw new Error("模型未返回有效文本，请检查输出额度或模型协议。");
+      modelReachable = true;
+      let toolCapable = false;
+      let toolMessage = "已按配置跳过工具探测。";
+      if (provider.supportsTools !== false) {
+        try {
+          const payload = await request(true);
+          toolCapable = Boolean(
+            payload.choices?.[0]?.message?.tool_calls?.some((call) => call.function?.name === "capability_probe")
+          );
+          toolMessage = toolCapable ? "工具调用已验证。" : "本次未返回工具调用。";
+        } catch {
+          toolMessage = "工具探测未通过，文本生成可用。";
+        }
       }
-      const response = await fetch(completionsUrl(provider.baseUrl), {
-        method: "POST",
-        signal: AbortSignal.timeout(20_000),
-        headers: {
-          "content-type": "application/json",
-          ...authHeaders(provider.authMode, provider.apiKey)
-        },
-        body: JSON.stringify({
-          model: provider.model,
-          temperature: 0,
-          max_tokens: 8,
-          stream: false,
-          messages: [{ role: "user", content: "Call the capability_probe tool." }],
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: "capability_probe",
-                description: "Return a provider compatibility probe.",
-                parameters: { type: "object", properties: {} }
-              }
-            }
-          ],
-          tool_choice: "auto"
-        } satisfies ChatCompletionRequest)
-      });
-      const payload = (await response.json().catch(() => ({}))) as ChatCompletionResponse;
-      if (!response.ok) {
-        throw new Error(classifyProviderError(response.status, payload));
-      }
-      const toolCapable = Boolean(payload.choices?.[0]?.message?.tool_calls?.length);
       return {
         ok: true,
         checkedAt,
         latencyMs: Date.now() - startedAt,
-        modelReachable: true,
-        capabilities: {
-          streaming: true,
-          tools: toolCapable
-        },
-        message: toolCapable
-          ? "模型连通，工具调用协议可用。流式能力将在实际生成时验证。"
-          : "模型连通，但本次未返回工具调用；聊天可用，Agent 工具能力需谨慎验证。"
+        modelReachable,
+        providerRole: role,
+        model,
+        capabilities: { tools: toolCapable },
+        message: `文本生成已验证。${toolMessage}流式能力待实际生成验证。`
       };
     } catch (error) {
       return {
         ok: false,
         checkedAt,
         latencyMs: Date.now() - startedAt,
-        modelReachable: false,
-        capabilities: { streaming: false, tools: false },
+        modelReachable,
+        providerRole: role,
+        model,
+        capabilities: { tools: false },
         message: error instanceof Error ? error.message : String(error)
       };
     }
@@ -156,14 +193,25 @@ export class AiProviderService {
       this.activeRequests.set(input.requestId, abortController);
     }
     try {
-      const provider = await this.secureConfig.getProvider();
+      const role = input.providerRole ?? (input.useEditorModel ? "reviewer" : providerRoleForTask(input.task));
+      const provider = await this.secureConfig.getProvider(role);
       if (provider.authMode !== "none" && !provider.apiKey) {
         throw new Error("Provider has no API key configured.");
       }
 
       const prompt = await this.loadPrompt(input);
+      const projectContext = await new ProjectDataService(this.files).context(
+        input.projectPath,
+        input.chapterId,
+        [input.instruction, input.chapterTitle, input.chapterGoal, ...input.characters, ...input.worldFacts]
+          .filter(Boolean)
+          .join(" ")
+      );
+      if (projectContext) prompt.user += `\n\n${projectContext}`;
       const selectedModel =
-        input.useEditorModel && provider.editorModel?.trim() ? provider.editorModel.trim() : provider.model;
+        (input.useEditorModel || role === "reviewer") && provider.editorModel?.trim()
+          ? provider.editorModel.trim()
+          : provider.model;
       const body: ChatCompletionRequest = {
         model: selectedModel,
         temperature: provider.temperature,
@@ -180,6 +228,8 @@ export class AiProviderService {
           }
         ]
       };
+      body.stop = provider.stop;
+      assertCompletionFits(body, provider.contextWindow);
 
       const response = await fetchWithResponseTimeout(abortController, () =>
         fetchWithRetry(completionsUrl(provider.baseUrl), {
@@ -237,30 +287,46 @@ export class AiProviderService {
     input: AgentCompletionInput,
     onDelta?: AgentCompletionDeltaHandler
   ): Promise<AgentCompletionResult> {
+    const startedAt = Date.now();
     const abortController = new AbortController();
     if (input.requestId) {
       this.activeRequests.set(input.requestId, abortController);
     }
     try {
-      const provider = await this.secureConfig.getProvider();
+      const role = input.providerRole ?? (input.useEditorModel ? "reviewer" : "agent");
+      const provider = await this.secureConfig.getProvider(role);
       if (provider.authMode !== "none" && !provider.apiKey) {
         throw new Error("Provider has no API key configured.");
       }
       const selectedModel =
         input.modelOverride?.trim() ||
-        (input.useEditorModel && provider.editorModel?.trim() ? provider.editorModel.trim() : provider.model);
-      const maxOutputTokens = input.maxOutputTokens
-        ? Math.min(32_768, Math.max(minimumAgentOutputTokens, Math.trunc(input.maxOutputTokens)))
-        : Math.max(provider.maxTokens, minimumAgentOutputTokens);
+        ((input.useEditorModel || role === "reviewer") && provider.editorModel?.trim()
+          ? provider.editorModel.trim()
+          : provider.model);
+      const hasTools = Boolean(input.tools?.length);
+      if (hasTools && provider.supportsTools === false) {
+        throw new Error(`${provider.displayName} 未启用工具调用，请为工具 Agent 配置支持工具的连接。`);
+      }
+      const configuredLimit = provider.roleConfigured;
+      const requested = input.maxOutputTokens ?? provider.maxTokens;
+      if (!Number.isFinite(requested) || requested < 1) throw new Error("最大输出 Token 必须是正数。");
+      const maxOutputTokens = configuredLimit
+        ? Math.min(provider.maxTokens, Math.max(1, Math.trunc(requested)))
+        : Math.min(32_768, Math.max(minimumAgentOutputTokens, Math.trunc(requested)));
       const body: ChatCompletionRequest = {
         model: selectedModel,
         temperature: provider.temperature,
         max_tokens: maxOutputTokens,
         stream: Boolean(onDelta),
         messages: input.messages,
-        tools: input.tools?.length ? input.tools : undefined,
-        tool_choice: input.toolChoice ?? (input.tools?.length ? "auto" : "none")
+        stop: provider.stop,
+        ...(hasTools
+          ? { tools: input.tools, tool_choice: input.toolChoice ?? "auto" }
+          : provider.supportsTools === false
+            ? {}
+            : { tool_choice: "none" })
       };
+      const estimatedInputTokens = assertCompletionFits(body, provider.contextWindow);
       let lastEmptyResponse: EmptyAgentResponseError | undefined;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const response = await fetchWithResponseTimeout(abortController, () =>
@@ -298,7 +364,26 @@ export class AiProviderService {
             tool_calls: message.tool_calls
           },
           model: selectedModel,
-          usage: payload.usage
+          usage: payload.usage,
+          telemetry: {
+            estimatedInputTokens,
+            maxOutputTokens,
+            durationMs: Date.now() - startedAt,
+            contextWindow: provider.contextWindow,
+            stop: provider.stop,
+            modelRevision: provider.modelRevision,
+            tokenizerRevision: provider.tokenizerRevision,
+            chatTemplateRevision: provider.chatTemplateRevision,
+            estimatedCost:
+              payload.usage?.prompt_tokens !== undefined &&
+              payload.usage?.completion_tokens !== undefined &&
+              provider.inputPricePerMillion !== undefined &&
+              provider.outputPricePerMillion !== undefined
+                ? (payload.usage.prompt_tokens * provider.inputPricePerMillion +
+                    payload.usage.completion_tokens * provider.outputPricePerMillion) /
+                  1_000_000
+                : undefined
+          }
         };
       }
       throw lastEmptyResponse ?? new EmptyAgentResponseError();
@@ -367,6 +452,16 @@ const providerPresets: ProviderPreset[] = [
     model: "qwen3",
     authMode: "none",
     expectedCapabilities: { streaming: true, tools: true }
+  },
+  {
+    id: "inkforge-writer-9b",
+    displayName: "InkForge 9B 写手",
+    category: "local",
+    description: "连接已部署的小说模型服务；模型名称需与服务实际提供的名称一致。",
+    baseUrl: "http://127.0.0.1:8000/v1",
+    model: "inkforge-writer-9b",
+    authMode: "none",
+    expectedCapabilities: { streaming: true, tools: false }
   },
   {
     id: "lm-studio",

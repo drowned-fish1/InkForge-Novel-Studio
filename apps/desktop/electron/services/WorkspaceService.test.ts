@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkspaceService } from "./WorkspaceService.js";
+import { ContinuationRunStore } from "./ContinuationRunStore.js";
+import { FileRepository } from "./FileRepository.js";
 
 const temporaryProjects: string[] = [];
 
@@ -21,6 +23,19 @@ afterEach(async () => {
 });
 
 describe("WorkspaceService backups", () => {
+  it("restores split continuation records and their index together", async () => {
+    const projectPath = await createProjectFixture();
+    const files = new FileRepository();
+    const record = { id: "run", chapterId: "c1", updatedAt: "2026-10-11", status: "blocked", draft: "快照正文" };
+    const store = new ContinuationRunStore(files, (raw) => raw as typeof record);
+    await store.save(projectPath, record);
+    const service = new WorkspaceService(files);
+    const snapshot = await service.createBackup(projectPath, "manual", "续写快照");
+    await store.save(projectPath, { ...record, status: "completed", draft: "新正文" });
+    await service.restoreBackup(projectPath, snapshot.id);
+    expect(await store.get(projectPath, "run")).toEqual(record);
+    expect(await store.summaries(projectPath)).toContainEqual(expect.objectContaining({ status: "blocked" }));
+  });
   it("rejects dot-segment backup ids", async () => {
     const projectPath = await createProjectFixture();
     try {
@@ -83,6 +98,51 @@ describe("WorkspaceService backups", () => {
 });
 
 describe("WorkspaceService project preferences", () => {
+  it("persists daily templates, checklist completion and release history alongside existing notes", async () => {
+    const projectPath = await createProjectFixture();
+    const service = new WorkspaceService();
+    const previous = await service.loadWritingWorkspace(projectPath);
+    const saved = await service.saveWritingWorkspace(projectPath, {
+      ...previous,
+      dailyWriting: {
+        templates: [
+          { id: "custom", name: "周末双更", wordGoal: 6000, minuteGoal: 180, releaseWords: 6000, tasks: ["检查结尾"] }
+        ],
+        activeTemplateId: "custom",
+        deadline: "2026-12-31",
+        plans: [
+          {
+            date: "2026-10-12",
+            templateId: "custom",
+            wordGoal: 6000,
+            minuteGoal: 180,
+            releaseWords: 6000,
+            tasks: [{ text: "检查结尾", done: true }]
+          }
+        ]
+      },
+      releases: [
+        {
+          chapterId: "chapter-1",
+          status: "published",
+          publishedDate: "2026-10-12",
+          publishedWords: 3000,
+          updatedAt: new Date().toISOString()
+        }
+      ]
+    });
+    expect(await new WorkspaceService().loadWritingWorkspace(projectPath)).toEqual(saved);
+  });
+
+  it("reports a corrupt workspace instead of replacing author records with empty defaults", async () => {
+    const projectPath = await createProjectFixture();
+    await mkdir(path.join(projectPath, ".inkforge"), { recursive: true });
+    const file = path.join(projectPath, ".inkforge", "writing-workspace.json");
+    await writeFile(file, "corrupted author records", "utf8");
+    await expect(new WorkspaceService().loadWritingWorkspace(projectPath)).rejects.toThrow("写作记录文件无法读取");
+    expect(await readFile(file, "utf8")).toBe("corrupted author records");
+  });
+
   it("persists writing notes and Agent extension profiles", async () => {
     const projectPath = await createProjectFixture();
     const service = new WorkspaceService();

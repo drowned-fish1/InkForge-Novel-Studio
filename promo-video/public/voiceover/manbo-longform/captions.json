@@ -1,0 +1,380 @@
+[
+  {
+    "text": "我最近在 GitHub 上翻项目。",
+    "startMs": 567,
+    "endMs": 3367,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "本来只是想找个能在本地写小说的工具。",
+    "startMs": 3367,
+    "endMs": 6333,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "结果翻着翻着……",
+    "startMs": 6333,
+    "endMs": 7667,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "看到一个设计，有点不太对劲。",
+    "startMs": 7667,
+    "endMs": 10000,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "现在很多 AI 写作软件，点一下生成，它就直接往你的正文里塞。",
+    "startMs": 11700,
+    "endMs": 17600,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "写得好不好先不说。",
+    "startMs": 17600,
+    "endMs": 19300,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "写到最后，到底哪些是你写的，哪些是它改的，有时候自己都分不清。",
+    "startMs": 19300,
+    "endMs": 25200,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "但这个项目不一样。",
+    "startMs": 26900,
+    "endMs": 28533,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "它居然不允许 AI 直接动正文。",
+    "startMs": 28533,
+    "endMs": 31433,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "AI 想改一个字，都得先给作者提交提案。",
+    "startMs": 31433,
+    "endMs": 35067,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "哎？",
+    "startMs": 35067,
+    "endMs": 35433,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "看到这里，我才认真点进去。",
+    "startMs": 35433,
+    "endMs": 37800,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "项目叫 InkForge。",
+    "startMs": 39467,
+    "endMs": 41667,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "简单说，就是一个专门给长篇小说作者做的，本地 AI 写作工作台。",
+    "startMs": 41667,
+    "endMs": 47100,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "不是让 AI 替你写一本书。",
+    "startMs": 47100,
+    "endMs": 49467,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "更像是把 AI 放在旁边，当一个没有最终决定权的实习编辑。",
+    "startMs": 49467,
+    "endMs": 54400,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "它可以读取你批准的章节、人物和世界观。",
+    "startMs": 56067,
+    "endMs": 59533,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "可以帮你续写、检查冲突、分析节奏。",
+    "startMs": 59533,
+    "endMs": 62633,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "但它不能偷偷改稿。",
+    "startMs": 62633,
+    "endMs": 64267,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "它先交作业，你看完差异，再决定接受、拒绝，或者直接回滚。",
+    "startMs": 64267,
+    "endMs": 69433,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "这个逻辑听起来好像很普通。",
+    "startMs": 71100,
+    "endMs": 73500,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "但你仔细想一下，现在愿意主动限制 AI 权限的软件，其实并不多。",
+    "startMs": 73500,
+    "endMs": 79433,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "大部分产品都在强调，它能替你做多少事。",
+    "startMs": 79433,
+    "endMs": 82967,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "这个项目反而一直在强调，它不能替你决定什么。",
+    "startMs": 82967,
+    "endMs": 87067,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "另外，它也不是只管当前这一页。",
+    "startMs": 88733,
+    "endMs": 91400,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "大纲、分卷、章节、人物、地点、势力、时间线、伏笔和冲突，基本都能放在同一个项目里。",
+    "startMs": 91400,
+    "endMs": 98700,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "写长篇最烦的那堆资料，不需要再散落在十几个文档里。",
+    "startMs": 98700,
+    "endMs": 103133,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "它甚至还有整部小说的质量检查。",
+    "startMs": 104833,
+    "endMs": 107433,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "不是让 AI 随便说一句写得很好。",
+    "startMs": 107433,
+    "endMs": 110400,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "它会把连续性、角色、节奏、文风、重复和伏笔分开检查，还能把某次结果保存成基线，之后再看有没有写崩。",
+    "startMs": 110400,
+    "endMs": 118900,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "我本来以为，这种项目最后肯定又要注册账号、开会员、把稿子传到云端。",
+    "startMs": 120600,
+    "endMs": 126500,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "结果它核心工作流不需要账号。",
+    "startMs": 126500,
+    "endMs": 129000,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "章节、设定、历史记录和备份，都放在你自己选择的文件夹里。",
+    "startMs": 129000,
+    "endMs": 134000,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "AI 也不是强制的。",
+    "startMs": 135700,
+    "endMs": 137433,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "不开模型的时候，写作、规划、检查、备份和导出照样能用。",
+    "startMs": 137433,
+    "endMs": 142100,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "需要 AI 时，再接 OpenAI 兼容接口或者本地模型。",
+    "startMs": 142100,
+    "endMs": 147133,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "这个边界，我个人还挺喜欢。",
+    "startMs": 147133,
+    "endMs": 149400,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "写完以后，可以导出 Markdown、TXT、DOCX，还有带目录和封面的 EPUB。",
+    "startMs": 151067,
+    "endMs": 158400,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "它连备份恢复和文件完整性检查都做了。",
+    "startMs": 158400,
+    "endMs": 161467,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "怎么说呢……",
+    "startMs": 161467,
+    "endMs": 162500,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "这个作者，明显真的被长篇写作折磨过。",
+    "startMs": 162500,
+    "endMs": 165567,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "不过先说缺点。",
+    "startMs": 167233,
+    "endMs": 168500,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "它现在还是发布候选版本，主要支持 Windows。",
+    "startMs": 168500,
+    "endMs": 173000,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "公开安装包没有签名，第一次运行可能会被系统拦一下。",
+    "startMs": 173000,
+    "endMs": 177500,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "界面也不是那种打开就会用的极简软件，需要花点时间熟悉。",
+    "startMs": 177500,
+    "endMs": 182400,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "所以，如果你只是偶尔让 AI 写几百字，这个东西可能有点重。",
+    "startMs": 184067,
+    "endMs": 189367,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "但如果你真的在写长篇，又在意稿件放在哪里、AI 改了什么、出了问题能不能回去，那它确实挺少见。",
+    "startMs": 189367,
+    "endMs": 197700,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "项目是开源的，名字叫 InkForge。",
+    "startMs": 199400,
+    "endMs": 202600,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "我把 GitHub 地址放在画面上。",
+    "startMs": 202600,
+    "endMs": 205467,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "感兴趣可以自己进去看看。",
+    "startMs": 205467,
+    "endMs": 207367,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "先不用急着 Star……",
+    "startMs": 207367,
+    "endMs": 209267,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "真觉得好用，再点也不迟。",
+    "startMs": 209267,
+    "endMs": 211233,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "至少这个项目，让 AI 先问一句再动笔。",
+    "startMs": 212900,
+    "endMs": 216567,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "我觉得，这个方向挺对。",
+    "startMs": 216567,
+    "endMs": 218567,
+    "timestampMs": null,
+    "confidence": null
+  }
+]

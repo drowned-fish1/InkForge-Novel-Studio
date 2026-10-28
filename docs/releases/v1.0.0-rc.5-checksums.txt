@@ -1,0 +1,2 @@
+2f240f38b10bfe6d80ccecea30e9770d611fd2b66f35374d47fab617f618a42e  InkForge-Novel-Studio-1.0.0-rc.5-x64-Setup.exe
+b390cfd072f71aee8423af1cdc72b2daf8d8c2ab53c5cfbfaa5576238dec7093  InkForge-Novel-Studio-1.0.0-rc.5-x64-Setup.exe.blockmap

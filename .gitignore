@@ -39,7 +39,10 @@ playwright-report/
 .turbo/
 .npm/
 .reasonix/
+reasonix.toml
 .claude/
+.playwright-cli/
+output/playwright/
 
 # Editors
 .idea/

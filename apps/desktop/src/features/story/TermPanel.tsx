@@ -1,7 +1,11 @@
+import { ListField } from "@/components/ListField";
 import { FormEvent, useMemo, useState } from "react";
 import { Plus, Save, Tags } from "lucide-react";
 import type { Term } from "@inkforge/schemas";
 import { useLibraryStore } from "@/stores/useLibraryStore";
+import { useEntityEditor } from "@/lib/useEntityEditor";
+import { EditorFeedback } from "@/components/EditorFeedback";
+import { PinWritingReferenceButton } from "@/components/PinWritingReferenceButton";
 
 const createTerm = (): Term => ({
   id: `term_${Date.now()}`,
@@ -18,7 +22,8 @@ export const TermPanel = () => {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(terms[0]?.id ?? "");
   const selected = useMemo(() => terms.find((item) => item.id === selectedId) ?? terms[0], [selectedId, terms]);
-  const [draft, setDraft] = useState<Term | undefined>(selected);
+  const editor = useEntityEditor(selected, terms, saveTerm, { module: "terms", resetFilters: () => setQuery("") });
+  const { draft, setDraft } = editor;
   const filteredTerms = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) {
@@ -30,11 +35,14 @@ export const TermPanel = () => {
   }, [query, terms]);
 
   const choose = (term: Term) => {
+    if (term.id === draft?.id || !editor.canLeave()) return;
     setSelectedId(term.id);
     setDraft(term);
   };
 
   const create = () => {
+    if (!editor.canLeave()) return;
+    setQuery("");
     const term = createTerm();
     setSelectedId(term.id);
     setDraft(term);
@@ -43,7 +51,7 @@ export const TermPanel = () => {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (draft) {
-      void saveTerm(draft);
+      void editor.save();
     }
   };
 
@@ -54,10 +62,16 @@ export const TermPanel = () => {
           <div className="crumb">一致性</div>
           <h2>术语表</h2>
         </div>
-        <button className="primary-button" type="button" onClick={create}>
-          <Plus size={17} />
-          新术语
-        </button>
+        <div className="library-pin-actions">
+          <PinWritingReferenceButton
+            disabled={editor.busy}
+            target={draft && terms.some((item) => item.id === draft.id) ? { kind: "term", id: draft.id } : undefined}
+          />
+          <button className="primary-button" type="button" onClick={create}>
+            <Plus size={17} />
+            新术语
+          </button>
+        </div>
       </header>
       <div className="library-layout">
         <aside className="library-list">
@@ -88,13 +102,17 @@ export const TermPanel = () => {
           ))}
           {!filteredTerms.length ? <div className="empty-list-hint">没有匹配的术语。</div> : null}
         </aside>
-        <form className="library-editor" onSubmit={submit}>
+        <form className="library-editor" ref={editor.formRef} aria-busy={editor.busy} onSubmit={submit}>
           {draft ? (
             <>
               <div className="field-grid">
                 <label>
                   名称
-                  <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+                  <input
+                    required
+                    value={draft.name}
+                    onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                  />
                 </label>
                 <label>
                   类别
@@ -114,9 +132,10 @@ export const TermPanel = () => {
               </label>
               <label>
                 别名
-                <input
-                  value={draft.aliases.join(",")}
-                  onChange={(event) => setDraft({ ...draft, aliases: splitList(event.target.value) })}
+                <ListField
+                  key={draft.id}
+                  value={draft.aliases}
+                  onChange={(value) => setDraft({ ...draft, aliases: value })}
                 />
               </label>
               <label>
@@ -126,7 +145,8 @@ export const TermPanel = () => {
                   onChange={(event) => setDraft({ ...draft, definition: event.target.value })}
                 />
               </label>
-              <button className="primary-button" type="submit">
+              <EditorFeedback {...editor} />
+              <button className="primary-button" type="submit" disabled={editor.busy}>
                 <Save size={17} />
                 保存术语
               </button>
@@ -139,9 +159,3 @@ export const TermPanel = () => {
     </section>
   );
 };
-
-const splitList = (value: string): string[] =>
-  value
-    .split(/[,，\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean);

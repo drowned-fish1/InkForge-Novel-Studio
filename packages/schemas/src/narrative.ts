@@ -19,6 +19,7 @@ export const BeatSchema = z.object({
   linkedChapterId: z.string().optional(),
   linkedVolumeId: z.string().optional(),
   characters: z.array(z.string()).default([]),
+  characterIds: z.array(z.string()).optional(),
   choices: z.array(BeatChoiceSchema).default([]),
   notes: z.string().default("")
 });

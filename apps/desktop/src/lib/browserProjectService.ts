@@ -134,6 +134,8 @@ const promptTasks: PromptTask[] = [
   "next-goal",
   "pacing",
   "character-state",
+  "character-generate",
+  "character-names",
   "clue-check",
   "term-check",
   "polish",
